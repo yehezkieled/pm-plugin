@@ -117,6 +117,62 @@ class PickerTest(unittest.TestCase):
         self.assertIsNone(pm_lib.pick_next(self.tickets, self.root))
 
 
+class GrillReadyTest(unittest.TestCase):
+    """`ready: yes` marks a grilled ticket: What, Why and a testable Acceptance line are settled."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = make_repo(Path(self.tmp.name))
+        self.t4 = self.root / "docs/pm/tickets/T004-log-format.md"
+        self.t4.write_text(self.t4.read_text().replace("ready: yes", "ready: no"))
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def by_id(self):
+        return {t.id: t for t in pm_lib.load_tickets(self.root)}
+
+    def test_ready_is_parsed_and_a_missing_key_counts_as_ready(self):
+        tickets = self.by_id()
+        self.assertFalse(tickets["T004"].ready)
+        self.assertTrue(tickets["T002"].ready)
+        legacy = self.root / "docs/pm/tickets/T002-rate-limit.md"
+        legacy.write_text(legacy.read_text().replace("ready: yes\n", ""))
+        self.assertTrue(self.by_id()["T002"].ready, "tickets written before the ready flag existed count as grilled")
+
+    def test_ungrilled_tickets_are_not_ready_but_listed_to_grill(self):
+        tickets = pm_lib.load_tickets(self.root)
+        self.assertEqual([t.id for t in pm_lib.ready_tickets(tickets)], ["T002", "T006"])
+        self.assertEqual([t.id for t in pm_lib.to_grill(tickets)], ["T004"])
+
+    def test_blocked_ungrilled_ticket_waits_for_its_dependency_first(self):
+        t3 = self.root / "docs/pm/tickets/T003-lockout.md"
+        t3.write_text(t3.read_text().replace("ready: yes", "ready: no"))
+        self.assertEqual([t.id for t in pm_lib.to_grill(pm_lib.load_tickets(self.root))], ["T004"])
+
+    def test_flow_and_board_and_line_show_what_to_grill(self):
+        tickets = pm_lib.load_tickets(self.root)
+        flow = pm_lib.render_flow([t for t in tickets if t.epic == "E01"])
+        self.assertIn("Ready now: T002", flow)
+        self.assertNotIn("T004", flow.split("Ready now:")[1].split("\n")[0])
+        self.assertIn("To grill: T004", flow)
+        board = pm_lib.render_board(self.root)
+        self.assertIn("To grill: T004", board)
+        self.assertRegex(board, r"T004 todo P2 Tidy login log format.*not grilled")
+        self.assertIn("to grill: T004", pm_lib.board_line(self.root))
+
+    def test_grilled_ticket_that_is_blocked_is_flagged_on_the_board(self):
+        board = pm_lib.render_board(self.root)
+        self.assertRegex(board, r"T003 todo P0 Lock account after limit.*blocked by T002.*grilled early")
+        self.assertNotRegex(board, r"T002 todo P1 Rate-limit login attempts.*grilled early")
+
+    def test_ready_must_be_yes_or_no(self):
+        with self.assertRaises(ValueError):
+            pm_lib.set_fields(self.root, "T004", ready="maybe")
+        self.t4.write_text(self.t4.read_text().replace("ready: no", "ready: maybe"))
+        self.assertTrue(any("T004: ready must be yes or no" in p for p in pm_lib.validate(self.root)))
+
+
 if __name__ == "__main__":
     unittest.main()
 
@@ -311,3 +367,13 @@ class ConfigNormalisationTest(unittest.TestCase):
         self.assertEqual(cfg["merge"], "auto")
         ctx.write_text(ctx.read_text().replace("mirror: yes", "mirror: no"))
         self.assertEqual(pm_lib.read_config(self.root)["mirror"], "off")
+
+
+class PlaceholderAnywhereTest(unittest.TestCase):
+    def test_a_fill_in_placeholder_in_any_section_is_a_problem(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_repo(Path(tmp))
+            p = root / "docs/pm/tickets/T002-rate-limit.md"
+            p.write_text(p.read_text().replace("Because the fixture says so.", "(fill in)"))
+            problems = pm_lib.validate(root)
+            self.assertTrue(any("T002: placeholder left in Why" in x for x in problems), problems)

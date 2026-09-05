@@ -114,3 +114,41 @@ class HelpSheetTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class GrillWordingTest(unittest.TestCase):
+    """The grill interview lives in its own skill; tickets are born thin and worked only once grilled."""
+
+    def test_grill_skill_exists_and_routes_on_the_right_words(self):
+        fm = frontmatter(read("skills/grill/SKILL.md"))
+        self.assertEqual(fm["name"].strip(), "grill")
+        desc = fm["description"].lower()
+        for word in ("grill", "refine", "flesh out", "ready", "not for creating tickets"):
+            self.assertIn(word, desc)
+        body = read("skills/grill/SKILL.md")
+        for needle in ("pm.py ready", "--early", "One question at a time", "recommended answer", "Intent versus fact", "No acceptance, no ticket", "grilled early", "Do not widen"):
+            self.assertIn(needle, body)
+
+    def test_plan_creates_thin_tickets_and_hands_them_to_grill(self):
+        plan = read("skills/plan/SKILL.md")
+        self.assertIn("ready: no", plan)
+        self.assertIn("pm:grill", plan)
+        self.assertNotIn("grill me", plan.lower())
+        self.assertIn("--ready", plan)  # a bug with known reproduce steps is grilled by its shape
+
+    def test_work_refuses_an_ungrilled_ticket_without_forcing(self):
+        work = read("skills/work/SKILL.md")
+        self.assertIn("not grilled", work)
+        self.assertIn("pm:grill", work)
+        self.assertRegex(work, r"ready: no.*never add `--force`|never add `--force`.*ready: no")
+
+    def test_init_status_audit_and_help_know_about_grilling(self):
+        self.assertIn("/pm:grill", read("skills/init/SKILL.md"))
+        self.assertIn("pm:grill", read("skills/status/SKILL.md").split("## Hand-off")[1])
+        self.assertIn("ready: no", read("skills/audit/SKILL.md"))
+        help_text = read("skills/help/SKILL.md")
+        self.assertIn("/pm:grill", help_text.split("```")[1])  # the cheat sheet block
+        self.assertIn("## grill", help_text)
+        self.assertIn("/pm:grill", read("README.md"))
+        self.assertIn("ready: {{ready}}", read("templates/ticket.md"))
+        self.assertIn("/pm:grill", read("docs/blueprint.html"))

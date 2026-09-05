@@ -34,7 +34,7 @@ Before filing, grep `docs/pm/tickets/` for the same file or topic. Add evidence 
 ## Filing
 
 - Epic: the epic that owns the area when one fits; otherwise a single `Maintenance` epic in the current milestone (`pm.py new epic --title Maintenance --milestone <current> --goal "Keep the codebase healthy"`), created once.
-- `pm.py new ticket --title "Bug: <short>" --epic Exx --priority <P1 for bugs and security, P2 for missing tests, P3 for tidy-ups> --confidence <high | medium | low>`, then fill What (evidence), Why, Acceptance ("a test reproduces it and passes" for bugs). Confidence: high = reproduced with a command or a failing test, medium = read in the code and understood, low = a smell worth a look. Never `--auto`: a person decides what a routine may take.
+- `pm.py new ticket --title "Bug: <short>" --epic Exx --priority <P1 for bugs and security, P2 for missing tests, P3 for tidy-ups> --confidence <high | medium | low>`, then fill What (evidence), Why, Acceptance ("a test reproduces it and passes" for bugs). Confidence: high = reproduced with a command or a failing test, medium = read in the code and understood, low = a smell worth a look. Never `--auto` and never `--ready`: audit tickets are filed `ready: no`, and a person grills (/pm:grill) or dismisses each one before any agent works on it.
 - A finding a person rejects: `pm.py dismiss Txxx --reason "..."`, never delete the file. Dismissed tickets leave the counts and the ready list; the reason stays under Notes.
 - `pm.py flow Exx`, `pm.py validate`, `pm.py sync` when mirror is on.
 

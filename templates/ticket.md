@@ -9,6 +9,7 @@ depends_on: [{{depends_on}}]
 owner:
 auto: {{auto}}
 plan: {{plan}}
+ready: {{ready}}
 issue:
 pr:
 ---

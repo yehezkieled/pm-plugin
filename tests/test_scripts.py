@@ -379,3 +379,20 @@ class FreezeGateTest(unittest.TestCase):
         self.freeze()
         self.ticket.write_text(self.ticket.read_text().replace("tests: frozen", "tests: open"))
         self.assertEqual(self.gate("Edit", {"file_path": str(self.root / "tests/test_login.py")}).returncode, 0)
+
+
+class GrillGateHookTest(PlanGateHookTest):
+    """The plan gate also refuses code edits on the branch of a ticket that was never grilled (`ready: no`)."""
+
+    def test_not_grilled_ticket_blocks_code_but_not_docs(self):
+        p = self.root / "docs/pm/tickets/T002-rate-limit.md"
+        p.write_text(p.read_text().replace("ready: yes", "ready: no"))
+        self.set_plan("T002-rate-limit.md", approach="add a counter")
+        git(self.root, "switch", "-q", "-c", "t002-rate-limit")
+        proc = self.gate("Edit", {"file_path": str(self.root / "app.py")})
+        self.assertEqual(proc.returncode, 2)
+        self.assertIn("not grilled", proc.stderr)
+        self.assertIn("/pm:grill T002", proc.stderr)
+        self.assertEqual(self.gate("Edit", {"file_path": str(p)}).returncode, 0)
+        p.write_text(p.read_text().replace("ready: no", "ready: yes"))
+        self.assertEqual(self.gate("Edit", {"file_path": str(self.root / "app.py")}).returncode, 0)

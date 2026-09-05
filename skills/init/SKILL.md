@@ -74,7 +74,7 @@ Wait for a yes (not with `--quick`).
 1. `docs/pm/roadmap.md` from `${CLAUDE_PLUGIN_ROOT}/templates/roadmap.md` with the M1 title and goal. Backlog holds the ideas that came up but are not in M1.
 2. `docs/pm/decisions.md` from the template. First entry: this project uses the pm layout. Add one entry per decision the interview settled (flow, mirror, gate exceptions).
 3. Epics: `pm.py new epic --title "<title>" --milestone M1 --goal "<goal>"` for each.
-4. Starter tickets: `pm.py new ticket --title "<title>" --epic Exx --priority P1 [--depends Txxx] [--plan required]`, then edit each file and replace every bracketed placeholder: What (one paragraph), Why (one or two lines), Acceptance (one testable line per item), the first Subtask. `pm.py validate` reports any placeholder left behind. A ticket that is a design choice gets `plan: required`.
+4. Starter tickets: `pm.py new ticket --title "<title>" --epic Exx --priority P1 [--depends Txxx] [--plan required]`, then edit each file and replace every bracketed placeholder: What (one paragraph), Why (one or two lines), Acceptance (one testable line per item), the first Subtask. `pm.py validate` reports any placeholder left behind. A ticket that is a design choice gets `plan: required`. Starter tickets stay `ready: no`: you drafted them, the user has not grilled them, and /pm:work takes a ticket only after /pm:grill marks it ready.
 5. `CONTEXT.md`: create it if missing (one-line project description, where the code and tests live, how to run checks), then add the `## pm` block by copying `${CLAUDE_PLUGIN_ROOT}/templates/context-pm-block.md` and replacing only the `{{placeholders}}`. The block must stay plain `key: value` lines, one per line, with exactly those keys, because the scripts parse it: no bold, no bullets, no prose inside the block. Keep any existing text of the file.
 6. Forks: append `docs/pm/` and, when it is new, `CONTEXT.md` to `.git/info/exclude`.
 7. Archive: `git mv` the old planning docs into `docs/archive/` only if the user said yes.
@@ -84,4 +84,4 @@ Wait for a yes (not with `--quick`).
 
 ## 6. Report
 
-Print the board (`pm.py board`) and end with three lines: how to add work (/pm:plan ticket), how to start (/pm:work), where the cheat sheet is (/pm:help).
+Print the board (`pm.py board`) and end with four lines: how to add work (/pm:plan ticket), how to get the first ticket ready (/pm:grill Txxx, naming the first one in the Flow), how to start once a ticket is ready (/pm:work), where the cheat sheet is (/pm:help).

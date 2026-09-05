@@ -1,7 +1,7 @@
 """Drives a real interactive Claude Code session in tmux, answering its dialogs like a person would.
 
 usage: python3 interactive.py [--out DIR] <model> <scenario>
-scenarios: work_plan_mode | init_interview | plan_bug_interview | work_merge_ask | retro_interview
+scenarios: work_plan_mode | init_interview | plan_bug_interview | work_merge_ask | retro_interview | grill_interview
 Writes <out>/<model>/<scenario>/{screen.log,transcript.jsonl,summary.json}
 """
 import json
@@ -162,6 +162,11 @@ SCENARIOS = {
         prompt="We shipped the first milestone. Close it out and do the retro.",
         text_policy=[("commit", "No, do not commit."), ("?", "Yes, agreed.")],
         done=lambda r: False),
+    "grill_interview": dict(
+        setup=h.grill_repo,
+        prompt="Ticket T008 is only a rough note. Grill me on it so it is ready to work on.",
+        text_policy=[("commit", "No."), ("?", "Yes, that is right.")],
+        done=lambda r: "ready: yes" in (r / "docs/pm/tickets/T008-remember-me.md").read_text()),
 }
 
 # AskUserQuestion answer policy: (substring of the question, words that mark the option to pick)
@@ -380,6 +385,18 @@ def evaluate(scenario, repo, tools, texts, events):
         c["is_bug_with_reproduce"] = "bug" in body.lower() and ("reproduc" in body.lower() or "expected" in body.lower())
         c["flow_redrawn"] = any("T008" in e.read_text() for e in (docs / "epics").glob("E*.md"))
         c["validate_ok"] = h.validate_ok(repo, h.LOGIN_ALLOW)
+    elif scenario == "grill_interview":
+        t8 = (docs / "tickets/T008-remember-me.md").read_text()
+        c["skill_invoked"] = any(n == "Skill" and i.get("skill") == "pm:grill" for n, i in tools)
+        c["asked_questions"] = 1 <= len(asks) <= 5
+        c["one_question_at_a_time"] = bool(asks) and all(len(a.get("questions", [])) == 1 for a in asks)
+        c["each_question_has_options"] = bool(asks) and all(len(q.get("options", [])) >= 2 for a in asks for q in a.get("questions", []))
+        c["marked_ready"] = "ready: yes" in t8
+        acc = t8.split("## Acceptance")[1].split("## ")[0] if "## Acceptance" in t8 else ""
+        c["acceptance_sharpened"] = "does something" not in acc and acc.count("- [ ]") >= 1
+        c["T009_untouched"] = "ready: no" in (docs / "tickets/T009-remember-me-expiry.md").read_text()
+        c["validate_ok"] = h.validate_ok(repo, h.LOGIN_ALLOW)
+        c["not_committed"] = commits == "1"
     elif scenario == "retro_interview":
         road = (docs / "roadmap.md").read_text()
         m1 = road.split("## M1")[1].split("## M2")[0] if "## M1" in road else ""

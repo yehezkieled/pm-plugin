@@ -160,7 +160,7 @@
       <tr><td class="k">metadata</td><td>Priority and dependencies only</td><td>No dates, no deadlines, no time estimates anywhere. Milestones are ordered versions, not calendar targets. Matches your rule to weight quality far above development cost.</td></tr>
       <tr><td class="k">hooks</td><td>Session start summary; session stop warning</td><td>Warn only, never block.</td></tr>
       <tr><td class="k">retro</td><td>Yes, at milestone close</td><td>What shipped, what moved, what to keep and what to change, recorded in roadmap.md and decisions.md.</td></tr>
-      <tr><td class="k">quality</td><td>Grilling in init and plan; plan mode in work</td><td>Init and plan run a questioning round before writing, borrowing the essence of Matt Pocock's grill-me (credited in the README, not a dependency): one question at a time with a recommended answer, facts looked up instead of asked, a gate on shared understanding. <code>/pm:work</code> always writes a Plan section before any edit; it waits for your approval only when the ticket says <code>plan: required</code>.</td></tr>
+      <tr><td class="k">quality</td><td>Grilling in init and grill; plan mode in work</td><td>Init runs a questioning round before writing, and <code>/pm:grill</code> runs one per ticket before it may be worked (<code>/pm:plan</code> only captures, writing the ticket thin as <code>ready: no</code>), borrowing the essence of Matt Pocock's grill-me (credited in the README, not a dependency): one question at a time with a recommended answer, facts looked up instead of asked, a gate on shared understanding. <code>/pm:work</code> always writes a Plan section before any edit; it waits for your approval only when the ticket says <code>plan: required</code>.</td></tr>
       <tr><td class="k">routines</td><td>Skills in the plugin, the timer per project</td><td>Each project turns on the work routine and the audit routine itself, with its own cadence and caps, recorded in the pm block. Nothing runs unattended unless a project asked for it.</td></tr>
       <tr><td class="k">audit</td><td><code>/pm:audit</code> is part of the plugin</td><td>Finds bugs, inconsistencies, and structure problems and files them as tickets. Never edits code. You approve by marking a ticket <code>auto: yes</code>.</td></tr>
       <tr><td class="k">help</td><td><code>/pm:help</code> is part of the plugin</td><td>Prints a one-screen cheat sheet of every skill with input, output, and an example, plus this project's pm block. <code>/pm:help &lt;skill&gt;</code> prints the fuller version for one skill.</td></tr>
@@ -252,7 +252,8 @@ priority: P1
 depends_on: [T010]
 owner: api-work            <span class="cm"># the claim</span>
 auto: yes                  <span class="cm"># a routine may take this ticket unattended</span>
-plan: required             <span class="cm"># set by /pm:plan grilling; none for trivial tickets</span>
+plan: required             <span class="cm"># set by /pm:grill; none for trivial tickets</span>
+ready: yes                 <span class="cm"># no until /pm:grill settled What, Why, Acceptance; /pm:work refuses ready: no</span>
 issue: 31
 pr: 34
 ---
@@ -353,7 +354,8 @@ Single-user tool, no server. SQLite keeps deploy to one file. Revisit if a secon
     <thead><tr><th>You want to</th><th>You type</th><th>What happens</th></tr></thead>
     <tbody>
       <tr><td>A new epic</td><td class="k">/pm:plan epic "password reset"</td><td>Asks which milestone and priority. Creates the epic file, adds it to the roadmap, opens the epic issue.</td></tr>
-      <tr><td>A feature ticket</td><td class="k">/pm:plan ticket "remember me box" E03</td><td>Next number, ticket file with what/why/acceptance, listed in E03, issue linked from the epic issue.</td></tr>
+      <tr><td>A feature ticket</td><td class="k">/pm:plan ticket "remember me box" E03</td><td>Next number, thin ticket file (<code>ready: no</code>) with a first draft of what/why/acceptance, listed in E03, issue linked from the epic issue. Ends with "grill now or later?".</td></tr>
+      <tr><td>Get a ticket ready to build</td><td class="k">/pm:grill T016</td><td>Reads the code first, then one question at a time with a recommended answer until What, Why and a testable Acceptance line are settled. Sets <code>ready: yes</code>. A blocked ticket waits for its dependency; grilled early, the board flags it.</td></tr>
       <tr><td>A bug</td><td class="k">/pm:plan bug "login 500 when email has a +"</td><td>Same as a ticket. Acceptance is the repro. <code>/pm:work</code> must reproduce it with a failing test before fixing.</td></tr>
       <tr><td>An idea for later</td><td class="k">/pm:plan idea "dark mode"</td><td>One line under Backlog. Nothing else.</td></tr>
       <tr><td>Find problems in the code</td><td class="k">/pm:audit</td><td>Reads code, tests, and recent changes. Files tickets for bugs (with a repro), inconsistencies, dead code, and structure that fights decisions.md. Capped per run, ranked by evidence. Never edits code.</td></tr>
@@ -454,7 +456,8 @@ flowchart TD
     <thead><tr><th>Skill</th><th>Plan mode</th><th>Grilling session</th></tr></thead>
     <tbody>
       <tr><td class="k">/pm:init</td><td>Not needed; it writes nothing until you say ok.</td><td><b>Yes.</b> The interview pushes back on scope, asks what failure would look like, and forces non-goals.</td></tr>
-      <tr><td class="k">/pm:plan</td><td>Not needed.</td><td><b>Yes, the important one.</b> Per epic or ticket, before writing: acceptance, edge cases, out of scope, and which tickets carry a design choice. One question at a time, each with a recommended answer; anything the codebase already answers is looked up, not asked. No ticket is written without testable acceptance. Tickets with a design choice get <code>plan: required</code>.</td></tr>
+      <tr><td class="k">/pm:plan</td><td>Not needed.</td><td>No. It captures: the ticket is written thin and handed to <code>/pm:grill</code>, now or once its dependency lands.</td></tr>
+      <tr><td class="k">/pm:grill</td><td>Not needed.</td><td><b>Yes, the important one.</b> Per ticket, before it may be worked: what, why, acceptance lines proposed for you to accept or change, and whether it carries a design choice. One question at a time, each with a recommended answer; anything the codebase already answers is looked up, not asked. Intent questions only: a fact nobody knows yet becomes a <code>plan: required</code> design ticket instead of a guess. No ticket is marked ready without testable acceptance.</td></tr>
       <tr><td class="k">/pm:work</td><td><b>Built in, every ticket.</b> Explores the code read-only and writes the Plan section into the ticket (approach, files, tests first, decisions to record) before any edit. Waits for your approval only when <code>plan: required</code>; a trivial ticket gets a three-line plan and continues at once.</td><td>No.</td></tr>
       <tr><td class="k">/pm:audit</td><td>No; it only reads and files tickets.</td><td>No.</td></tr>
       <tr><td class="k">/pm:status</td><td>No.</td><td>No.</td></tr>
@@ -515,7 +518,8 @@ each run:                /pm:audit  →  new tickets, auto: no  →  you flip so
 
   <h3>/pm:plan</h3>
 <pre>/pm:plan epic "password reset"        → asks milestone + priority → E04 file, roadmap line, epic issue
-/pm:plan ticket "remember me" E03     → T016 file with what/why/acceptance, listed in E03, Flow redrawn, issue
+/pm:plan ticket "remember me" E03     → T016 thin (ready: no), listed in E03, Flow redrawn, issue → "grill now or later?"
+/pm:grill T016                        → 1 to 4 questions with recommended answers → What/Why/Acceptance settled, ready: yes
 /pm:plan bug "login 500 on + email"   → same, acceptance = the repro, must be reproduced before fixed
 /pm:plan idea "dark mode"             → one Backlog line
 /pm:plan apply                        → walks you through every waiting proposal (see below)
@@ -524,7 +528,7 @@ each run:                /pm:audit  →  new tickets, auto: no  →  you flip so
 
   <h3>/pm:work</h3>
 <pre><span class="yo">you:</span>    /pm:work                       <span class="cm"># or /pm:work T012</span>
-<span class="ag">agent:</span>  picks by the Flow: todo, deps done, no owner, then priority, then order
+<span class="ag">agent:</span>  picks by the Flow: todo, ready: yes, deps done, no owner, then priority, then order
         claims → plan written into the ticket (waits for you if plan: required)
         → branch → subtasks by TDD → checks → review → docs → PR
         report:

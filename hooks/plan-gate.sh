@@ -1,6 +1,6 @@
 #!/bin/bash
 # PreToolUse hook (Edit|Write|MultiEdit|NotebookEdit|Bash).
-# On a ticket branch (txxx-slug) it blocks code edits until the ticket's "## Plan" is written,
+# On a ticket branch (txxx-slug) it blocks code edits until the ticket is grilled (ready: yes) and its "## Plan" is written,
 # and, for a "plan: required" ticket, until that plan carries "approved: yes".
 # While the ticket says "tests: frozen" (a bug fix in progress) test files are not edited either.
 # Ticket files, docs/pm, CONTEXT.md and markdown are always allowed. Exit 2 blocks the call; the message goes to the agent.
@@ -105,6 +105,10 @@ case "$tool" in
 esac
 [ "$edits_code" = 1 ] || exit 0
 
+if grep -qE '^ready:[[:space:]]*no' "$ticket"; then
+  echo "pm: $tid is not grilled yet (ready: no), so its What, Why and Acceptance are not settled. Run /pm:grill $tid with the user first; do not edit code on this ticket until it says ready: yes." >&2
+  exit 2
+fi
 approach=$(sed -n '/^## Plan/,/^## /p' "$ticket" | grep -E '^Approach:' | head -1 | sed 's/^Approach:[[:space:]]*//')
 if [ -z "$approach" ]; then
   echo "pm: $tid has no plan yet. Write the ticket's ## Plan section first (Approach, Touches, Tests first, Decisions to record, approved), then edit code." >&2

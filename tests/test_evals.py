@@ -131,3 +131,46 @@ class SilentTestEditCheckTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class GrillScenarioFixturesTest(unittest.TestCase):
+    """The grill scenarios start from a thin ticket, a blocked thin ticket, and a repo where the next ticket was never grilled."""
+
+    def test_grill_repo_has_one_thin_ticket_to_grill_and_one_blocked_behind_it(self):
+        h = load_harness()
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp) / "repo"
+            h.grill_repo(repo)
+            self.assertTrue(h.validate_ok(repo, h.LOGIN_ALLOW))
+            t8 = (repo / "docs/pm/tickets/T008-remember-me.md").read_text()
+            t9 = (repo / "docs/pm/tickets/T009-remember-me-expiry.md").read_text()
+            self.assertIn("ready: no", t8)
+            self.assertIn("ready: no", t9)
+            self.assertIn("depends_on: [T008]", t9)
+            board = h.pm(repo, "board").stdout
+            self.assertIn("To grill: T008", board)
+            self.assertNotIn("T009", board.split("To grill:")[1].split("\n")[0])
+
+    def test_ungrilled_calc_variant_refuses_the_claim_of_T002(self):
+        h = load_harness()
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp) / "repo"
+            h.calc_repo(repo, True, "ungrilled")
+            self.assertTrue(h.validate_ok(repo))
+            self.assertIn("to grill: T002", h.pm(repo, "next").stdout)
+            self.assertIn("not grilled", h.pm(repo, "claim", "T002", "x").stderr)
+
+    def test_grill_scenarios_are_registered_in_both_runners(self):
+        h = load_harness()
+        for name in ("grill_implicit", "grill_blocked", "work_not_grilled", "plan_ticket_thin"):
+            self.assertIn(name, h.SCENARIOS)
+        it = load_module("interactive")
+        self.assertIn("grill_interview", it.SCENARIOS)
+
+
+class LimitDetectionTest(unittest.TestCase):
+    def test_session_limit_wording_counts_as_a_limit(self):
+        h = load_harness()
+        for text in ("You've hit your session limit · resets 7am (UTC)", "Usage limit reached", "resets at 3pm", "rate limit"):
+            self.assertRegex(text, h.LIMIT_RE)
+        self.assertNotRegex("T008 is ready to work on; the limit is one PR per ticket", h.LIMIT_RE)
