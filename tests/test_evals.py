@@ -113,5 +113,21 @@ class InteractiveRunnerTest(unittest.TestCase):
         self.assertFalse(it.prompt_row_free(["● done.", "  Thinking…"], typed))
 
 
+class SilentTestEditCheckTest(unittest.TestCase):
+    """Only real test sources count as an edit after a freeze; compiled caches swept in by `git add -A` do not."""
+
+    def test_cache_files_are_not_test_edits(self):
+        h = load_harness()
+        self.assertEqual(h.test_source_edits("tests/__pycache__/test_calc.cpython-312.pyc"), [])
+        self.assertEqual(h.test_source_edits("tests/__pycache__/x.pyc\ntests/.pytest_cache/v/cache/nodeids"), [])
+        self.assertEqual(h.test_source_edits(""), [])
+
+    def test_real_test_sources_are_edits(self):
+        h = load_harness()
+        self.assertEqual(h.test_source_edits("tests/test_calc.py"), ["tests/test_calc.py"])
+        self.assertEqual(h.test_source_edits("tests/__pycache__/x.pyc\ntests/test_calc.py\ntests/conftest.py"),
+                         ["tests/test_calc.py", "tests/conftest.py"])
+
+
 if __name__ == "__main__":
     unittest.main()
