@@ -1,0 +1,786 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>pm-plugin Blueprint</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@500;700;800&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+  :root{
+    --bg:#F6F8F6; --bg-2:#ECF0ED; --ink:#1A2229; --ink-2:#5C6873; --line:#D3DAD5;
+    --accent:#1E8A6E; --accent-soft:#DCEFE7; --you:#B4711C; --you-soft:#F6E8D3;
+    --agent:#2F5F8F; --agent-soft:#DDE8F3; --code-bg:#EEF2EF; --card:#FFFFFF;
+    --fs-0:14px; --fs-1:15.5px; --fs-2:18px; --fs-3:23px; --fs-4:30px; --fs-5:40px;
+    --sans:"IBM Plex Sans",system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
+    --head:"Manrope","IBM Plex Sans",system-ui,sans-serif;
+    --mono:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --bg:#0F1518; --bg-2:#161E22; --ink:#E3E8E5; --ink-2:#98A4A9; --line:#2A353B;
+      --accent:#41B893; --accent-soft:#163A31; --you:#D9A052; --you-soft:#3A2A14;
+      --agent:#7FB0E0; --agent-soft:#1A2C3E; --code-bg:#151C20; --card:#141B1F;
+    }
+  }
+  :root[data-theme="dark"]{
+    --bg:#0F1518; --bg-2:#161E22; --ink:#E3E8E5; --ink-2:#98A4A9; --line:#2A353B;
+    --accent:#41B893; --accent-soft:#163A31; --you:#D9A052; --you-soft:#3A2A14;
+    --agent:#7FB0E0; --agent-soft:#1A2C3E; --code-bg:#151C20; --card:#141B1F;
+  }
+  *{box-sizing:border-box}
+  body{background:var(--bg);color:var(--ink);font-family:var(--sans);font-size:var(--fs-1);line-height:1.6;margin:0}
+  a{color:var(--accent)}
+  .wrap{max-width:1040px;margin:0 auto;padding:40px 24px 96px}
+  .prose{max-width:68ch}
+  h1,h2,h3{font-family:var(--head);text-wrap:balance;line-height:1.15;margin:0}
+  h1{font-size:var(--fs-5);font-weight:800;letter-spacing:-.02em}
+  h2{font-size:var(--fs-4);font-weight:700;margin-top:72px;padding-top:24px;border-top:1px solid var(--line)}
+  h3{font-size:var(--fs-3);font-weight:700;margin-top:40px}
+  p{margin:14px 0}
+  .eyebrow{font-family:var(--mono);font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:var(--accent);font-weight:500}
+  .lede{font-size:var(--fs-2);color:var(--ink-2);max-width:60ch}
+  code{font-family:var(--mono);font-size:.92em;background:var(--code-bg);padding:.1em .35em;border-radius:3px}
+  pre{font-family:var(--mono);font-size:13.5px;line-height:1.55;background:var(--code-bg);border:1px solid var(--line);padding:16px 18px;overflow-x:auto;margin:18px 0;border-radius:4px}
+  pre code{background:none;padding:0;font-size:inherit}
+  .cm{color:var(--ink-2)}
+  .ok{color:var(--accent)} .yo{color:var(--you)} .ag{color:var(--agent)}
+  nav.toc{display:flex;flex-wrap:wrap;gap:8px 18px;margin:28px 0 0;padding:16px 0;border-top:1px solid var(--line);border-bottom:1px solid var(--line);font-family:var(--mono);font-size:13px}
+  nav.toc a{color:var(--ink-2);text-decoration:none}
+  nav.toc a:hover,nav.toc a:focus-visible{color:var(--accent);outline:none;text-decoration:underline}
+  table{border-collapse:collapse;width:100%;font-size:var(--fs-0);margin:18px 0}
+  th,td{text-align:left;padding:9px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{font-family:var(--head);font-weight:700;font-size:13px;letter-spacing:.04em;text-transform:uppercase;color:var(--ink-2)}
+  td.k{font-family:var(--mono);white-space:nowrap;color:var(--ink-2)}
+  .tablewrap{overflow-x:auto}
+  .grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:20px;margin:20px 0}
+  .slab{background:var(--card);border:1px solid var(--line);border-radius:6px;padding:18px 20px}
+  .slab h4{font-family:var(--head);font-size:15px;margin:0 0 8px;font-weight:700}
+  .slab p{margin:6px 0;font-size:var(--fs-0);color:var(--ink-2)}
+  .diagram{background:var(--card);border:1px solid var(--line);border-radius:6px;padding:14px;margin:20px 0;overflow-x:auto}
+  .diagram .cap{font-family:var(--mono);font-size:12px;color:var(--ink-2);margin:0 0 6px}
+  pre.mermaid{background:transparent;border:0;padding:0;margin:0;display:flex;justify-content:center}
+  .legend{display:flex;gap:18px;flex-wrap:wrap;font-size:13px;font-family:var(--mono);margin:14px 0 0}
+  .legend span{display:inline-flex;align-items:center;gap:6px}
+  .dot{width:10px;height:10px;border-radius:50%;display:inline-block}
+  .dot.you{background:var(--you)} .dot.agent{background:var(--agent)} .dot.gate{background:var(--accent)}
+  .tl{list-style:none;padding:0;margin:18px 0;border-left:2px solid var(--line);display:flex;flex-direction:column;gap:10px}
+  .tl li{position:relative;padding:8px 14px 8px 22px;display:grid;grid-template-columns:76px 1fr;gap:12px;align-items:start}
+  .tl li::before{content:"";position:absolute;left:-7px;top:16px;width:12px;height:12px;border-radius:50%;background:var(--ink-2)}
+  .tl li.you::before{background:var(--you)} .tl li.agent::before{background:var(--agent)} .tl li.gate::before{background:var(--accent)}
+  .tl .who{font-family:var(--mono);font-size:12px;letter-spacing:.06em;text-transform:uppercase;padding-top:3px}
+  .tl li.you .who{color:var(--you)} .tl li.agent .who{color:var(--agent)} .tl li.gate .who{color:var(--accent)}
+  .tl .what{font-size:var(--fs-0)}
+  .tl .what code{font-size:13px}
+  .tl .what .sub{display:block;color:var(--ink-2);margin-top:3px}
+  .scn{margin-top:36px;padding-top:6px}
+  .scn .meta{display:flex;flex-wrap:wrap;gap:8px;margin:8px 0 0}
+  .chip{font-family:var(--mono);font-size:12px;padding:2px 9px;border-radius:999px;border:1px solid var(--line);color:var(--ink-2);background:var(--bg-2)}
+  .chip.on{border-color:var(--accent);color:var(--accent);background:var(--accent-soft)}
+  .chip.warn{border-color:var(--you);color:var(--you);background:var(--you-soft)}
+  .tree{font-family:var(--mono);font-size:13.5px;line-height:1.6}
+  .callout{border-left:3px solid var(--you);background:var(--you-soft);padding:12px 16px;margin:20px 0;border-radius:0 4px 4px 0;font-size:var(--fs-0)}
+  .callout.green{border-color:var(--accent);background:var(--accent-soft)}
+  ul.tight{padding-left:20px} ul.tight li{margin:5px 0}
+  .map{display:grid;grid-template-columns:1fr 1.4fr 1fr;border:1px solid var(--line);border-radius:6px;overflow:hidden;margin:20px 0;font-size:var(--fs-0)}
+  .map > div{padding:11px 14px;border-bottom:1px solid var(--line)}
+  .map > div:nth-last-child(-n+3){border-bottom:0}
+  .map .h{font-family:var(--mono);font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-2);background:var(--bg-2)}
+  .map .j{font-family:var(--head);font-weight:700}
+  .map .f{font-family:var(--mono);font-size:13px}
+  .board{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin:18px 0}
+  .col{background:var(--card);border:1px solid var(--line);border-radius:6px;padding:10px}
+  .col h5{font-family:var(--mono);font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-2);margin:0 0 8px;font-weight:500}
+  .card{border:1px solid var(--line);border-radius:4px;padding:7px 9px;font-size:13px;margin-bottom:8px;background:var(--bg)}
+  .card .id{font-family:var(--mono);color:var(--ink-2);font-size:12px}
+  .card.mine{border-color:var(--agent)}
+  @media (prefers-reduced-motion:no-preference){ a{transition:color .15s} }
+  @media (max-width:720px){ .board{grid-template-columns:repeat(2,1fr)} .map{grid-template-columns:1fr} .map > div{border-bottom:1px solid var(--line)} }
+  @media (max-width:640px){ .tl li{grid-template-columns:1fr} h1{font-size:32px} h2{font-size:26px} }
+</style>
+<style>img{max-width:100%}[hidden]{display:none!important}</style>
+</head>
+<body>
+
+<div class="wrap">
+  <div class="eyebrow">Design · revision 6 · built, installed, verified across four models; ships with the plugin as docs/blueprint.html</div>
+  <h1 style="margin-top:10px">pm-plugin Blueprint</h1>
+  <p class="lede">A project system in plain markdown with four levels: milestone → epic → ticket → subtask. One file per thing, seven slash skills, three hooks, and a GitHub mirror, so you and your agents work from the same board in any repo.</p>
+
+  <nav class="toc" aria-label="Sections">
+    <a href="#system">1 The system</a>
+    <a href="#decisions">2 Your decisions</a>
+    <a href="#shape">3 Plugin shape</a>
+    <a href="#project">4 In a project</a>
+    <a href="#flows">5 Flows</a>
+    <a href="#io">6 Skills in / out</a>
+    <a href="#scenarios">7 Scenarios</a>
+    <a href="#build">8 Build + tests</a>
+    <a href="#open">9 Assumptions</a>
+  </nav>
+
+  <!-- ============ 1 SYSTEM ============ -->
+  <h2 id="system">1 · The system: four things, one file each</h2>
+  <p class="prose">Nothing else is tracked: no registry file, no changelog, no staged planning documents. The board view comes from <code>/pm:status</code>, which reads the ticket files.</p>
+
+  <div class="map">
+    <div class="h">Level</div><div class="h">pm plugin file</div><div class="h">GitHub mirror</div>
+    <div class="j">Milestone</div><div class="f">docs/pm/roadmap.md<br><span class="cm">M1 "Sign-in works" · its epics, in order · Backlog</span></div><div>milestone</div>
+    <div class="j">Epic</div><div class="f">docs/pm/epics/E03-login.md<br><span class="cm">goal, why, list of its tickets with status</span></div><div>issue labelled <code>epic</code>, task list links the ticket issues</div>
+    <div class="j">Ticket</div><div class="f">docs/pm/tickets/T012-rate-limit.md<br><span class="cm">one file = one ticket = one PR</span></div><div>issue, closed by its PR</div>
+    <div class="j">Subtask</div><div class="f">checklist inside the ticket file</div><div>checklist in the issue body</div>
+  </div>
+
+  <p class="prose">The board, as <code>/pm:status</code> prints it for milestone M1. Blue border marks tickets owned by a running agent.</p>
+  <div class="board">
+    <div class="col"><h5>todo</h5><div class="card"><span class="id">T013 · E03</span><br>Session cookie expires after 7 days</div><div class="card"><span class="id">T014 · E04</span><br>Password reset email</div></div>
+    <div class="col"><h5>in progress</h5><div class="card mine"><span class="id">T012 · E03 · api-work</span><br>Rate-limit login attempts<br><span class="cm">2 of 4 subtasks</span></div></div>
+    <div class="col"><h5>review</h5><div class="card"><span class="id">T011 · E03 · PR #33</span><br>Wrong password returns 401</div></div>
+    <div class="col"><h5>done</h5><div class="card"><span class="id">T010 · E03 · PR #30</span><br>POST /login returns a session token</div><div class="card"><span class="id">T001 · E01</span><br>Tooling and CI</div></div>
+  </div>
+
+  <!-- ============ 2 DECISIONS ============ -->
+  <h2 id="decisions">2 · Your decisions</h2>
+  <div class="tablewrap"><table>
+    <thead><tr><th>Topic</th><th>Decision</th><th>Consequence in the design</th></tr></thead>
+    <tbody>
+      <tr><td class="k">shape</td><td>Four levels, as simple as possible</td><td>Milestone → epic → ticket → subtask. Four file types under <code>docs/pm/</code>.</td></tr>
+      <tr><td class="k">source of truth</td><td>Markdown in the repo, mirrored to GitHub</td><td>One-way sync, markdown → GitHub. Milestone, epic issue, ticket issue, PR closes ticket.</td></tr>
+      <tr><td class="k">who reads it</td><td>You, several agents, occasional humans</td><td>Ticket files are short and human-readable. The board is one command away.</td></tr>
+      <tr><td class="k">packaging</td><td>A plugin with several skills</td><td>Repo <code>~/projects/pm-plugin</code>, installed as a local plugin so every project gets <code>/pm:*</code>.</td></tr>
+      <tr><td class="k">project types</td><td>All: new, existing, big, small, forks</td><td>Same four files everywhere. A small project has one milestone, one or two epics.</td></tr>
+      <tr><td class="k">init style</td><td>Interview, then propose. Existing repos: audit first.</td><td>Init writes nothing until you approve.</td></tr>
+      <tr><td class="k">ticket size</td><td>One ticket = one PR</td><td><code>/pm:work</code> does a whole ticket per run. Subtasks are its progress bar.</td></tr>
+      <tr><td class="k">git flow</td><td>Branch → PR → review → merge with GitHub; branch → local review → merge without; direct commit opt-in</td><td>Recorded in the pm block. Agents never guess.</td></tr>
+      <tr><td class="k">multi-agent</td><td>Each agent claims a ticket, own worktree or branch</td><td>Claim = <code>owner:</code> in the ticket frontmatter, committed. Pairs with <code>/spawn-agent … yotree</code>.</td></tr>
+      <tr><td class="k">done gates</td><td>TDD, full checks green, review pass, docs updated</td><td>All four on by default, per-project override in the pm block.</td></tr>
+      <tr><td class="k">hand-off</td><td>CONTEXT.md is the entry point</td><td>Gets a <code>## pm</code> block. Existing CONTEXT.md keeps its content.</td></tr>
+      <tr><td class="k">status</td><td>One page, humans first</td><td>Board plus three plain paragraphs. Optionally posted on the milestone.</td></tr>
+      <tr><td class="k">decisions</td><td>Kept, but light</td><td>One file, <code>docs/pm/decisions.md</code>, a dated entry per decision. Agents read it before changing a settled thing.</td></tr>
+      <tr><td class="k">re-plan</td><td>Agent proposes, you approve</td><td>Proposals go in the ticket or epic under "Proposed changes"; <code>/pm:plan apply</code> applies them.</td></tr>
+      <tr><td class="k">metadata</td><td>Priority and dependencies only</td><td>No dates, no deadlines, no time estimates anywhere. Milestones are ordered versions, not calendar targets. Matches your rule to weight quality far above development cost.</td></tr>
+      <tr><td class="k">hooks</td><td>Session start summary; session stop warning</td><td>Warn only, never block.</td></tr>
+      <tr><td class="k">retro</td><td>Yes, at milestone close</td><td>What shipped, what moved, what to keep and what to change, recorded in roadmap.md and decisions.md.</td></tr>
+      <tr><td class="k">quality</td><td>Grilling in init and plan; plan mode in work</td><td>Init and plan run a questioning round before writing, borrowing the essence of Matt Pocock's grill-me (credited in the README, not a dependency): one question at a time with a recommended answer, facts looked up instead of asked, a gate on shared understanding. <code>/pm:work</code> always writes a Plan section before any edit; it waits for your approval only when the ticket says <code>plan: required</code>.</td></tr>
+      <tr><td class="k">routines</td><td>Skills in the plugin, the timer per project</td><td>Each project turns on the work routine and the audit routine itself, with its own cadence and caps, recorded in the pm block. Nothing runs unattended unless a project asked for it.</td></tr>
+      <tr><td class="k">audit</td><td><code>/pm:audit</code> is part of the plugin</td><td>Finds bugs, inconsistencies, and structure problems and files them as tickets. Never edits code. You approve by marking a ticket <code>auto: yes</code>.</td></tr>
+      <tr><td class="k">help</td><td><code>/pm:help</code> is part of the plugin</td><td>Prints a one-screen cheat sheet of every skill with input, output, and an example, plus this project's pm block. <code>/pm:help &lt;skill&gt;</code> prints the fuller version for one skill.</td></tr>
+      <tr><td class="k">forks / OSS</td><td>Docs inside repo, ignored by git</td><td>Init adds <code>docs/pm/</code> and CONTEXT.md to <code>.git/info/exclude</code>. Upstream never sees them.</td></tr>
+      <tr><td class="k">wording</td><td>Plain words in every doc and skill</td><td>The two words you banned never appear. We say set up, create, lay out, placeholder.</td></tr>
+    </tbody>
+  </table></div>
+
+  <!-- ============ 3 SHAPE ============ -->
+  <h2 id="shape">3 · Plugin shape</h2>
+<pre class="tree">~/projects/pm-plugin/                  <span class="cm">installed as pm@pm-plugin (local marketplace)</span>
+├── .claude-plugin/
+│   ├── plugin.json                 <span class="cm">name pm, version, description</span>
+│   └── marketplace.json            <span class="cm">lets `claude plugin install pm@pm-plugin` work from this folder</span>
+├── skills/                         <span class="cm">Claude Code names them /pm:&lt;folder&gt;</span>
+│   ├── init/SKILL.md               <span class="cm">detect → (audit) → interview → propose → create the files</span>
+│   ├── plan/SKILL.md               <span class="cm">milestone / epic / ticket / bug / idea / apply; sync</span>
+│   ├── work/SKILL.md               <span class="cm">one ticket per run: claim → branch → plan (plan mode when required) → TDD → gates → PR → done</span>
+│   ├── status/SKILL.md             <span class="cm">the board, problems, three lines of reading, hand-off to work/plan/audit</span>
+│   ├── retro/SKILL.md              <span class="cm">milestone close + lessons</span>
+│   ├── audit/SKILL.md              <span class="cm">hunt bugs, inconsistencies, structure problems → tickets, never code</span>
+│   └── help/SKILL.md               <span class="cm">the plugin's own cheat sheet: skills, input, output, example, this project's settings</span>
+├── agents/                         <span class="cm">two read-only subagents for the review gate, Sonnet by default</span>
+│   ├── verifier.md                 <span class="cm">runs the check command, tests every acceptance line against the diff, flags widened scope</span>
+│   └── reviewer.md                 <span class="cm">hunts bugs, edge cases, error handling gaps, security holes, tests that prove nothing</span>
+├── templates/
+│   ├── roadmap.md  epic.md  ticket.md  decisions.md
+│   ├── context-pm-block.md
+│   └── routine-cron.txt  routine-github-actions.yml   <span class="cm">the two routines on a timer: cron, or CI</span>
+├── scripts/
+│   ├── pm.py                       <span class="cm">one command: board · line · next · flow · claim · release · freeze · unfreeze · dismiss · set · validate · backup · next-id · config · new · sync</span>
+│   ├── pm_lib.py                   <span class="cm">reads and writes the markdown; picker, flow drawing, board, validation</span>
+│   ├── pm_sync.py                  <span class="cm">markdown → host through an adapter</span>
+│   ├── adapters/github.py          <span class="cm">gh: milestones, issues, labels, task lists</span>
+│   ├── pm_detect.sh                <span class="cm">facts about a repo for /pm:init: remote, host, fork, languages, check command, old planning docs</span>
+│   └── doctor.sh                   <span class="cm">python3? git? gh? gh auth? docs/pm present?</span>
+├── hooks/
+│   ├── hooks.json                  <span class="cm">SessionStart + PreToolUse + Stop</span>
+│   ├── session-start.sh            <span class="cm">one board line + the skill map</span>
+│   ├── plan-gate.sh                <span class="cm">PreToolUse: on a ticket branch no code edit before the ## Plan exists and, for plan: required, is approved; test files frozen during a bug fix; a routine never merges or unfreezes</span>
+│   └── stop.sh                     <span class="cm">warn once if code changed but no ticket file did; ignores generated files; never blocks</span>
+├── tests/                          <span class="cm">standard library unittest: python3 -m unittest discover -s tests</span>
+│   ├── test_pm_lib.py  test_pm_cli.py  test_pm_sync.py  test_scripts.py  test_blueprint.py  test_evals.py  test_skill_wording.py
+│   └── test_no_time_tracking.py    <span class="cm">fails the build if any template, skill, hook, script, or this page asks for a date or an effort guess</span>
+├── evals/                          <span class="cm">behaviour tests: harness.py headless, interactive.py through tmux, livepr.py on GitHub, matrix.py the table; results/ is ignored by git</span>
+└── docs/blueprint.html              <span class="cm">this page, as a plain file: open it in a browser</span></pre>
+  <p class="prose">Scripts are helpers. Every SKILL.md states the same rules in words, so an agent on a machine with no Python does the edits by hand. <code>doctor.sh</code> tells you what is missing and how to install it; init records the answer in the pm block.</p>
+
+  <!-- ============ 4 PROJECT ============ -->
+  <h2 id="project">4 · What lands in a project</h2>
+  <div class="grid2">
+    <div class="slab">
+      <h4>Files</h4>
+<pre class="tree" style="margin:0">CONTEXT.md              <span class="cm">entry point + pm block</span>
+docs/pm/
+├── roadmap.md          <span class="cm">milestones, their epics, Backlog</span>
+├── epics/
+│   ├── E01-tooling.md
+│   └── E03-login.md
+├── tickets/
+│   ├── T010-login-endpoint.md
+│   └── T012-rate-limit.md
+└── decisions.md        <span class="cm">dated entries</span></pre>
+    </div>
+    <div class="slab">
+      <h4>The pm block in CONTEXT.md</h4>
+<pre style="margin:0">## pm
+flow:      branch-pr    <span class="cm"># branch-pr | branch-local | direct</span>
+host:      github       <span class="cm"># github | none</span>
+mirror:    on
+merge:     ask          <span class="cm"># ask | auto</span>
+gates:     tdd, checks, review, docs
+check:     &lt;the project's own lint + test command&gt;
+milestone: M1           <span class="cm"># what /pm:work picks from</span>
+tools:     python3=yes gh=yes
+routines:  work=off audit=off   <span class="cm"># per project; see Routines</span>
+auto_cap:  2            <span class="cm"># max tickets one routine run may take</span></pre>
+    </div>
+  </div>
+
+  <h3>A ticket</h3>
+<pre>---
+id: T012
+title: Rate-limit login attempts
+epic: E03
+milestone: M1
+status: in progress        <span class="cm"># todo | in progress | review | done</span>
+priority: P1
+depends_on: [T010]
+owner: api-work            <span class="cm"># the claim</span>
+auto: yes                  <span class="cm"># a routine may take this ticket unattended</span>
+plan: required             <span class="cm"># set by /pm:plan grilling; none for trivial tickets</span>
+issue: 31
+pr: 34
+---
+## What
+Return 429 with Retry-After after 5 failed attempts per IP per minute.
+
+## Why
+The login endpoint is an open password oracle without it.
+
+## Acceptance
+- 6th failed attempt within 60s from one IP → 429 with Retry-After
+- successful login resets the counter
+
+## Subtasks
+- [x] failing test for the 6th attempt
+- [x] counter in src/auth/ratelimit.py
+- [ ] Retry-After header
+- [ ] docs: mention the limit in README
+
+## Plan                    <span class="cm"># written by /pm:work in plan mode, before any edit</span>
+Approach: counter keyed by IP in the existing cache, 60s window.
+Touches:  src/auth/ratelimit.py, src/auth/login.py, tests/test_ratelimit.py
+Tests first: 6th attempt → 429 · Retry-After set · success resets counter
+approved: yes              <span class="cm"># you flip this, or say "approved" in chat</span>
+
+## Notes
+Check whether the reverse proxy already limits by IP.   <span class="cm"># agents append findings here</span></pre>
+
+  <h3>An epic and the roadmap</h3>
+  <div class="grid2">
+    <div class="slab">
+      <h4>docs/pm/epics/E03-login.md</h4>
+<pre style="margin:0">---
+id: E03
+title: User login
+milestone: M1
+status: in progress
+issue: 17
+---
+## Goal
+A user can sign in with email and password
+and stay signed in for 7 days.
+
+## Tickets                 <span class="cm"># kept in sync by /pm:plan</span>
+- T010 login endpoint          done
+- T011 wrong password → 401    review
+- T012 rate-limit              in progress
+- T013 7-day cookie            todo
+- T014 config loader           todo
+
+## Flow                    <span class="cm"># drawn by /pm:plan from depends_on</span>
+T010 ─┬─▶ T011 ─▶ T012 ◀─ T014
+      └─▶ T013
+
+Ready now: T013, T014
+Blocked:   T012 ← T011, T014</pre>
+    </div>
+    <div class="slab">
+      <h4>docs/pm/roadmap.md</h4>
+<pre style="margin:0">## M1 · Sign-in works                 <span class="cm"># current</span>
+- E01 tooling and CI          P1  done
+- E03 user login              P1  2/4
+- E04 password reset          P2  0/2   after E03
+
+## M2 · Team accounts
+- E05 invites                 P1
+
+## Backlog
+- dark mode
+- export to CSV</pre>
+    </div>
+  </div>
+
+  <h3>decisions.md</h3>
+<pre>## 2026-09-08 · Do not reveal whether an email exists           <span class="cm">T011</span>
+Different messages for unknown email vs wrong password let an attacker list users.
+Chose: same message and same timing for both. Reset always says "if that email exists, we sent a link".
+Consequence: support cannot tell users why login failed.
+
+## 2026-09-03 · Python + uv + SQLite                            <span class="cm">init</span>
+Single-user tool, no server. SQLite keeps deploy to one file. Revisit if a second user appears.</pre>
+
+  <h3>Every document and its rule</h3>
+  <div class="tablewrap"><table>
+    <thead><tr><th>File</th><th>Answers</th><th>Changes when</th><th>Touched by</th></tr></thead>
+    <tbody>
+      <tr><td class="k">CONTEXT.md</td><td>"Where do I start?" Five lines on the project, links, the pm block.</td><td>Any time</td><td>init, every skill on exit</td></tr>
+      <tr><td class="k">docs/pm/roadmap.md</td><td>"What are we building, in what order?" Milestones in order, their epics, Backlog.</td><td>Planning and milestone close</td><td>init, plan, retro</td></tr>
+      <tr><td class="k">docs/pm/epics/</td><td>"What is this group of work for, and in what order?" Goal, its tickets with status, and the Flow drawn from dependencies.</td><td>When tickets are added or change status</td><td>plan, work</td></tr>
+      <tr><td class="k">docs/pm/tickets/</td><td>"What exactly, why, when is it done?" What, why, acceptance, subtasks, notes.</td><td>Every step of the work</td><td>plan creates, work updates</td></tr>
+      <tr><td class="k">docs/pm/decisions.md</td><td>"Why did we choose this?" Dated entries, newest first.</td><td>Append only</td><td>init, work, retro</td></tr>
+      <tr><td class="k">README / runbooks</td><td>"How do I run it?"</td><td>In the ticket that changed the code, as its docs subtask</td><td>work</td></tr>
+    </tbody>
+  </table></div>
+
+  <h3>Adding work later</h3>
+  <div class="tablewrap"><table>
+    <thead><tr><th>You want to</th><th>You type</th><th>What happens</th></tr></thead>
+    <tbody>
+      <tr><td>A new epic</td><td class="k">/pm:plan epic "password reset"</td><td>Asks which milestone and priority. Creates the epic file, adds it to the roadmap, opens the epic issue.</td></tr>
+      <tr><td>A feature ticket</td><td class="k">/pm:plan ticket "remember me box" E03</td><td>Next number, ticket file with what/why/acceptance, listed in E03, issue linked from the epic issue.</td></tr>
+      <tr><td>A bug</td><td class="k">/pm:plan bug "login 500 when email has a +"</td><td>Same as a ticket. Acceptance is the repro. <code>/pm:work</code> must reproduce it with a failing test before fixing.</td></tr>
+      <tr><td>An idea for later</td><td class="k">/pm:plan idea "dark mode"</td><td>One line under Backlog. Nothing else.</td></tr>
+      <tr><td>Find problems in the code</td><td class="k">/pm:audit</td><td>Reads code, tests, and recent changes. Files tickets for bugs (with a repro), inconsistencies, dead code, and structure that fights decisions.md. Capped per run, ranked by evidence. Never edits code.</td></tr>
+      <tr><td>Something noticed mid-work</td><td>nothing, agent writes it under Proposed changes in the ticket</td><td>You apply or reject with <code>/pm:plan apply</code>.</td></tr>
+      <tr><td>A specific ticket now</td><td class="k">/pm:work T012</td><td>Skips the picker.</td></tr>
+    </tbody>
+  </table></div>
+
+  <!-- ============ 5 FLOWS ============ -->
+  <h2 id="flows">5 · Flows</h2>
+  <p class="prose">Amber steps need you. Blue steps are the agent alone. Green steps are gates the agent cannot skip unless the pm block says so.</p>
+  <div class="legend"><span><i class="dot you"></i> you decide</span><span><i class="dot agent"></i> agent works</span><span><i class="dot gate"></i> gate</span></div>
+
+  <h3>/pm:init</h3>
+  <div class="diagram">
+    <p class="cap">detect → audit (existing code) → interview → propose → create the files → first sync</p>
+<pre class="mermaid">
+flowchart LR
+  A[detect: git, remote, fork, tooling, docs/pm already there?] --> B{existing code?}
+  B -- yes --> C[audit: structure, tests, CI, TODOs, git log]
+  B -- no --> D
+  C --> D[interview you: goal, users, constraints, stack, flow]
+  D --> E[propose: milestones in order, first epics, first tickets, pm block]
+  E --> F{you approve?}
+  F -- edit --> D
+  F -- yes --> G[write CONTEXT.md, docs/pm, set up tooling if new]
+  G --> H[sync milestones, epic issues, ticket issues if host=github]
+  classDef you fill:#F6E8D3,stroke:#B4711C,color:#1A2229
+  classDef agent fill:#DDE8F3,stroke:#2F5F8F,color:#1A2229
+  class D,F you
+  class A,C,E,G,H agent
+</pre>
+  </div>
+
+  <h3>How /pm:work picks a ticket</h3>
+  <p class="prose">The picker reads every ticket's <code>depends_on</code>, the same data the epic's Flow section is drawn from. A ticket is ready when it is <b>todo</b>, every ticket it depends on is <b>done</b>, and nobody owns it. Among ready tickets it takes the highest priority, then the earliest in the flow. The claim is committed before the branch is made, so two agents starting at the same time never take the same ticket. The board shows "blocked by T011" on a card that is waiting.</p>
+
+  <h3>/pm:work, one ticket per run</h3>
+  <div class="diagram">
+    <p class="cap">claim → plan (always) → approval if required → branch → subtasks by TDD → four gates → PR or merge → done</p>
+<pre class="mermaid">
+flowchart TD
+  A[read pm block, current milestone, tickets] --> B[pick: given ticket, or highest-priority todo with deps done and no owner]
+  B --> C[claim: owner + status in progress, commit]
+  C --> C2[plan: read-only look, write Plan section into the ticket]
+  C2 --> C3{plan: required?}
+  C3 -- yes --> C4[show plan, wait for approval]
+  C3 -- no --> D
+  C4 --> D[branch or worktree per pm.flow]
+  D --> E[for each subtask: red test → green code → tick]
+  E --> F{gate: full checks green?}
+  F -- no --> E
+  F -- yes --> G{gate: verifier + reviewer agents}
+  G -- findings --> E
+  G -- clean --> H[gate: docs subtask done, decisions.md entry if a choice was made]
+  H --> I{pm.flow}
+  I -- branch-pr --> J[PR 'closes #31', status review, merge per pm.merge]
+  I -- branch-local --> K[merge into main]
+  I -- direct --> L[commit on main]
+  J --> M[status done when merged, epic list updated, CONTEXT.md, sync]
+  K --> M
+  L --> M
+  M --> N[report: shipped, next free ticket, proposals if any]
+  classDef gate fill:#DCEFE7,stroke:#1E8A6E,color:#1A2229
+  classDef agent fill:#DDE8F3,stroke:#2F5F8F,color:#1A2229
+  class E,F,G,H gate
+  classDef you fill:#F6E8D3,stroke:#B4711C,color:#1A2229
+  class C4 you
+  class A,B,C,C2,C3,D,J,K,L,M,N agent
+</pre>
+  </div>
+
+  <h3>/pm:plan, /pm:status, /pm:retro, hooks</h3>
+  <div class="grid2">
+    <div class="slab">
+      <h4>/pm:plan</h4>
+      <p>The only skill that creates or restructures. Sub-commands: <code>milestone</code>, <code>epic</code>, <code>ticket</code>, <code>bug</code>, <code>idea</code>, <code>apply</code>. With no argument it reviews the current milestone with you: what is missing, what should move, and breaks epics into tickets. Ends with a sync.</p>
+    </div>
+    <div class="slab">
+      <h4>/pm:status</h4>
+      <p>Prints the board for the current milestone, then three paragraphs: where we are, what is blocked, what is next. Never a date or a countdown. Optionally posts the paragraphs on the milestone.</p>
+    </div>
+    <div class="slab">
+      <h4>/pm:retro (milestone close)</h4>
+      <p>What shipped, what moved to the next milestone, which gates caught bugs, what was re-planned. Lessons become proposed edits to CLAUDE.md or decisions.md. Closes the milestone on GitHub. Nothing written until you approve.</p>
+    </div>
+    <div class="slab">
+      <h4>hooks</h4>
+      <p><b>SessionStart:</b> if <code>docs/pm</code> exists, print the board line and the skill map. <b>PreToolUse (plan gate):</b> on a ticket branch, an Edit, Write or Bash call that would change code is refused until the ticket's <code>## Plan</code> is written and, for <code>plan: required</code>, approved; while a <code>Bug:</code> ticket says <code>tests: frozen</code>, test files are refused too; a ticket claimed by a routine can never be merged or unfrozen by it. Docs and markdown are always allowed. <b>Stop:</b> if source files changed but no ticket file did, print a one-line warning. The stop hook never blocks.</p>
+    </div>
+  </div>
+
+
+
+  <h3>Where plan mode and grilling sit</h3>
+  <p class="prose">Two habits raise quality more than anything else in the loop: a questioning round (a grilling session) before anything is written, and a read-only plan before anything is edited. The questioning style borrows the essence of Matt Pocock's grill-me skill, credited in the plugin README and built in rather than installed. Both habits live inside the SKILL.md files themselves: the instructions say when to ask, one question at a time, and the frontmatter pins which tools the skill may use. The routine variant removes the question tool so an unattended run can never stall.</p>
+  <div class="tablewrap"><table>
+    <thead><tr><th>Skill</th><th>Plan mode</th><th>Grilling session</th></tr></thead>
+    <tbody>
+      <tr><td class="k">/pm:init</td><td>Not needed; it writes nothing until you say ok.</td><td><b>Yes.</b> The interview pushes back on scope, asks what failure would look like, and forces non-goals.</td></tr>
+      <tr><td class="k">/pm:plan</td><td>Not needed.</td><td><b>Yes, the important one.</b> Per epic or ticket, before writing: acceptance, edge cases, out of scope, and which tickets carry a design choice. One question at a time, each with a recommended answer; anything the codebase already answers is looked up, not asked. No ticket is written without testable acceptance. Tickets with a design choice get <code>plan: required</code>.</td></tr>
+      <tr><td class="k">/pm:work</td><td><b>Built in, every ticket.</b> Explores the code read-only and writes the Plan section into the ticket (approach, files, tests first, decisions to record) before any edit. Waits for your approval only when <code>plan: required</code>; a trivial ticket gets a three-line plan and continues at once.</td><td>No.</td></tr>
+      <tr><td class="k">/pm:audit</td><td>No; it only reads and files tickets.</td><td>No.</td></tr>
+      <tr><td class="k">/pm:status</td><td>No.</td><td>No.</td></tr>
+      <tr><td class="k">/pm:retro</td><td>No.</td><td>Light: what slowed us, what surprised us, what we would grill harder next time.</td></tr>
+    </tbody>
+  </table></div>
+<pre><span class="yo">you:</span>    /pm:plan ticket "remember me box" E03
+<span class="ag">agent:</span>  Before I write it, three things:
+        1. Session lifetime: fixed, or until logout? And does it survive a password change?
+        2. Shared computer: is there a way to revoke?
+        3. Out of scope here: device list, "log out everywhere"?
+<span class="yo">you:</span>    30 days; revoked on password change; no device list; log-out-everywhere is separate
+<span class="ag">agent:</span>  T016 written. Acceptance has 4 lines, one per answer.
+        Design choice (where the long-lived token lives) → plan: required.
+
+<span class="yo">you:</span>    /pm:work T016
+<span class="ag">agent:</span>  plan mode: read src/auth, tests, decisions.md. Plan written into T016:
+          Approach: signed token in an httpOnly cookie, rotated on use; no server table
+          Touches: src/auth/session.py, src/auth/cookie.py, tests/test_remember_me.py
+          Tests first: 30-day expiry · revoked after password change · rotation on use
+          Decision to record: "long-lived tokens are stateless"
+        approve, edit, or reject?
+<span class="yo">you:</span>    approved
+<span class="ag">agent:</span>  building. <span class="cm">(tests first, gates, PR as usual)</span></pre>
+  <p class="callout prose">Cost: one round of questions per epic or ticket, and one approval per flagged ticket. In return, acceptance is testable, design choices are yours, and the routines stay safe: an unattended run only takes tickets whose plan is none or already approved.</p>
+
+  <h3>Routines, per project</h3>
+  <p class="prose">The plugin ships the skills; the timer is the project's own. Each project decides whether a routine runs, how often, and how much it may take. Turning one on is a pm block edit plus one cron entry; turning it off is the same edit. Two routines are designed:</p>
+  <div class="grid2">
+    <div class="slab">
+      <h4>Work routine</h4>
+      <p>Runs <code>/pm:work --routine</code>. Takes only tickets marked <code>auto: yes</code> whose plan is <code>none</code> or approved, at most <code>auto_cap</code> per run, always on a branch with a PR, never merges, stops at the first failing gate and leaves the ticket in progress with a note. You review the PRs when you like.</p>
+    </div>
+    <div class="slab">
+      <h4>Audit routine</h4>
+      <p>Runs <code>/pm:audit</code>. Files tickets, never code. Each ticket carries the evidence: file and line, the test that would catch it, or the decision it contradicts. Capped per run. Tickets it files are <code>auto: no</code> until you flip them, so the audit cannot feed the work routine without you.</p>
+    </div>
+  </div>
+  <p class="callout prose">Caution built in: an unattended audit can drown you in small tickets. The cap and the evidence rule keep it honest, and every audit ticket stays <code>auto: no</code> until you flip it.</p>
+  <pre>you, once per project:   edit pm block  →  routines: work=on audit=on, auto_cap: 2
+                         put two commands on a timer (cron, or a CI job), e.g. nightly /pm:audit, hourly /pm:work --routine
+
+each run:                /pm:audit  →  new tickets, auto: no  →  you flip some to auto: yes
+                         /pm:work --routine  →  picks by the Flow, opens PRs  →  you merge</pre>
+
+
+  <!-- ============ 6 SKILLS IO ============ -->
+  <h2 id="io">6 · Each skill: what you type, what comes back</h2>
+
+  <h3>/pm:init</h3>
+<pre><span class="yo">you:</span>    /pm:init                       <span class="cm"># in a repo, new or existing</span>
+<span class="ag">agent:</span>  detect → audit if there is code → 6 to 8 questions, one screen each
+        → shows the proposal: milestones, epics, first tickets, pm block, stack
+<span class="yo">you:</span>    edits, or "ok"
+<span class="ag">agent:</span>  writes CONTEXT.md and docs/pm/, sets up tooling if the repo is new,
+        syncs to GitHub if there is a remote
+        report: "M1 with 3 epics and 8 tickets. Board: 8 todo. Next: /pm:work"</pre>
+
+  <h3>/pm:plan</h3>
+<pre>/pm:plan epic "password reset"        → asks milestone + priority → E04 file, roadmap line, epic issue
+/pm:plan ticket "remember me" E03     → T016 file with what/why/acceptance, listed in E03, Flow redrawn, issue
+/pm:plan bug "login 500 on + email"   → same, acceptance = the repro, must be reproduced before fixed
+/pm:plan idea "dark mode"             → one Backlog line
+/pm:plan apply                        → walks you through every waiting proposal (see below)
+/pm:plan                              → reviews the current milestone with you, breaks epics into tickets
+<span class="cm">each ends with:  "synced: 1 issue created, 2 updated"</span></pre>
+
+  <h3>/pm:work</h3>
+<pre><span class="yo">you:</span>    /pm:work                       <span class="cm"># or /pm:work T012</span>
+<span class="ag">agent:</span>  picks by the Flow: todo, deps done, no owner, then priority, then order
+        claims → plan written into the ticket (waits for you if plan: required)
+        → branch → subtasks by TDD → checks → review → docs → PR
+        report:
+          T012 rate-limit login  →  review
+          subtasks 4/4 · checks green · review: 2 findings fixed
+          PR #34 (closes #31), waiting for your merge
+          proposals: 1 waiting in T012
+          next ready: T013, T014</pre>
+
+  <h3>/pm:status</h3>
+<pre><span class="yo">you:</span>    /pm:status
+<span class="ag">agent:</span>  M1 · Sign-in works
+        todo: T013 T014 · in progress: T012 (api-work, 2/4) · review: T011 (#33) · done: T001 T010
+        blocked: none
+
+        Where we are: two of five tickets in E03 are done and one is in review ...
+        What is blocked: nothing; T012 waits on nothing ...
+        What is next: T013 and T014 are ready and can run in parallel ...</pre>
+
+  <h3>/pm:retro</h3>
+<pre><span class="yo">you:</span>    /pm:retro                      <span class="cm"># when the milestone's tickets are done</span>
+<span class="ag">agent:</span>  shows: 9 done, 1 moved to M2, 3 audit tickets filed of which 1 rejected,
+        review caught the same typing issue twice → proposed CLAUDE.md rule,
+        one mid-work choice → proposed decisions.md entry, draft of M2's first epics
+<span class="yo">you:</span>    approve some, reject some
+<span class="ag">agent:</span>  writes what you approved, marks M1 done, sets milestone: M2 in the pm block</pre>
+
+  <h3>/pm:audit</h3>
+<pre><span class="yo">you:</span>    /pm:audit                      <span class="cm"># or a project routine runs it</span>
+<span class="ag">agent:</span>  reads code, tests, recent changes, decisions.md
+        report:
+          filed 3 tickets (cap 3), all auto: no
+          T017 bug: password reset accepts an expired token    evidence: src/auth/reset.py:58, no test covers expiry
+          T018 inconsistency: two config loaders                evidence: src/config.py and src/auth/config.py
+          T019 structure: auth module imports from web layer    contradicts decisions.md entry "layers"
+          skipped 4 lower-evidence findings; run again after these are handled</pre>
+
+
+  <h3>/pm:help</h3>
+<pre><span class="yo">you:</span>    /pm:help
+<span class="ag">agent:</span>  pm · milestone → epic → ticket → subtask, in docs/pm/
+
+        skill        what it is                     input                        output
+        /pm:init     set up a project               answers to 6–8 questions     CONTEXT.md, docs/pm/, first tickets
+        /pm:plan     add or reshape work            epic|ticket|bug|idea|apply   files + issues, Flow redrawn
+        /pm:work     do one ticket                  [Txxx] [--routine]           plan → PR, ticket status
+        /pm:status   see the board                  nothing                      board + 3 paragraphs
+        /pm:retro    close a milestone              nothing                      proposals, then writes
+        /pm:audit    find problems, file tickets    nothing                      tickets, auto: no
+        /pm:help     this list                      [skill]                      cheat sheet
+
+        this project: milestone M1 · flow branch-pr · gates tdd,checks,review,docs · routines off
+        example:  /pm:plan ticket "remember me box" E03   then   /pm:work
+
+<span class="yo">you:</span>    /pm:help work
+<span class="ag">agent:</span>  /pm:work — picks by the Flow, claims, plans, builds through the four gates, opens a PR.
+        input:   /pm:work            next ready ticket
+                 /pm:work T012       that ticket
+                 /pm:work --routine  unattended: auto: yes tickets only, capped, never merges
+        output:  Plan section in the ticket, PR, status review, report with next ready tickets
+        example: /pm:work T016 → plan shown → "approved" → PR #34 (closes #31)</pre>
+
+  <h3>"Something noticed mid-work", start to finish</h3>
+  <p class="prose">An agent working a ticket never widens that ticket and never silently ignores what it finds. It writes a proposal, finishes its own ticket, and you decide later.</p>
+<pre><span class="ag">agent</span> is on T012 (rate-limit login)
+  │
+  ├─ finds: session tokens from T010 never expire. Not T012's job.
+  ├─ does NOT fix it in this branch     <span class="cm"># one ticket = one PR</span>
+  ├─ does NOT ignore it
+  └─ appends to docs/pm/tickets/T012-rate-limit.md:
+
+        ## Proposed changes
+        - new ticket: "Session tokens never expire" in E03, priority P1
+          evidence: src/auth/session.py:41 creates a token with no expiry;
+          T013 (7-day cookie) assumes one exists
+        - change T013: add subtask "reject expired token"
+
+     finishes T012, opens the PR; the report ends with
+        "1 proposal waiting in T012. Run /pm:plan apply to review."</pre>
+<pre><span class="yo">you:</span>    /pm:plan apply
+<span class="ag">agent:</span>  Proposal 1 of 2, from T012: new ticket "Session tokens never expire" in E03, P1
+        evidence: src/auth/session.py:41 ...
+        accept / edit / reject?
+<span class="yo">you:</span>    accept, but P2
+<span class="ag">agent:</span>  created T015, added to E03 and its Flow (T013 now depends on T015), issue #38 opened.
+        Proposal 2 of 2: change T013 ... accept / edit / reject?
+<span class="yo">you:</span>    reject
+<span class="ag">agent:</span>  done. T012's Proposed changes section is empty; both outcomes are noted under its Notes.</pre>
+
+  <!-- ============ 7 SCENARIOS ============ -->
+  <h2 id="scenarios">7 · Scenarios, as you will live them</h2>
+
+  <div class="scn">
+    <h3>A · New project from an idea, on GitHub</h3>
+    <div class="meta"><span class="chip on">new</span><span class="chip on">host: github</span><span class="chip on">flow: branch-pr</span></div>
+    <ul class="tl">
+      <li class="you"><span class="who">you</span><span class="what"><code>mkdir ~/projects/&lt;name&gt; &amp;&amp; cd $_ &amp;&amp; git init &amp;&amp; claude</code> then <code>/pm:init</code><span class="sub">Detect: git yes, remote none, no code.</span></span></li>
+      <li class="agent"><span class="who">agent</span><span class="what">Interview, one screen at a time: problem, users, must-haves, non-goals, stack, GitHub yes/no, flow. It never asks for a deadline.</span></li>
+      <li class="agent"><span class="who">agent</span><span class="what">Proposal in chat: M1 and M2 in order, 4 epics, 9 tickets with one-line what/why, the pm block, the stack.</span></li>
+      <li class="you"><span class="who">you</span><span class="what">"E04 belongs in M2" → revised → "ok".</span></li>
+      <li class="agent"><span class="who">agent</span><span class="what">Writes CONTEXT.md, docs/pm with roadmap, 4 epic files, 9 ticket files, an empty decisions.md with the stack entry. Sets up pyproject, src, tests. <code>gh repo create</code>, push, 2 milestones, 4 epic issues, 9 ticket issues.</span></li>
+      <li class="you"><span class="who">you</span><span class="what"><code>/pm:work</code></span></li>
+      <li class="agent"><span class="who">agent</span><span class="what">Picks T001 (P1, no deps, no owner). Claims it. Branch <code>t001-tooling</code>. Subtasks by TDD: smoke test, ruff config, CI file.</span></li>
+      <li class="gate"><span class="who">gate</span><span class="what">Runs the <code>check:</code> line, <code>/code-review</code>, README subtask.</span></li>
+      <li class="agent"><span class="who">agent</span><span class="what">PR #12 "T001 tooling (closes #3)". Status review. pm.merge is <code>ask</code>, so it stops: "PR open. Next free ticket: T002."</span></li>
+    </ul>
+  </div>
+
+  <div class="scn">
+    <h3>B · Existing repo, two agents in parallel</h3>
+    <div class="meta"><span class="chip on">existing</span><span class="chip on">host: github</span><span class="chip on">2 agents, yotree</span></div>
+    <ul class="tl">
+      <li class="you"><span class="who">you</span><span class="what"><code>/pm:init</code> in an existing repo<span class="sub">Detect: git, GitHub remote, a package manager, a test runner, a linter, CI, an older planning folder.</span></span></li>
+      <li class="agent"><span class="who">agent</span><span class="what">Audit: reads structure, tests, CI, open TODOs, recent commits, and any old planning docs. Proposes M1 with 3 epics and 8 tickets, some carried over from open work found in the old docs. Asks: "Move the old planning folder to docs/archive so only docs/pm is live?"</span></li>
+      <li class="you"><span class="who">you</span><span class="what">"Yes." Then <code>/spawn-agent api-work yotree</code> and <code>/spawn-agent ui-work yotree</code>.</span></li>
+      <li class="agent"><span class="who">agent 1</span><span class="what">SessionStart hook prints: "M1 · todo 6 · in progress 0 · review 0 · done 2". <code>/pm:work</code> claims T022 by committing <code>owner: api-work</code> to main before branching.</span></li>
+      <li class="agent"><span class="who">agent 2</span><span class="what"><code>/pm:work</code> 30 seconds later. Pulls, sees T022 owned, T023 depends on T022, takes T025 in its own worktree.</span></li>
+      <li class="gate"><span class="who">gate</span><span class="what">Both go through TDD, checks, review, docs. Two PRs, each closing its ticket issue.</span></li>
+      <li class="you"><span class="who">you</span><span class="what">From the phone: "merge both". <code>/pm:status</code> shows M1 with 4 done, 4 todo, nothing blocked.</span></li>
+    </ul>
+  </div>
+
+  <div class="scn">
+    <h3>C · Small script project</h3>
+    <div class="meta"><span class="chip warn">host: none</span><span class="chip on">flow: direct</span><span class="chip">mirror: off</span></div>
+    <ul class="tl">
+      <li class="you"><span class="who">you</span><span class="what"><code>/pm:init</code><span class="sub">Detect: git, no remote, bash scripts, no tests.</span></span></li>
+      <li class="agent"><span class="who">agent</span><span class="what">Short audit. Proposes one milestone, one epic, 3 tickets, pm block with <code>host: none</code> and the shell linter and test runner as the check command. Asks: "Tiny project. Branches, or direct commits?"</span></li>
+      <li class="you"><span class="who">you</span><span class="what">"Direct."</span></li>
+      <li class="agent"><span class="who">agent</span><span class="what"><code>/pm:work</code>: claims T001, shell test first, lint, review on the diff, commit to main, status done. No issues, nothing to sync. Same four files, just few of them.</span></li>
+    </ul>
+  </div>
+
+  <div class="scn">
+    <h3>D · Fork of an open-source repo</h3>
+    <div class="meta"><span class="chip warn">fork detected</span><span class="chip">docs ignored by git</span></div>
+    <ul class="tl">
+      <li class="agent"><span class="who">agent</span><span class="what">Detect sees an <code>upstream</code> remote and CONTRIBUTING.md. "Fork. I will keep CONTEXT.md and docs/pm local and ignored by git through .git/info/exclude, and set mirror off. OK?"</span></li>
+      <li class="you"><span class="who">you</span><span class="what">"Yes."</span></li>
+      <li class="agent"><span class="who">agent</span><span class="what">Writes the files, records upstream's branch and commit conventions from CONTRIBUTING.md in the pm block so <code>/pm:work</code> follows them. Every status run reminds you the docs are untracked and copies them to <code>~/projects/.pm-backup/&lt;repo&gt;/</code>.</span></li>
+    </ul>
+  </div>
+
+  <div class="scn">
+    <h3>E · The plan meets reality</h3>
+    <div class="meta"><span class="chip on">re-plan</span><span class="chip warn">needs your approval</span></div>
+    <ul class="tl">
+      <li class="agent"><span class="who">agent</span><span class="what">Working T012, finds the reverse proxy already limits by IP, so half the ticket is pointless. Finishes the per-account part, ticks those subtasks, and writes under "Proposed changes" in T012: drop the IP subtasks, open a new ticket for proxy config. Reports it.</span></li>
+      <li class="you"><span class="who">you</span><span class="what"><code>/pm:plan apply</code> → "accept, new ticket to backlog".</span></li>
+      <li class="agent"><span class="who">agent</span><span class="what">Edits T012's acceptance and subtasks, adds the backlog line, updates the epic list and issue #31, adds a decisions.md entry "IP limiting stays in the proxy".</span></li>
+    </ul>
+  </div>
+
+  <div class="scn">
+    <h3>F · Milestone close</h3>
+    <div class="meta"><span class="chip on">/pm:status</span><span class="chip on">/pm:retro</span></div>
+    <ul class="tl">
+      <li class="you"><span class="who">you</span><span class="what"><code>/pm:retro</code> when M1's last ticket is done</span></li>
+      <li class="agent"><span class="who">agent</span><span class="what">Shows: 9 tickets done, 1 moved to M2. Two review rounds hit the same mypy issue → proposed CLAUDE.md rule. One choice made mid-work → decisions.md entry proposed. Draft of M2's first epics.</span></li>
+      <li class="you"><span class="who">you</span><span class="what">Approve all but the CLAUDE.md rule.</span></li>
+      <li class="agent"><span class="who">agent</span><span class="what">Marks M1 done in the roadmap, closes the milestone on GitHub, sets <code>milestone: M2</code> in the pm block, writes the decisions entry. <code>/pm:plan</code> is next to fill M2.</span></li>
+    </ul>
+  </div>
+
+  <!-- ============ 7 BUILD ============ -->
+  <h2 id="build">8 · Build order, and what happened</h2>
+  <p class="prose">Phases 1 to 5 are built. Scripts were written test-first with the standard library test runner (no packages added). Phase 6 waits for you to name the repos.</p>
+  <div class="tablewrap"><table>
+    <thead><tr><th>Phase</th><th>Delivered</th><th>Proof</th></tr></thead>
+    <tbody>
+      <tr><td class="k">1 files</td><td>Repo, plugin.json, marketplace.json, the four templates, <code>doctor.sh</code>, <code>pm_detect.sh</code>, <code>/pm:init</code>, <code>/pm:help</code>, local install, the no-time-tracking test</td><td>Init on a fresh repo with an old TODO file produced roadmap, epics, tickets, decisions and the pm block on all four models; the TODO went to <code>docs/archive/</code>. The no-time test is part of the suite.</td></tr>
+      <tr><td class="k">2 board + plan</td><td><code>pm.py</code> (board, next, flow, claim, set, validate, new), <code>/pm:plan</code>, <code>pm_sync.py</code> + GitHub adapter</td><td>Unit tests green. Live run on a throwaway private repo: two milestones, nine issues with epic and priority labels, epic issues with task lists, done tickets closed, issue numbers written back. A second and third sync created nothing new.</td></tr>
+      <tr><td class="k">3 work</td><td><code>/pm:work</code>: picker, claim, plan step, four gates, three flows; plan mode for <code>plan: required</code> tickets in an interactive session</td><td>All four models: claim committed on main, ticket branch, plan written, tests first, merge, ticket done, extra findings under Proposed changes. Headless fallback verified: without a plan-mode tool the skill writes the plan and stops before code.</td></tr>
+      <tr><td class="k">4 status + retro + hooks</td><td><code>/pm:status</code>, <code>/pm:retro</code>, the two hooks</td><td>Board matches the ticket files. Both hooks fire in a live session: the start hook injects the board line and skill map, the stop hook raises a warn-only notice when code changed without a ticket update.</td></tr>
+      <tr><td class="k">5 audit + routines</td><td><code>/pm:audit</code>, <code>/pm:work --routine</code> with the auto flag and cap</td><td>Audit on a repo with planted bugs filed tickets with file:line evidence, none <code>auto: yes</code>, no code touched, on all four models.</td></tr>
+      <tr><td class="k">6 adopt</td><td>Run for real on two of your existing repos, moving any old planning docs to archive after a yes</td><td>Not started. Name the repos.</td></tr>
+    </tbody>
+  </table></div>
+
+  <h3>Verification: 113 cells across four models</h3>
+  <p class="prose">Three kinds of run, each cell a fresh session in its own throwaway repo with the plugin loaded. <b>Headless</b>: a plain-English prompt (or an explicit command where the skill is only ever typed), automatic checks on the files, the git history and the answer. <b>Live GitHub</b>: the branch-pr flow against a private throwaway repo, with real pushes, pull requests, issue links and merges. <b>Interactive</b>: a real terminal session driven through tmux, where a script answers every dialog the way a person would, so plan mode, the question tool and the merge question are exercised for real. Every headless cell was then run a second time to check consistency. Runs cut short by the plan's usage window were discarded and repeated.</p>
+  <div class="tablewrap"><table>
+    <thead><tr><th>Cell</th><th>What passes means</th><th>Haiku</th><th>Sonnet</th><th>Opus</th><th>Fable</th></tr></thead>
+    <tbody>
+      <tr><td colspan="6" class="k">Headless, plain English (twice each)</td></tr>
+      <tr><td>set up tracking</td><td>docs created, pm block parses, validate ok, nothing committed</td><td>7/7</td><td>7/7</td><td>7/7</td><td>7/7</td></tr>
+      <tr><td>set up tracking on a fork</td><td>docs kept out of git, mirror off, not committed</td><td>10/10</td><td>10/10</td><td>10/10</td><td>10/10</td></tr>
+      <tr><td>set up tracking, already set up</td><td>nothing overwritten, says so</td><td>4/4</td><td>4/4</td><td>4/4</td><td>4/4</td></tr>
+      <tr><td>record a bug</td><td>ticket with reproduce steps and acceptance, flow redrawn</td><td>8/8</td><td>8/8</td><td>8/8</td><td>8/8</td></tr>
+      <tr><td>add an area of work</td><td>new epic in M1, two or three tickets, flow drawn</td><td>9/9</td><td>9/9</td><td>9/9</td><td>9/9</td></tr>
+      <tr><td>note an idea for later</td><td>one Backlog line, no ticket</td><td>5/5</td><td>5/5</td><td>5/5</td><td>5/5</td></tr>
+      <tr><td>apply an agent's proposals</td><td>new ticket, proposals cleared, code untouched</td><td>8/8</td><td>8/8</td><td>8/8</td><td>8/8</td></tr>
+      <tr><td>where are we</td><td>board, ready list, the validate problem, no file changed</td><td>6/6</td><td>6/6</td><td>6/6</td><td>6/6</td></tr>
+      <tr><td>board on a fork</td><td>backup copy made and named</td><td>7/7</td><td>7/7</td><td>7/7</td><td>7/7</td></tr>
+      <tr><td>pick up the next ticket</td><td>claim committed, plan, tests first, merged, not widened</td><td>10/10</td><td>10/10</td><td>10/10</td><td>10/10</td></tr>
+      <tr><td>next ticket needs plan approval</td><td>plan written, no code, waits for approval</td><td>8/8</td><td>8/8</td><td>8/8</td><td>8/8</td></tr>
+      <tr><td>do T003 (dependency open)</td><td>not claimed, names the open dependency</td><td>7/7</td><td>7/7</td><td>7/7</td><td>7/7</td></tr>
+      <tr><td><code>/pm:work --routine</code></td><td>only the auto ticket, left in review, never merged</td><td>9/9</td><td>9/9</td><td>9/9</td><td>9/9</td></tr>
+      <tr><td>close the milestone</td><td>Retro block, next milestone current, not committed</td><td>8/8</td><td>8/8</td><td>8/8</td><td>8/8</td></tr>
+      <tr><td>find bugs and file them</td><td>tickets with file:line evidence, never auto, no code touched</td><td>7/7</td><td>7/7</td><td>7/7</td><td>7/7</td></tr>
+      <tr><td><code>/pm:audit --routine --cap 2</code></td><td>same, and nothing committed</td><td>7/7</td><td>7/7</td><td>7/7</td><td>7/7</td></tr>
+      <tr><td><code>/pm:help</code>, <code>/pm:help work</code></td><td>the sheet, or one section, plus this project's settings</td><td>3/3, 4/4</td><td>3/3, 4/4</td><td>3/3, 4/4</td><td>3/3, 4/4</td></tr>
+      <tr><td>board and bug with no python3</td><td>same results, done by hand from the markdown</td><td>6/6, 8/8</td><td>6/6, 8/8</td><td>6/6, 8/8</td><td>6/6, 8/8</td></tr>
+      <tr><td>unrelated question</td><td>no pm skill used, nothing changed</td><td>4/4</td><td>4/4</td><td>4/4</td><td>4/4</td></tr>
+      <tr><td colspan="6" class="k">Live GitHub, branch-pr flow</td></tr>
+      <tr><td><code>merge: ask</code></td><td>claim pushed to main, PR with Closes #issue, ticket in review, PR left open</td><td>13/13</td><td>·</td><td>13/13</td><td>·</td></tr>
+      <tr><td><code>merge: auto</code></td><td>PR squash-merged, issue closed, ticket done, flow redrawn, main tests pass</td><td>·</td><td>14/14</td><td>·</td><td>14/14</td></tr>
+      <tr><td colspan="6" class="k">Interactive, real sessions</td></tr>
+      <tr><td>init interview</td><td>one question per call, recommended answer first, no deadline asked, asks before committing</td><td>10/10</td><td>10/10</td><td>10/10</td><td>10/10</td></tr>
+      <tr><td>bug interview</td><td>at most two questions, then the ticket</td><td>6/7</td><td>7/7</td><td>7/7</td><td>7/7</td></tr>
+      <tr><td>plan mode on <code>plan: required</code></td><td>EnterPlanMode, four-label plan, approval dialog, plan copied with approved: yes, no code before that</td><td>13/13</td><td>13/13</td><td>13/13</td><td>13/13</td></tr>
+      <tr><td><code>merge: ask</code> locally</td><td>asks before merging, merges after yes</td><td>9/9</td><td>9/9</td><td>9/9</td><td>9/9</td></tr>
+      <tr><td>retro interview</td><td>three questions, Retro block, next milestone current</td><td>9/9</td><td>9/9</td><td>9/9</td><td>9/9</td></tr>
+    </tbody>
+  </table></div>
+  <p class="prose">The one cell short of full marks: Haiku asked three questions before filing a bug where the skill allows two. The other 112 pass, and every headless cell passed its second run too.</p>
+  <h4>What the failures changed</h4>
+  <p class="prose">Before the fixes, Haiku merged in routine mode, built a <code>plan: required</code> ticket without approval, merged under <code>merge: ask</code>, skipped the fork backup, and sent "apply the proposals" to the status skill. Opus started a ticket whose dependency was still open because the prompt said "no questions". Prose rules did not hold for the weaker or bolder models, so the rules became mechanical, each with unit tests:</p>
+  <ul class="tight prose">
+    <li><code>pm.py claim</code> refuses a ticket with an open dependency (only <code>--force</code> overrides), prints the exact commit, push and branch commands for the project's flow, and warns when plan approval is needed.</li>
+    <li><code>pm.py next --routine</code> names the routine owner, and the plan gate refuses <code>git merge</code> and <code>gh pr merge</code> on a ticket owned by a routine.</li>
+    <li>The plan gate blocks any code edit on a ticket branch until the plan is in the ticket and, for <code>plan: required</code>, approved.</li>
+    <li><code>pm.py backup</code> does the fork copy, so the status skill runs a command instead of remembering a rule.</li>
+    <li>Skill text: "do not ask me questions" is not an approval and not a merge decision; one question per call in interviews; the status skill hands "apply the proposals" to the plan skill.</li>
+  </ul>
+  <p class="prose">Also observed, not a failure: when asked directly to add a function, none of the four models went through a ticket; the stop hook printed its reminder every time. That is the designed behaviour, the reminder is the nudge.</p>
+
+  <!-- ============ 8 OPEN ============ -->
+  <h2 id="open">9 · Decisions the build settled</h2>
+  <ul class="tight prose">
+    <li><b>Skill names</b>: <code>/pm:init</code>, <code>/pm:plan</code>, <code>/pm:work</code>, <code>/pm:status</code>, <code>/pm:retro</code>, <code>/pm:audit</code>, <code>/pm:help</code>. Plugin name <code>pm</code>; Claude Code adds the <code>pm:</code> prefix itself, the folders are <code>skills/init</code> and so on. Typing <code>/pm</code> lists them.</li>
+    <li><b>Docs live under <code>docs/pm/</code></b> so they never collide with a repo's own docs folder.</li>
+    <li><b>Decisions</b> are one file, <code>docs/pm/decisions.md</code>, newest entry first. Say "drop it" and it goes.</li>
+    <li><b>Ticket status</b> has four values: todo, in progress, review, done. "review" means a PR is open. Blocked is not a status; it is a dependency that is not done, and the board shows it as a note on the card.</li>
+    <li><b>GitHub mapping</b>: milestone → milestone, epic → issue labelled epic with a task list of its tickets, ticket → issue, PR closes the ticket issue. Sync is one-way; edits made on GitHub are overwritten.</li>
+    <li><b>No time tracking of any kind.</b> No target dates, no deadlines, no hour or day estimates, no velocity, no "on track / late". Milestones are versions in order. If a status report ever needs a "when", the answer is "when the tickets are done". Enforced three ways: the templates have no such fields, every SKILL.md carries the rule in words so the agent never asks for or prints one, and <code>tests/test_no_time_tracking.py</code> fails if any of those files mention them.</li>
+    <li><b>Routines</b> are opt-in per project through the pm block. The plugin never schedules anything by itself. Routine runs only take <code>auto: yes</code> tickets whose plan is none or approved, and never merge. An unattended run never makes a design choice.</li>
+    <li><b>Merging a PR</b> is <code>ask</code> by default; <code>auto</code> is a per-project choice.</li>
+    <li><b>Claiming</b> commits <code>owner:</code> on main, or pushes when a remote exists, before branching. A claim whose branch has no commits and whose owner session is no longer running can be taken over, with a note.</li>
+    <li><b>Old planning docs in an existing repo</b> are moved to <code>docs/archive/</code> when you adopt the plugin there, not deleted, and only after you say yes.</li>
+    <li><b>Scripts</b> are Python 3.12 with no third-party packages, plus small bash. No Python on a machine is fine: the SKILL.md rules let the agent do the same edits by hand, and <code>doctor.sh</code> says what to install.</li>
+    <li><b>Wording</b>: plain words everywhere, and the two words you banned never appear.</li>
+    <li><b>Plan step</b> is part of <code>/pm:work</code> for every ticket. A <code>plan: required</code> ticket in an interactive session switches the session into plan mode itself: read-only until you approve the plan at the exit, then the approved plan is copied into the ticket. Routine and headless runs have nobody to approve, so they skip such tickets; if a plan-mode tool is missing the skill writes the plan into the ticket and asks, or stops, before any edit.</li>
+    <li><b>Scripts and the pm block</b>: one command line entry point <code>pm.py</code>; the pm block is plain <code>key: value</code> lines, one per line, because the scripts parse it. Values like <code>mirror: yes</code> are accepted and read as on.</li>
+    <li><b>Review by fresh eyes.</b> The review gate starts two read-only subagents at once, <code>pm:verifier</code> (check command, every acceptance line against the diff, widened scope) and <code>pm:reviewer</code> (bugs, edge cases, error handling, security, hollow tests). Sonnet by default, <code>review_model</code> in the pm block overrides. A normal run fixes their findings; a routine run stops at them, notes them in the ticket and the PR, and files out-of-scope ones as tickets.</li>
+    <li><b>Questions at the plan step, per ticket.</b> In an interactive session every ticket asks what it leaves open, at most three questions, shows the plan and asks to go ahead before the first edit, and asks which model reviews it, Sonnet preselected or Opus. A ticket approved in plan mode skips the go-ahead. Routine and headless runs skip the questions and take the defaults.</li>
+    <li><b>Bug fixes freeze their tests.</b> On a <code>Bug:</code> ticket the reproducing test is committed, then <code>pm.py freeze</code>; from there the gate refuses edits to test files. A test that is wrong needs a person: <code>pm.py unfreeze --reason</code> records why under Notes. This ticket's own test stays in the same ticket, an unrelated wrong test becomes a new ticket. Routines never unfreeze.</li>
+    <li><b>Dismissed, with a reason.</b> A fifth status for findings nobody wants: <code>pm.py dismiss --reason</code>. Out of the counts and the ready list, the file kept, the issue closed as not planned, and validate flags any ticket that still depends on it. Audit tickets carry <code>confidence: high | medium | low</code>.</li>
+    <li><b>The plan follows the build.</b> When the build departs from the ticket's plan, the docs gate rewrites Approach and Touches to what was done and says why under Notes.</li>
+    <li><b>Lessons reach CLAUDE.md.</b> The retro offers up to three one-line rules for CLAUDE.md, written only after a yes.</li>
+    <li><b>Routines have a recipe.</b> Two templates, a crontab and a GitHub Actions job, so a project copies instead of writing.</li>
+    <li><b>Evals ship with the plugin.</b> The scenario runners and their checks live in <code>evals/</code>; results are ignored by git. Run them after changing a skill, hook, or agent, and when a new model appears.</li>
+  </ul>
+  <p class="callout green prose">Built, installed, and verified. After a plugin update, restart Claude Code to load it, then <code>/pm:help</code>. This page ships with the plugin as <code>docs/blueprint.html</code>.</p>
+</div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/mermaid/11.15.0/mermaid.min.js"></script>
+<script>mermaid.initialize({startOnLoad:true,theme:"neutral",fontFamily:"IBM Plex Sans, system-ui, sans-serif"});</script>
+</body>
+</html>

@@ -1,0 +1,46 @@
+# pm routines from GitHub Actions. Copy to .github/workflows/pm-routines.yml and edit the two marked lines.
+# One secret: CLAUDE_CODE_OAUTH_TOKEN, made once on your machine with `claude setup-token`
+# (or use ANTHROPIC_API_KEY instead). Turn the routines on in the pm block first: routines: work=on audit=on
+name: pm routines
+on:
+  schedule:
+    - cron: "0 3 * * *"     # audit
+    - cron: "30 * * * *"    # work
+  workflow_dispatch:
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+jobs:
+  routine:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Install Claude Code and the pm plugin
+        run: |
+          curl -fsSL https://claude.ai/install.sh | bash
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          "$HOME/.local/bin/claude" plugin marketplace add https://github.com/OWNER/pm-plugin   # edit: where the plugin lives
+          "$HOME/.local/bin/claude" plugin install pm@pm-plugin
+          git config user.name "pm routine"
+          git config user.email "pm-routine@users.noreply.github.com"
+      - name: Run the routine
+        env:
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          skill="/pm:work --routine"
+          [ "${{ github.event.schedule }}" = "0 3 * * *" ] && skill="/pm:audit --routine"
+          claude -p "$skill" --permission-mode bypassPermissions --max-turns 80
+      - name: Open a pull request with what the audit filed
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ -n "$(git status --porcelain docs/pm)" ]; then
+            git switch -c pm-audit-${{ github.run_id }}
+            git add docs/pm && git commit -m "pm: audit findings"
+            git push -u origin HEAD
+            gh pr create --title "pm: audit findings" --body "Tickets filed by the audit routine. Review, then merge or dismiss each with a reason."
+          fi
