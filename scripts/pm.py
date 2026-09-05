@@ -7,6 +7,7 @@
   pm.py flow <Exx> | --all         redraw Tickets + Flow sections of an epic
   pm.py claim <Txxx> <owner>       set owner and status in progress
   pm.py release <Txxx>             clear owner, status back to todo
+  pm.py ready <Txxx> [--early]     grilled: What, Why, Acceptance settled (--early: blocked ticket, on the user's word)
   pm.py set <Txxx> key=value ...   change frontmatter fields
   pm.py validate                   list problems; exit 1 if any
   pm.py backup                     forks only: copy docs/pm and CONTEXT.md to $PM_BACKUP_DIR or ~/.pm-backup
@@ -56,7 +57,7 @@ def ticket_json(t: pm_lib.Ticket) -> dict:
     return {
         "id": t.id, "title": t.title, "epic": t.epic, "milestone": t.milestone,
         "status": t.status, "priority": t.priority, "depends_on": t.depends_on,
-        "owner": t.owner, "auto": t.auto, "plan": t.plan, "plan_approved": t.plan_approved,
+        "owner": t.owner, "auto": t.auto, "plan": t.plan, "plan_approved": t.plan_approved, "ready": t.ready,
         "issue": t.issue, "pr": t.pr, "path": str(t.path),
     }
 
@@ -74,11 +75,18 @@ def cmd_line(root, args):
 
 def cmd_next(root, args):
     need_pm(root)
-    t = pm_lib.pick_next(pm_lib.load_tickets(root), root, routine=args.routine)
+    tickets = pm_lib.load_tickets(root)
+    t = pm_lib.pick_next(tickets, root, routine=args.routine)
     if args.json:
         print(json.dumps(ticket_json(t) if t else {}))
     else:
-        print(ticket_summary(t) if t else "none")
+        grill = [g.id for g in pm_lib.to_grill(tickets)]
+        if t:
+            print(ticket_summary(t))
+        elif grill:
+            print(f"none (to grill: {', '.join(grill)}; a ticket is worked only after /pm:grill marks it ready)")
+        else:
+            print("none")
         if t and args.routine:
             print(f"routine: claim with `pm.py claim {t.id} routine-{t.id.lower()}`; never merge, stop at status=review")
 
@@ -109,6 +117,8 @@ def cmd_claim(root, args):
     open_deps = [f"{d} ({tickets[d].status})" for d in t.depends_on if d in tickets and tickets[d].status != "done"]
     if open_deps and not args.force:
         fail(f"{t.id} depends on {', '.join(open_deps)}: finish that first, or use --force to start it out of order")
+    if not t.ready and not args.force:
+        fail(f"{t.id} is not grilled yet (ready: no): run /pm:grill {t.id} first so What, Why and Acceptance are settled, or use --force to skip the grill")
     pm_lib.set_fields(root, t.id, owner=args.owner, status="in progress")
     print(f"{t.id} claimed by {args.owner}: {t.title}")
     if t.plan == "required" and not t.plan_approved:
@@ -176,6 +186,22 @@ def cmd_dismiss(root, args):
     print(f"{t.id} dismissed: {args.reason.strip()}")
 
 
+def cmd_ready(root, args):
+    need_pm(root)
+    tickets = {t.id: t for t in pm_lib.load_tickets(root)}
+    if args.ticket not in tickets:
+        fail(f"unknown ticket {args.ticket}")
+    try:
+        t = pm_lib.set_fields(root, args.ticket, early=args.early, ready="yes")
+    except ValueError as exc:
+        fail(str(exc))
+    waits = pm_lib.open_deps(t, tickets)
+    if waits:
+        print(f"{t.id} ready (grilled early: waits on {', '.join(waits)}; re-check with /pm:grill {t.id} once that is done)")
+    else:
+        print(f"{t.id} ready: start it with /pm:work {t.id}")
+
+
 def cmd_set(root, args):
     need_pm(root)
     fields = {}
@@ -231,7 +257,7 @@ def cmd_new(root, args):
                     id=tid, title=args.title, epic=args.epic,
                     milestone=args.milestone or epics[args.epic].milestone,
                     priority=args.priority, depends_on=", ".join(deps),
-                    auto="yes" if args.auto else "no", plan=args.plan,
+                    auto="yes" if args.auto else "no", plan=args.plan, ready="yes" if args.ready else "no",
                     what=args.what or "(fill in)", why=args.why or "(fill in)",
                     acceptance=args.acceptance or "(one testable line per item)",
                     subtask="(first step)")
@@ -349,6 +375,11 @@ def build_parser():
     s.add_argument("pairs", nargs="+")
     s.set_defaults(func=cmd_set)
 
+    s = sub.add_parser("ready", help="mark a grilled ticket ready for /pm:work")
+    s.add_argument("ticket")
+    s.add_argument("--early", action="store_true", help="the ticket is blocked and the user said to grill it anyway")
+    s.set_defaults(func=cmd_ready)
+
     sub.add_parser("validate").set_defaults(func=cmd_validate)
     sub.add_parser("backup", help="forks only: copy docs/pm and CONTEXT.md to $PM_BACKUP_DIR or ~/.pm-backup").set_defaults(func=cmd_backup)
 
@@ -369,6 +400,7 @@ def build_parser():
     s.add_argument("--depends", help="comma-separated ticket ids")
     s.add_argument("--auto", action="store_true", help="a routine may take this ticket")
     s.add_argument("--plan", default="none", choices=["none", "required"])
+    s.add_argument("--ready", action="store_true", help="already grilled: What, Why and a testable Acceptance line are settled")
     s.add_argument("--confidence", choices=pm_lib.CONFIDENCE, help="audit findings: how sure the finding is")
     s.add_argument("--goal")
     s.add_argument("--what")

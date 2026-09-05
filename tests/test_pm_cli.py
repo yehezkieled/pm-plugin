@@ -300,13 +300,97 @@ class ConfidenceTest(unittest.TestCase):
 
     def test_new_ticket_with_confidence(self):
         out = run(self.root, "new", "ticket", "--title", "Bug: average of an empty list crashes", "--epic", "E01",
-                  "--confidence", "medium", "--what", "x", "--acceptance", "y").stdout
+                  "--confidence", "medium", "--what", "x", "--why", "z", "--acceptance", "y").stdout
         path = self.root / out.split("created ")[1].strip()
         self.assertIn("confidence: medium", path.read_text())
-        self.assertIn("T008 todo P2 Bug: average of an empty list crashes  confidence: medium", run(self.root, "board").stdout)
+        self.assertIn("T008 todo P2 Bug: average of an empty list crashes  not grilled  confidence: medium", run(self.root, "board").stdout)
         self.assertNotIn("T008", run(self.root, "validate", expect=None).stdout)  # the fixture's T007 is the only problem
 
     def test_confidence_values_are_checked(self):
         run(self.root, "new", "ticket", "--title", "x", "--epic", "E01", "--confidence", "sure", expect=2)
         proc = run(self.root, "set", "T004", "confidence=sure", expect=None)
         self.assertNotEqual(proc.returncode, 0)
+
+
+class GrillCliTest(unittest.TestCase):
+    """A ticket is created thin (`ready: no`); /pm:grill sets `ready: yes`; work refuses a ticket that was not grilled."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = make_repo(Path(self.tmp.name))
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def ticket(self, tid):
+        return next((self.root / "docs/pm/tickets").glob(f"{tid}-*.md")).read_text()
+
+    def test_new_ticket_is_thin_unless_grilled_at_creation(self):
+        run(self.root, "new", "ticket", "--title", "Remember me box", "--epic", "E01")
+        self.assertIn("ready: no\n", self.ticket("T008"))
+        run(self.root, "new", "ticket", "--title", "Bug: space in password", "--epic", "E01", "--ready")
+        self.assertIn("ready: yes\n", self.ticket("T009"))
+
+    def test_claim_refuses_a_ticket_that_was_not_grilled(self):
+        run(self.root, "new", "ticket", "--title", "Remember me box", "--epic", "E01")
+        proc = run(self.root, "claim", "T008", "api-work", expect=1)
+        self.assertIn("T008 is not grilled yet", proc.stderr)
+        self.assertIn("/pm:grill T008", proc.stderr)
+        self.assertIn("status: todo", self.ticket("T008"))
+        run(self.root, "claim", "T008", "api-work", "--force")
+        self.assertIn("owner: api-work", self.ticket("T008"))
+
+    def test_set_ready_yes_makes_the_ticket_claimable(self):
+        run(self.root, "new", "ticket", "--title", "Remember me box", "--epic", "E01")
+        run(self.root, "set", "T008", "ready=yes")
+        self.assertIn("ready: yes\n", self.ticket("T008"))
+        self.assertIn("T008 claimed by api-work", run(self.root, "claim", "T008", "api-work").stdout)
+
+    def test_next_skips_ungrilled_tickets_and_says_what_to_grill(self):
+        t4 = self.root / "docs/pm/tickets/T004-log-format.md"
+        t4.write_text(t4.read_text().replace("ready: yes", "ready: no"))
+        self.assertTrue(run(self.root, "next").stdout.startswith("T002 "))
+        self.assertEqual(json.loads(run(self.root, "next", "--json").stdout)["ready"], True)
+        self.assertTrue(run(self.root, "next", "--routine").stdout.startswith("none (to grill: T004"))
+        for t in (self.root / "docs/pm/tickets").glob("*.md"):
+            if "T004" not in t.name:
+                t.write_text(t.read_text().replace("status: todo", "status: done"))
+        out = run(self.root, "next").stdout
+        self.assertTrue(out.startswith("none"))
+        self.assertIn("to grill: T004", out)
+        self.assertIn("/pm:grill", out)
+
+
+class ReadyCommandTest(unittest.TestCase):
+    """`pm.py ready Txxx` is how /pm:grill marks a ticket; a blocked ticket needs --early, given only on the user's word."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = make_repo(Path(self.tmp.name))
+        for tid in ("T002-rate-limit", "T003-lockout"):
+            p = self.root / f"docs/pm/tickets/{tid}.md"
+            p.write_text(p.read_text().replace("ready: yes", "ready: no"))
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def text(self, tid):
+        return next((self.root / "docs/pm/tickets").glob(f"{tid}-*.md")).read_text()
+
+    def test_ready_marks_an_unblocked_ticket(self):
+        out = run(self.root, "ready", "T002").stdout
+        self.assertIn("T002 ready", out)
+        self.assertIn("ready: yes", self.text("T002"))
+        self.assertIn("/pm:work T002", out)
+
+    def test_ready_refuses_a_blocked_ticket_unless_early(self):
+        proc = run(self.root, "ready", "T003", expect=1)
+        self.assertIn("T003 waits on T002", proc.stderr)
+        self.assertIn("--early", proc.stderr)
+        self.assertIn("ready: no", self.text("T003"))
+        proc = run(self.root, "set", "T003", "ready=yes", expect=1)
+        self.assertIn("--early", proc.stderr)
+        out = run(self.root, "ready", "T003", "--early").stdout
+        self.assertIn("ready: yes", self.text("T003"))
+        self.assertIn("grilled early", out)
+        self.assertIn("T002", out)

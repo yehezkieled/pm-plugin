@@ -21,9 +21,10 @@ Owner name for claims: `$PM_OWNER` if set, else `work-<ticket id in lower case>`
 ## 1. Pick
 
 - `$ARGUMENTS` names a ticket: use it. It must be `todo`, or already claimed by this owner, and every ticket in its `depends_on` must be `done`. `pm.py claim` refuses a ticket with an open dependency: do not add `--force` for that, not even when the user said to skip questions; say which dependency is open, offer to do that ticket instead, and stop. If another owner holds it and its branch has commits, stop and say so. If its branch has no commits and that owner's session is gone, tell the user and take it over with `pm.py claim Txxx <owner> --force`.
-- Otherwise `pm.py next` (`pm.py next --routine` in routine mode). It picks: status todo, every `depends_on` done, no owner; then highest priority; then earliest in the epic Flow. If it prints `none`, say what is blocked or claimed and stop; suggest /pm:plan.
+- Otherwise `pm.py next` (`pm.py next --routine` in routine mode). It picks: status todo, `ready: yes`, every `depends_on` done, no owner; then highest priority; then earliest in the epic Flow. If it prints `none`, say what is blocked, claimed, or still to grill and stop; suggest /pm:grill for the tickets it lists as `to grill`, /pm:plan when there is nothing at all.
+- A ticket that says `ready: no` was never grilled: `pm.py claim` refuses it and the plan gate blocks code on its branch. For `ready: no` never add `--force`, and never grill it yourself with your own answers: the flag means a person settled the ticket. Interactive session: say the ticket is not grilled and ask (AskUserQuestion) whether to grill it now; on yes invoke the `pm:grill` skill with its id and come back to this skill once it says `ready: yes`. Routine or headless run, or "no questions": say which ticket needs /pm:grill and stop.
 
-Read the whole ticket file. If the acceptance is not testable or the What is unclear, stop and ask one question (routine mode: skip it, say why, pick the next).
+Read the whole ticket file. If the acceptance is not testable or the What is unclear even though the ticket says `ready: yes`, stop and ask one question (routine mode: skip it, say why, pick the next).
 
 ## 2. Claim, then branch
 

@@ -48,7 +48,7 @@ Consequences: GitHub is a mirror, not the source.
 
 
 def ticket(tid, title, epic, milestone, status, priority, depends_on="[]",
-           owner="", auto="no", plan="none", issue="", pr="", extra_body=""):
+           owner="", auto="no", plan="none", issue="", pr="", extra_body="", ready="yes"):
     return f"""---
 id: {tid}
 title: {title}
@@ -60,6 +60,7 @@ depends_on: {depends_on}
 owner: {owner}
 auto: {auto}
 plan: {plan}
+ready: {ready}
 issue: {issue}
 pr: {pr}
 ---

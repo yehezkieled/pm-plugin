@@ -16,8 +16,9 @@ CLOSED = ("done", "dismissed")  # a dismissed ticket is closed without being don
 TESTS_STATES = ["open", "frozen"]  # tests: frozen while a bug fix is written
 CONFIDENCE = ["high", "medium", "low"]
 PRIORITIES = ["P0", "P1", "P2", "P3"]
+READY_STATES = ["yes", "no"]  # ready: yes once the ticket was grilled (What, Why, testable Acceptance settled)
 TICKET_FIELDS = ["id", "title", "epic", "milestone", "status", "priority",
-                 "depends_on", "owner", "auto", "plan", "issue", "pr", "tests", "confidence"]
+                 "depends_on", "owner", "auto", "plan", "ready", "issue", "pr", "tests", "confidence"]
 DEFAULT_CONFIG = {
     "flow": "branch-local",
     "host": "none",
@@ -113,6 +114,7 @@ class Ticket:
     owner: str = ""
     auto: bool = False
     plan: str = "none"
+    ready: bool = True
     issue: str = ""
     pr: str = ""
     tests: str = "open"
@@ -193,6 +195,7 @@ def _ticket_from(path: Path) -> Ticket:
         owner=str(meta.get("owner", "")),
         auto=truthy(meta.get("auto", "no")),
         plan=str(meta.get("plan", "none")).lower() or "none",
+        ready=truthy(meta.get("ready", "yes")),  # tickets written before the flag existed count as grilled
         issue=str(meta.get("issue", "")),
         pr=str(meta.get("pr", "")),
         tests=str(meta.get("tests", "open")).lower() or "open",
@@ -338,8 +341,20 @@ def deps_done(t: Ticket, by_id: dict) -> bool:
 
 
 def ready_tickets(tickets: list[Ticket]) -> list[Ticket]:
+    """Tickets /pm:work may take: todo, grilled, nobody's, every dependency done."""
     by_id = {t.id: t for t in tickets}
-    return [t for t in tickets if t.status == "todo" and not t.owner and deps_done(t, by_id)]
+    return [t for t in tickets if t.status == "todo" and t.ready and not t.owner and deps_done(t, by_id)]
+
+
+def to_grill(tickets: list[Ticket]) -> list[Ticket]:
+    """Tickets waiting for /pm:grill: todo, not grilled, nobody's, not blocked (a blocked ticket is grilled once it is free)."""
+    by_id = {t.id: t for t in tickets}
+    return [t for t in tickets if t.status == "todo" and not t.ready and not t.owner and deps_done(t, by_id)]
+
+
+def grilled_early(t: Ticket, by_id: dict) -> bool:
+    """Grilled while a dependency is still open: the answers may go stale when that dependency lands."""
+    return t.status == "todo" and t.ready and not deps_done(t, by_id)
 
 
 def pick_next(tickets: list[Ticket], root: Path, routine: bool = False) -> Ticket | None:
@@ -399,7 +414,8 @@ def render_flow(tickets: list[Ticket]) -> str:
     lines = list(chains)
     if standalone:
         lines.append("Standalone: " + ", ".join(standalone))
-    ready = [t.id for t in ordered if t.status == "todo" and not t.owner and deps_done(t, by_id)]
+    ready = [t.id for t in ready_tickets(ordered)]
+    grill = [t.id for t in to_grill(ordered)]
     in_progress = [f"{t.id} ({t.owner})" if t.owner else t.id for t in ordered if t.status == "in progress"]
     review = [t.id for t in ordered if t.status == "review"]
     blocked = []
@@ -409,6 +425,8 @@ def render_flow(tickets: list[Ticket]) -> str:
             blocked.append(f"{t.id} (waits on {', '.join(waits)})")
     done = [t.id for t in ordered if t.status == "done"]
     lines.append("Ready now: " + (", ".join(ready) or "none"))
+    if grill:
+        lines.append("To grill: " + ", ".join(grill))
     if in_progress:
         lines.append("In progress: " + ", ".join(in_progress))
     if review:
@@ -492,6 +510,10 @@ def render_board(root: Path) -> str:
                 if t.status == "todo" and not deps_done(t, by_id):
                     waits = [d for d in t.depends_on if d in by_id and by_id[d].status != "done"]
                     notes.append("blocked by " + ", ".join(waits))
+                if t.status == "todo" and not t.ready:
+                    notes.append("not grilled")
+                if grilled_early(t, by_id):
+                    notes.append("grilled early: re-check with /pm:grill when free")
                 if t.has_proposals:
                     notes.append("proposed changes waiting")
                 if t.confidence:
@@ -504,6 +526,9 @@ def render_board(root: Path) -> str:
     ready = [t.id for t in ready_tickets(tickets)]
     lines.append("")
     lines.append("Ready now: " + (", ".join(ready) or "none"))
+    grill = [t.id for t in to_grill(tickets)]
+    if grill:
+        lines.append("To grill: " + ", ".join(grill) + "  (/pm:grill Txxx)")
     proposals = [t.id for t in tickets if t.has_proposals]
     if proposals:
         lines.append("Proposed changes waiting: " + ", ".join(proposals))
@@ -537,17 +562,28 @@ def board_line(root: Path) -> str:
         parts.append("review: " + ", ".join(review))
     ready = [t.id for t in ready_tickets(tickets)]
     parts.append("ready: " + (", ".join(ready) or "none"))
+    grill = [t.id for t in to_grill(tickets)]
+    if grill:
+        parts.append("to grill: " + ", ".join(grill))
     return " | ".join(parts)
 
 
 # ---------------------------------------------------------------- editing
 
-def set_fields(root: Path, ticket_id: str, **fields) -> Ticket:
+def open_deps(t: Ticket, by_id: dict) -> list[str]:
+    return [d for d in t.depends_on if d in by_id and by_id[d].status != "done"]
+
+
+def set_fields(root: Path, ticket_id: str, early: bool = False, **fields) -> Ticket:
+    """Change frontmatter fields. `ready=yes` on a blocked ticket needs early=True (a grill on the user's word)."""
     tickets = {t.id: t for t in load_tickets(root)}
     if ticket_id not in tickets:
         raise KeyError(f"unknown ticket {ticket_id}")
     t = tickets[ticket_id]
     meta = dict(t.meta)
+    if truthy(fields.get("ready", "no")) and not t.ready and not early and open_deps(t, tickets):
+        waits = ", ".join(open_deps(t, tickets))
+        raise ValueError(f"{t.id} waits on {waits}: grill it once that is done, or `pm.py ready {t.id} --early` when the user, told it is blocked, said to go on")
     for key, value in fields.items():
         if key == "status" and value not in STATUSES:
             raise ValueError(f"status must be one of {', '.join(STATUSES)}")
@@ -559,6 +595,8 @@ def set_fields(root: Path, ticket_id: str, **fields) -> Ticket:
             raise ValueError(f"tests must be one of {', '.join(TESTS_STATES)}")
         if key == "confidence" and value not in CONFIDENCE + [""]:
             raise ValueError(f"confidence must be one of {', '.join(CONFIDENCE)}")
+        if key == "ready" and str(value).lower() not in READY_STATES:
+            raise ValueError("ready must be yes or no")
         meta[key] = value
     if meta.get("status") in CLOSED and "tests" in meta:
         meta["tests"] = "open"  # the freeze ends with the ticket
@@ -653,6 +691,8 @@ def validate(root: Path) -> list[str]:
             problems.append(f"{t.id}: tests must be open or frozen, not '{t.tests}'")
         if t.confidence and t.confidence not in CONFIDENCE:
             problems.append(f"{t.id}: confidence must be high, medium, or low, not '{t.confidence}'")
+        if "ready" in t.meta and str(t.meta["ready"]).lower() not in READY_STATES:
+            problems.append(f"{t.id}: ready must be yes or no, not '{t.meta['ready']}'")
         for d in t.depends_on:
             if d not in by_id:
                 problems.append(f"{t.id}: depends on unknown ticket {d}")
@@ -663,6 +703,9 @@ def validate(root: Path) -> list[str]:
         for heading in ("What", "Acceptance"):
             if not section_filled(t.body, heading):
                 problems.append(f"{t.id}: {heading} section is empty")
+        for heading in ("Why", "Subtasks"):
+            if re.search(r"\(\s*fill in\s*\)", section_text(t.body, heading), re.I):
+                problems.append(f"{t.id}: placeholder left in {heading}; write the line or remove it")
         if t.owner and t.status == "todo":
             problems.append(f"{t.id}: owner set but status is todo")
         if t.status == "in progress" and not t.owner:

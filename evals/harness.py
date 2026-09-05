@@ -120,12 +120,12 @@ def validate_ok(root, allow=()):
 LOGIN_ALLOW = ("T007: owner set but status is todo",)
 
 
-def ticket_text(tid, title, status, prio, deps, what, acc, auto="yes", plan="none", proposed=""):
-    return f"---\nid: {tid}\ntitle: {title}\nepic: E01\nmilestone: M1\nstatus: {status}\npriority: {prio}\ndepends_on: [{deps}]\nowner:\nauto: {auto}\nplan: {plan}\nissue:\npr:\n---\n## What\n{what}\n\n## Why\nPart of the four basic operations.\n\n## Acceptance\n{acc}\n\n## Subtasks\n- [ ] write the failing test\n- [ ] make it pass\n\n## Plan\nApproach:\nTouches:\nTests first:\nDecisions to record:\napproved: no\n\n## Notes\n\n## Proposed changes\n{proposed}"
+def ticket_text(tid, title, status, prio, deps, what, acc, auto="yes", plan="none", proposed="", ready="yes", why="Part of the four basic operations."):
+    return f"---\nid: {tid}\ntitle: {title}\nepic: E01\nmilestone: M1\nstatus: {status}\npriority: {prio}\ndepends_on: [{deps}]\nowner:\nauto: {auto}\nplan: {plan}\nready: {ready}\nissue:\npr:\n---\n## What\n{what}\n\n## Why\n{why}\n\n## Acceptance\n{acc}\n\n## Subtasks\n- [ ] write the failing test\n- [ ] make it pass\n\n## Plan\nApproach:\nTouches:\nTests first:\nDecisions to record:\napproved: no\n\n## Notes\n\n## Proposed changes\n{proposed}"
 
 
 def calc_repo(root: Path, with_pm: bool, variant: str = "chain"):
-    """variant: chain (T003 depends on T002) | independent | plan_required | routine | proposed"""
+    """variant: chain (T003 depends on T002) | independent | plan_required | routine | proposed | ungrilled (T002 was never grilled)"""
     root.mkdir(parents=True)
     (root / "calc.py").write_text(CALC)
     (root / "tests").mkdir()
@@ -142,7 +142,8 @@ def calc_repo(root: Path, with_pm: bool, variant: str = "chain"):
         proposed = "- parse_amount returns 0 on bad input, which hides errors; it should raise ValueError instead (seen while doing T001)\n" if variant == "proposed" else ""
         (pmd / "tickets/T001-add.md").write_text(ticket_text("T001", "Add function", "done", "P1", "", "add(a, b) returns the sum.", "- [x] add(2, 3) returns 5 and a test covers it", proposed=proposed))
         t2_plan = "required" if variant == "plan_required" else "none"
-        (pmd / "tickets/T002-subtract.md").write_text(ticket_text("T002", "Subtract function", "todo", "P1", "T001", "Add subtract(a, b) to calc.py returning a minus b.", "- [ ] subtract(5, 3) returns 2\n- [ ] subtract(0, 4) returns -4\n- [ ] a unit test in tests/test_calc.py covers both and python3 -m unittest discover -s tests passes", plan=t2_plan))
+        t2_ready = "no" if variant == "ungrilled" else "yes"
+        (pmd / "tickets/T002-subtract.md").write_text(ticket_text("T002", "Subtract function", "todo", "P1", "T001", "Add subtract(a, b) to calc.py returning a minus b.", "- [ ] subtract(5, 3) returns 2\n- [ ] subtract(0, 4) returns -4\n- [ ] a unit test in tests/test_calc.py covers both and python3 -m unittest discover -s tests passes", plan=t2_plan, ready=t2_ready))
         t3_deps = "" if variant in ("independent", "routine") else "T002"
         t3_auto = "no" if variant == "routine" else "yes"
         (pmd / "tickets/T003-multiply.md").write_text(ticket_text("T003", "Multiply function", "todo", "P2", t3_deps, "Add multiply(a, b) to calc.py.", "- [ ] multiply(4, 3) returns 12 and a test covers it", auto=t3_auto))
@@ -168,6 +169,23 @@ def login_repo(root: Path, all_m1_done: bool = False):
             s = s.replace("- [ ] Something testable happens.", "- [x] Something testable happens.")
             s = s.replace("## Notes\n", "## Notes\nThe check command was slow; a focused test run helped. Review caught an unhandled error path.\n")
             p.write_text(s)
+    pm(root, "flow", "--all")
+    git(root, "init", "-q", "-b", "main")
+    git(root, "add", ".")
+    git(root, "commit", "-q", "-m", "initial")
+
+
+def grill_repo(root: Path):
+    """The login repo plus two thin tickets: T008 waits for a grill, T009 is blocked behind T008 and also ungrilled."""
+    make_repo(root)
+    (root / "README.md").write_text("# lists\n\nA small web app where a person logs in and keeps lists.\n")
+    t = root / "docs/pm/tickets"
+    (t / "T008-remember-me.md").write_text(ticket_text("T008", "Remember me box on the login form", "todo", "P2", "",
+                                                       "A remember me box on the login form.", "- [ ] the box exists and does something", auto="no", ready="no",
+                                                       why="Asked for by the person who keeps logging in."))
+    (t / "T009-remember-me-expiry.md").write_text(ticket_text("T009", "Remember me expiry", "todo", "P2", "T008",
+                                                              "Remembered logins expire.", "- [ ] a remembered login stops working at some point", auto="no", ready="no",
+                                                              why="A remembered login should not last forever."))
     pm(root, "flow", "--all")
     git(root, "init", "-q", "-b", "main")
     git(root, "add", ".")
@@ -319,10 +337,29 @@ SCENARIOS = {
         setup=lambda r: calc_repo(r, True, "bug"), max_turns=60,
         prompt="There is a bug ticket about average crashing on an empty list. Fix it. Do not ask me questions, use sensible defaults.",
         expect_skill="pm:work"),
+    # ---- round 4: thin tickets and the grill ----
+    "grill_implicit": dict(
+        setup=grill_repo, max_turns=40,
+        prompt="Ticket T008 in our project tracking is only a rough note. Flesh it out so it is ready to be worked on: "
+               "sharpen what it does and how we will check it is done. Do not ask me questions, take your own recommended answers.",
+        expect_skill="pm:grill"),
+    "grill_blocked": dict(
+        setup=grill_repo, max_turns=30,
+        prompt="Get ticket T009 in our project tracking ready to work on. Do not ask me questions, take your own recommended answers.",
+        expect_skill="pm:grill"),
+    "work_not_grilled": dict(
+        setup=lambda r: calc_repo(r, True, "ungrilled"), max_turns=30,
+        prompt="Do ticket T002 from our project tracking now. No questions.",
+        expect_skill="pm:work"),
+    "plan_ticket_thin": dict(
+        setup=login_repo, max_turns=30,
+        prompt="Add a ticket to our project tracking under the login epic: a remember me box on the login form. "
+               "Just file it for now, I will go through the details with you later. Do not ask me questions.",
+        expect_skill="pm:plan"),
 }
 
 
-LIMIT_RE = re.compile(r"usage limit|rate limit|limit reached|too many requests|429|overloaded|resets at", re.I)
+LIMIT_RE = re.compile(r"usage limit|session limit|hit your .{0,20}limit|rate limit|limit reached|too many requests|429|overloaded|resets (at|\d)", re.I)
 
 
 def probe_capacity(model="haiku") -> tuple[bool, str]:
@@ -578,8 +615,47 @@ def evaluate(name: str, spec: dict, repo: Path, run_dir: Path, tools, skills, re
         checks["flow_redrawn"] = any(p.name[:4] in (docs / "epics/E01-basics.md").read_text() for p in new) if new else False
         checks["validate_ok"] = validate_ok(repo)
         checks["no_code_changed"] = "calc.py" not in status
+    elif name == "grill_implicit":
+        t8 = t("T008*.md")
+        # ready, or a dependency found during the grill made it blocked and the agent said so instead of forcing
+        checks["marked_ready_or_newly_blocked"] = "ready: yes" in t8 or ("depends_on: []" not in t8 and "ready: no" in t8 and "wait" in full.lower())
+        acc = t8.split("## Acceptance")[1].split("## ")[0] if "## Acceptance" in t8 else ""
+        checks["acceptance_sharpened"] = "does something" not in acc and acc.count("- [ ]") >= 1
+        checks["what_filled"] = len(t8.split("## What")[1].split("## ")[0].strip()) > 60 if "## What" in t8 else False
+        checks["T009_untouched"] = "ready: no" in t("T009*.md")
+        checks["says_ready_to_work"] = "pm:work" in full or "ready" in full.lower()
+        checks["validate_ok"] = validate_ok(repo, LOGIN_ALLOW)
+        checks["no_code_changed"] = all(l[3:].startswith("docs/pm/") for l in status.splitlines())
+        checks["not_committed"] = commits == "1"
+    elif name == "grill_blocked":
+        t9 = t("T009*.md")
+        checks["still_not_ready"] = "ready: no" in t9
+        checks["names_blocker"] = "T008" in full
+        checks["says_wait_or_blocked"] = any(w in full.lower() for w in ("wait", "block", "depend", "after t008", "once t008"))
+        checks["no_files_changed"] = status.strip() == ""
+        checks["not_committed"] = commits == "1"
+    elif name == "work_not_grilled":
+        t2 = t("T002*.md")
+        checks["t002_not_claimed"] = "status: todo" in t2 and "owner:\n" in t2
+        checks["t002_still_not_ready"] = "ready: no" in t2  # the agent must not grill it with its own answers
+        checks["no_branch_created"] = not git(repo, "branch", "--list", "t002*").stdout.strip()
+        checks["no_code_written"] = "subtract" not in (repo / "calc.py").read_text()
+        checks["points_at_grill"] = "grill" in full.lower()
+        checks["did_not_force"] = "--force" not in bashes
+        checks["nothing_committed"] = commits == "1"
+    elif name == "plan_ticket_thin":
+        new = sorted(p.name for p in (docs / "tickets").glob("T008*.md"))
+        checks["ticket_T008_created"] = bool(new)
+        body = (docs / "tickets" / new[0]).read_text() if new else ""
+        checks["in_login_epic"] = "epic: E01" in body
+        checks["left_thin"] = "ready: no" in body
+        checks["no_placeholder_left"] = bool(body) and "(fill in)" not in body and "one testable line per item" not in body
+        checks["flow_redrawn"] = any("T008" in e.read_text() for e in (docs / "epics").glob("E*.md"))
+        checks["mentions_grill"] = "grill" in full.lower()
+        checks["validate_ok"] = validate_ok(repo, LOGIN_ALLOW)
+        checks["not_committed"] = commits == "1"
     elif name == "help_explicit":
-        checks["lists_all_skills"] = all(s in full for s in ["/pm:init", "/pm:plan", "/pm:work", "/pm:status", "/pm:retro", "/pm:audit"])
+        checks["lists_all_skills"] = all(s in full for s in ["/pm:init", "/pm:plan", "/pm:grill", "/pm:work", "/pm:status", "/pm:retro", "/pm:audit"])
         checks["shows_project_settings"] = "branch-local" in full or "flow:" in full
     elif name == "help_skill_arg":
         checks["work_section_shown"] = "claim" in full.lower() and "gates" in full.lower()

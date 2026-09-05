@@ -20,14 +20,15 @@ GitHub is a one-way mirror (milestone, epic issue with task list, ticket issue).
 | Skill | Does | Input | Output |
 | --- | --- | --- | --- |
 | `/pm:init` | interview, then create docs/pm and the pm block | `[--quick]` | files, board, next steps |
-| `/pm:plan` | add a milestone, epic, ticket, bug, or idea; apply proposed changes | `kind [title or Txxx]` | ticket file, redrawn Flow |
+| `/pm:plan` | add a milestone, epic, ticket, bug, or idea; apply proposed changes | `kind [title or Txxx]` | thin ticket file (`ready: no`), redrawn Flow |
+| `/pm:grill` | question one ticket until What, Why and Acceptance are settled | `[Txxx or Exx]` | ticket marked `ready: yes` |
 | `/pm:work` | one ticket end to end: claim, plan, tests first, gates, two review agents, PR | `[Txxx] [--routine]` | branch or PR, report |
 | `/pm:status` | the board, problems, what is ready | `[--validate]` | one page |
 | `/pm:retro` | close a milestone, record keep and change | `[Mx]` | Retro block, next milestone |
 | `/pm:audit` | find bugs and debt, file tickets with evidence | `[path] [--cap N] [--routine]` | tickets, report |
 | `/pm:help` | cheat sheet, or one skill in detail | `[skill]` | text |
 
-Hooks: at session start one board line is printed when the project has docs/pm. Before an Edit, Write or Bash call on a ticket branch (`txxx-slug`), the plan gate blocks code edits until the ticket's `## Plan` is written and, for `plan: required`, carries `approved: yes` (docs and markdown are always allowed), and while a Bug ticket says `tests: frozen` it blocks test files too. At stop, a warning (never a block) when code changed but no ticket file did.
+Hooks: at session start one board line is printed when the project has docs/pm. Before an Edit, Write or Bash call on a ticket branch (`txxx-slug`), the plan gate blocks code edits until the ticket is grilled (`ready: yes`) and its `## Plan` is written and, for `plan: required`, carries `approved: yes` (docs and markdown are always allowed), and while a Bug ticket says `tests: frozen` it blocks test files too. At stop, a warning (never a block) when code changed but no ticket file did.
 
 ## Agents
 
@@ -74,7 +75,7 @@ review_model: sonnet   # model for the two review agents
 Standard library Python 3 and small bash. Nothing to install.
 
 ```
-scripts/pm.py       board | line | next | flow | claim | release | freeze | unfreeze | dismiss | set | validate | backup | next-id | config | new | sync
+scripts/pm.py       board | line | next | flow | claim | release | ready | freeze | unfreeze | dismiss | set | validate | backup | next-id | config | new | sync
 scripts/pm_sync.py  one-way mirror through adapters/github.py (gh command line)
 scripts/pm_detect.sh  facts about a repo for /pm:init
 scripts/doctor.sh   which tools are present
@@ -85,7 +86,7 @@ Without python3 the skills do the same work by hand from `templates/`.
 ## Rules the plugin keeps
 
 - No dates, deadlines, or effort numbers anywhere. Milestones are ordered versions. `tests/test_no_time_tracking.py` fails the build if the plugin's own text breaks this.
-- No ticket without a testable acceptance line.
+- No ticket without a testable acceptance line, and no work on a ticket before it is grilled: `/pm:plan` writes tickets thin (`ready: no`), `/pm:grill` runs the questioning round and marks them ready, `/pm:work` and the plan gate refuse the rest. Blocked tickets are grilled once their dependency lands; one grilled early is flagged on the board. Tickets written before the flag existed count as ready.
 - An agent never widens a ticket. Extra ideas go under "Proposed changes" for a person to accept, edit, or reject.
 - Claims are committed before branching, so several agents can work in their own worktrees without colliding.
 - A `plan: required` ticket puts an interactive session into plan mode: read-only until you approve the plan at the exit, and the approved plan is copied into the ticket.
@@ -114,6 +115,6 @@ Run them after changing a skill, a hook, or an agent, and when a new model appea
 
 ## Credits
 
-The questioning style in `/pm:init` and `/pm:plan` borrows the essence of Matt Pocock's grill-me skill
+The questioning style in `/pm:init` and `/pm:grill` borrows the essence of Matt Pocock's grill-me skill
 (https://github.com/mattpocock/skills, MIT): one question at a time, a recommended answer with each,
 look things up instead of asking, stop when understanding is shared. Nothing from it is installed as a dependency.

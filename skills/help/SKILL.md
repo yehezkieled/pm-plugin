@@ -1,7 +1,7 @@
 ---
 name: help
-description: Cheat sheet for the pm plugin - every pm skill with what it does, its input and output, a brief example, and this project's pm settings. Use when the user asks which pm skills exist, how the pm workflow or the ticket system works, what /pm:init, /pm:plan, /pm:work, /pm:status, /pm:retro or /pm:audit do, or how to use the pm plugin.
-argument-hint: "[init|plan|work|status|retro|audit]"
+description: Cheat sheet for the pm plugin - every pm skill with what it does, its input and output, a brief example, and this project's pm settings. Use when the user asks which pm skills exist, how the pm workflow or the ticket system works, what /pm:init, /pm:plan, /pm:grill, /pm:work, /pm:status, /pm:retro or /pm:audit do, or how to use the pm plugin.
+argument-hint: "[init|plan|grill|work|status|retro|audit]"
 ---
 
 # /pm:help
@@ -19,7 +19,8 @@ Settings    the "## pm" block in CONTEXT.md: flow, host, mirror, merge, gates, c
 
 Skill        What it does                                  Input                          Output
 /pm:init     interview, then create docs/pm + pm block     [--quick]                      files, board, next steps
-/pm:plan     add milestone/epic/ticket/bug/idea, apply     kind [title | Txxx]            ticket file, redrawn Flow
+/pm:plan     add milestone/epic/ticket/bug/idea, apply     kind [title | Txxx]            thin ticket file (ready: no), redrawn Flow
+/pm:grill    question one ticket until it is ready         [Txxx | Exx]                   What/Why/Acceptance settled, ready: yes
 /pm:work     do one ticket: claim, plan, TDD, gates, PR    [Txxx] [--routine]             branch or PR, report
 /pm:status   the board, problems, what is ready            [--validate]                   one page
 /pm:retro    close a milestone, keep/change notes          [Mx]                           roadmap Retro block, next milestone
@@ -27,6 +28,7 @@ Skill        What it does                                  Input                
 /pm:help     this sheet, or one skill in detail            [skill]                        text
 
 Ticket status: todo -> in progress -> review -> done, or dismissed with a reason.  Priority: P0 (stop everything) .. P3 (nice to have).
+Ticket life: /pm:plan writes it thin (ready: no) -> /pm:grill settles What, Why, Acceptance (ready: yes) -> /pm:work builds it. Blocked tickets are grilled once free.
 Claim = owner field + status in progress, committed on main before branching.
 An agent never widens a ticket; extra ideas go to "## Proposed changes", then /pm:plan apply.
 No dates, no deadlines, no effort numbers anywhere: the board says what is done, next, and stuck.
@@ -34,7 +36,9 @@ No dates, no deadlines, no effort numbers anywhere: the board says what is done,
 
 Examples:
 - `/pm:init` on a fresh repo: six questions, then docs/pm with M1, three epics, a few starter tickets.
-- `/pm:plan bug "login fails when the password has a space"` : one question, then T014 with a reproduce step and acceptance.
+- `/pm:plan bug "login fails when the password has a space"` : one question, then T014 with a reproduce step and acceptance, ready by its shape.
+- `/pm:plan ticket "remember me box"` : T015 written thin under E03, then "grill now or later?".
+- `/pm:grill T015` : three questions with recommended answers, acceptance lines proposed, `ready: yes`, "start with /pm:work T015".
 - `/pm:work` : claims T002, writes its Plan, tests first, opens PR "T002: Rate-limit login attempts".
 - `/pm:status` : the board plus "Ready now: T004, T006".
 - `/pm:audit src/api --cap 2` : two tickets with file:line evidence, the rest listed as not filed.
@@ -50,7 +54,11 @@ Detect (`pm_detect.sh`), audit an existing repo, interview one question at a tim
 
 ## plan
 
-Kinds: milestone, epic, ticket, bug, idea, apply. Asks only what the repo cannot answer, one question at a time, until What, Why, and a testable Acceptance line are clear. Design choices get `plan: required`. `apply Txxx` walks through an agent's proposed changes: accept, edit, or reject each.
+Kinds: milestone, epic, ticket, bug, idea, apply. Captures, does not interview: a ticket is written thin (`ready: no`) with a first draft of What and Acceptance from the user's words, then one hand-off question: grill it now (unblocked) or later (blocked). A bug with known reproduce steps is ready by its shape. `apply Txxx` walks through an agent's proposed changes: accept (a thin ticket), edit, or reject each.
+
+## grill
+
+One ticket (or every ungrilled ticket of an epic, unblocked first). Reads the repo, the epic, decisions and siblings first, then asks one question at a time with a recommended answer: What, Why, Acceptance lines proposed for you to accept or change, design choice (`plan: required`), priority and dependencies when the Flow suggests, auto. Intent questions only: a fact nobody knows yet becomes a `plan: required` design ticket instead of a guess. No testable acceptance means the ticket goes to the Backlog as an idea. Ends with `pm.py ready Txxx`; /pm:work takes only ready tickets. A blocked ticket is grilled after its dependency lands; grilled early, the board flags it for a re-check.
 
 ## work
 
