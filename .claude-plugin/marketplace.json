@@ -1,0 +1,13 @@
+{
+  "name": "pm-plugin",
+  "owner": {
+    "name": "hezki"
+  },
+  "plugins": [
+    {
+      "name": "pm",
+      "source": "./",
+      "description": "Project management skills: milestone -> epic -> ticket -> subtask in markdown, mirrored one way to GitHub."
+    }
+  ]
+}

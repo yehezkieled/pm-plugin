@@ -1,0 +1,5 @@
+# pm routines from cron, on a machine where Claude Code is logged in.
+# `crontab -e`, paste, edit the path. Turn the routines on in the pm block first: routines: work=on audit=on
+# The audit files tickets and the work routine opens pull requests. Neither merges anything.
+0 3 * * *   cd /path/to/repo && claude -p "/pm:audit --routine" --permission-mode bypassPermissions --max-turns 80 >> "$HOME/.pm-routine.log" 2>&1
+30 * * * *  cd /path/to/repo && claude -p "/pm:work --routine"  --permission-mode bypassPermissions --max-turns 80 >> "$HOME/.pm-routine.log" 2>&1
