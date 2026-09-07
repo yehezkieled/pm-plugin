@@ -1,5 +1,6 @@
 {
   "name": "pm-plugin",
+  "description": "Project management for coding projects: milestone -> epic -> ticket -> subtask in markdown, mirrored one way to GitHub issues.",
   "owner": {
     "name": "hezki"
   },
