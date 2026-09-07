@@ -1,6 +1,6 @@
 ---
 name: plan
-description: Add or change work items - a milestone, an epic, a ticket, a bug, or an idea - and apply an agent's proposed changes. Use when the user wants to add a feature or task, file, report, record, track, log, or note down a bug or an idea for later, break an epic into tickets, set priorities or dependencies, or apply, accept, review, or go through the proposed changes an agent left on a ticket (never edit code for those: they become tickets). Creates the item thin and offers to grill it. Not for grilling a ticket that already exists (that is pm:grill) and not for doing the work itself (that is pm:work).
+description: Add or change work items - a milestone, an epic, a ticket, a bug, or an idea - and apply an agent's proposed changes. Use when the user wants to add a feature or task, file, report, record, track, log, or note down a bug or an idea for later, break an epic into tickets, set priorities or dependencies, or apply, accept, review, or go through the proposed changes an agent left on a ticket (never edit code for those: they become tickets). Creates the item thin and offers to grill it. Not for grilling a ticket that already exists (that is pm:grill), not for open thinking about what to build (that is pm:brainstorm), and not for doing the work itself (that is pm:work).
 argument-hint: "milestone|epic|ticket|bug|idea|apply [title or Txxx]"
 ---
 

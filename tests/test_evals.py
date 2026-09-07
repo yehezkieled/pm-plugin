@@ -174,3 +174,33 @@ class LimitDetectionTest(unittest.TestCase):
         for text in ("You've hit your session limit · resets 7am (UTC)", "Usage limit reached", "resets at 3pm", "rate limit"):
             self.assertRegex(text, h.LIMIT_RE)
         self.assertNotRegex("T008 is ready to work on; the limit is one PR per ticket", h.LIMIT_RE)
+
+
+class BrainstormScenarioTest(unittest.TestCase):
+    """Brainstorm evals: a proposal-only run writes nothing, a delegated run writes thin items, an interactive run asks then applies."""
+
+    def test_brainstorm_scenarios_are_registered_in_both_runners(self):
+        h = load_harness()
+        for name in ("brainstorm_proposal_only", "brainstorm_delegated"):
+            self.assertIn(name, h.SCENARIOS)
+            self.assertEqual(h.SCENARIOS[name]["expect_skill"], "pm:brainstorm")
+        it = load_module("interactive")
+        self.assertIn("brainstorm_session", it.SCENARIOS)
+        self.assertTrue(any(k == "grill" and "later" in want for k, want in it.ASK_POLICY))
+        self.assertTrue(any(k == "apply" for k, want in it.ASK_POLICY))
+
+    def test_new_pm_items_helper_sees_only_what_a_run_added(self):
+        h = load_harness()
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp) / "repo"
+            h.login_repo(repo)
+            self.assertEqual(h.new_pm_items(repo), {"tickets": [], "epics": [], "backlog_changed": False, "decisions_changed": False, "roadmap_changed": False})
+            h.pm(repo, "new", "ticket", "--title", "Remember me", "--epic", "E01", "--what", "A box.", "--why", "Asked for.", "--acceptance", "- [ ] the box exists")
+            road = repo / "docs/pm/roadmap.md"
+            road.write_text(road.read_text() + "- dark mode\n")
+            dec = repo / "docs/pm/decisions.md"
+            dec.write_text(dec.read_text() + "\n## 2026-09-07: sessions\nContext: x\nDecision: y\nConsequences: z\n")
+            items = h.new_pm_items(repo)
+            self.assertEqual([t[:4] for t in items["tickets"]], ["T008"])
+            self.assertTrue(items["backlog_changed"])
+            self.assertTrue(items["decisions_changed"])

@@ -1,9 +1,15 @@
 {
   "name": "pm",
-  "version": "0.2.1",
-  "description": "Project management for coding projects of any size. Milestone -> epic -> ticket -> subtask, kept as markdown under docs/pm and mirrored one way to GitHub. Skills: init, plan, grill, work, status, retro, audit, help.",
+  "version": "0.3.1",
+  "description": "Project management for coding projects of any size. Milestone -> epic -> ticket -> subtask, kept as markdown under docs/pm and mirrored one way to GitHub. Skills: init, brainstorm, plan, grill, work, status, retro, audit, help.",
   "author": {
     "name": "hezki"
   },
-  "keywords": ["project-management", "tickets", "epics", "milestones", "workflow"]
+  "keywords": [
+    "project-management",
+    "tickets",
+    "epics",
+    "milestones",
+    "workflow"
+  ]
 }

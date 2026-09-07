@@ -100,6 +100,8 @@ class HookTest(unittest.TestCase):
             out = sh("hooks/session-start.sh", root, stdin=json.dumps({"cwd": str(root)})).stdout
             self.assertIn("pm: M1 1/5 done", out)
             self.assertIn("/pm:status", out)
+            for skill in ("/pm:brainstorm", "/pm:grill"):  # every entry point, so a small model routes "brainstorm" and "get it ready" too
+                self.assertIn(skill, out)
             empty = Path(tmp) / "empty"
             empty.mkdir()
             self.assertEqual(sh("hooks/session-start.sh", empty, stdin=json.dumps({"cwd": str(empty)})).stdout, "")

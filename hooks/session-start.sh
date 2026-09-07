@@ -10,5 +10,5 @@ if command -v python3 >/dev/null 2>&1; then
 else
   echo "pm: docs/pm found, python3 missing; the pm skills will read the files by hand."
 fi
-echo "pm skills: board /pm:status | add or file work /pm:plan | do a ticket /pm:work | find bugs /pm:audit | cheat sheet /pm:help"
+echo "pm skills: board /pm:status | think it through, what is missing /pm:brainstorm | add or file work /pm:plan | get a ticket ready /pm:grill | do a ticket /pm:work | find bugs /pm:audit | cheat sheet /pm:help"
 exit 0

@@ -1,7 +1,7 @@
 ---
 name: help
-description: Cheat sheet for the pm plugin - every pm skill with what it does, its input and output, a brief example, and this project's pm settings. Use when the user asks which pm skills exist, how the pm workflow or the ticket system works, what /pm:init, /pm:plan, /pm:grill, /pm:work, /pm:status, /pm:retro or /pm:audit do, or how to use the pm plugin.
-argument-hint: "[init|plan|grill|work|status|retro|audit]"
+description: Cheat sheet for the pm plugin - every pm skill with what it does, its input and output, a brief example, and this project's pm settings. Use when the user asks which pm skills exist, how the pm workflow or the ticket system works, what /pm:init, /pm:brainstorm, /pm:plan, /pm:grill, /pm:work, /pm:status, /pm:retro or /pm:audit do, or how to use the pm plugin.
+argument-hint: "[init|brainstorm|plan|grill|work|status|retro|audit]"
 ---
 
 # /pm:help
@@ -19,6 +19,7 @@ Settings    the "## pm" block in CONTEXT.md: flow, host, mirror, merge, gates, c
 
 Skill        What it does                                  Input                          Output
 /pm:init     interview, then create docs/pm + pm block     [--quick]                      files, board, next steps
+/pm:brainstorm think out loud, then propose file changes   [topic]                        file | change | why table, accepted rows written
 /pm:plan     add milestone/epic/ticket/bug/idea, apply     kind [title | Txxx]            thin ticket file (ready: no), redrawn Flow
 /pm:grill    question one ticket until it is ready         [Txxx | Exx]                   What/Why/Acceptance settled, ready: yes
 /pm:work     do one ticket: claim, plan, TDD, gates, PR    [Txxx] [--routine]             branch or PR, report
@@ -28,6 +29,7 @@ Skill        What it does                                  Input                
 /pm:help     this sheet, or one skill in detail            [skill]                        text
 
 Ticket status: todo -> in progress -> review -> done, or dismissed with a reason.  Priority: P0 (stop everything) .. P3 (nice to have).
+Brainstorm first when the shape of the work is unclear: /pm:brainstorm asks, then proposes rows (milestone, epic, thin ticket, Backlog line, decision) and writes only the ones you accept.
 Ticket life: /pm:plan writes it thin (ready: no) -> /pm:grill settles What, Why, Acceptance (ready: yes) -> /pm:work builds it. Blocked tickets are grilled once free.
 Claim = owner field + status in progress, committed on main before branching.
 An agent never widens a ticket; extra ideas go to "## Proposed changes", then /pm:plan apply.
@@ -36,6 +38,7 @@ No dates, no deadlines, no effort numbers anywhere: the board says what is done,
 
 Examples:
 - `/pm:init` on a fresh repo: six questions, then docs/pm with M1, three epics, a few starter tickets.
+- `/pm:brainstorm "sharing lists"` : five questions with recommended answers, then a table: E04 sharing epic, two thin tickets, one Backlog line, one decision; you say apply, they are written, then "grill T016 now or later?".
 - `/pm:plan bug "login fails when the password has a space"` : one question, then T014 with a reproduce step and acceptance, ready by its shape.
 - `/pm:plan ticket "remember me box"` : T015 written thin under E03, then "grill now or later?".
 - `/pm:grill T015` : three questions with recommended answers, acceptance lines proposed, `ready: yes`, "start with /pm:work T015".
@@ -51,6 +54,10 @@ Then one line: "Design page (open it in a browser): ${CLAUDE_PLUGIN_ROOT}/docs/b
 ## init
 
 Detect (`pm_detect.sh`), audit an existing repo, interview one question at a time with a recommended answer, propose, write: roadmap, decisions, epics, starter tickets, the pm block in CONTEXT.md. Forks keep docs out of git through `.git/info/exclude`. Old planning docs move to docs/archive only after a yes. `--quick` takes every recommended answer.
+
+## brainstorm
+
+An open thinking session on a topic (or the board's gaps when none is given). Reads the repo, roadmap, epics, board and decisions first, then asks one question at a time with a recommended answer: problem and person, what exists, options with trade-offs, risks and non-goals, the first usable version. Intent questions only; an unknown fact becomes a `plan: required` design ticket. Ends with a `file | change | why` table (roadmap milestone or Backlog line, epic, thin ticket, decisions entry, a dismissed ticket, rarely the pm block) and one question: apply all, pick rows, or none. Writes only the accepted rows, tickets thin (`ready: no`), then asks once whether to grill them now. Without docs/pm the proposal feeds /pm:init. A run that cannot ask ends at the proposal and writes nothing, unless the user delegated the answers.
 
 ## plan
 

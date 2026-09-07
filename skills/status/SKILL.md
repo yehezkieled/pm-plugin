@@ -1,10 +1,12 @@
 ---
 name: status
-description: Show the project board - milestones, epics, tickets, who is working on what, what is blocked, and what is ready next. Read-only. Use when the user asks where are we, what is the status or progress, what is next, what is blocked, show the board, or wants an overview of the work. Not for doing a ticket (that is pm:work), filing work (pm:plan), or finding bugs (pm:audit).
+description: Show the project board - milestones, epics, tickets, who is working on what, what is blocked, and what is ready next. Read-only. Use when the user asks where are we, what is the status or progress, what is next, what is blocked, show the board, or wants an overview of the work. Not for doing a ticket (that is pm:work), filing work (pm:plan), finding bugs (pm:audit), or thinking through what a part of the project still needs, what is missing, or which files to change (pm:brainstorm).
 argument-hint: "[--validate]"
 ---
 
 # /pm:status
+
+Route first: when the user's words ask you to brainstorm, think through, or explore what a part of the project still needs, what is missing, or which files you would change and why, invoke the `pm:brainstorm` skill now and stop; the board is not the answer to that, even when they cannot answer questions right now.
 
 One page, no dates, no guesses about when.
 
@@ -17,4 +19,4 @@ Never turn the board into percentages of a plan against a calendar. The board an
 
 ## Hand-off
 
-This skill only reads. If the user actually asked to do, pick up, or fix a ticket (including "fix it" about a bug ticket), invoke the `pm:work` skill now; do not fix the code from here. If they asked to file, record, or track something, or to apply, accept, or go through the proposed changes on a ticket, invoke `pm:plan`. If they asked to grill, refine, flesh out, or get a ticket ready, invoke `pm:grill`. If they asked to look for bugs or problems in the code, invoke `pm:audit`.
+This skill only reads. If the user actually asked to do, pick up, or fix a ticket (including "fix it" about a bug ticket), invoke the `pm:work` skill now; do not fix the code from here. If they asked to file, record, or track something, or to apply, accept, or go through the proposed changes on a ticket, invoke `pm:plan`. If they asked to grill, refine, flesh out, or get a ticket ready, invoke `pm:grill`. If they want to brainstorm, think through, explore, or talk over a feature or direction, invoke `pm:brainstorm`. If they asked to look for bugs or problems in the code, invoke `pm:audit`.

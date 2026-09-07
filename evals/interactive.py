@@ -1,7 +1,7 @@
 """Drives a real interactive Claude Code session in tmux, answering its dialogs like a person would.
 
 usage: python3 interactive.py [--out DIR] <model> <scenario>
-scenarios: work_plan_mode | init_interview | plan_bug_interview | work_merge_ask | retro_interview | grill_interview
+scenarios: work_plan_mode | init_interview | plan_bug_interview | work_merge_ask | retro_interview | grill_interview | brainstorm_session
 Writes <out>/<model>/<scenario>/{screen.log,transcript.jsonl,summary.json}
 """
 import json
@@ -167,12 +167,19 @@ SCENARIOS = {
         prompt="Ticket T008 is only a rough note. Grill me on it so it is ready to work on.",
         text_policy=[("commit", "No."), ("?", "Yes, that is right.")],
         done=lambda r: "ready: yes" in (r / "docs/pm/tickets/T008-remember-me.md").read_text()),
+    "brainstorm_session": dict(
+        setup=h.login_repo,
+        prompt="Let us brainstorm what the login part of this app still needs before a person could use it.",
+        text_policy=[("commit", "No."), ("?", "Yes, that is right, go on.")],
+        done=lambda r: False),
 }
 
 # AskUserQuestion answer policy: (substring of the question, words that mark the option to pick)
 ASK_POLICY = [("commit", ("no", "not", "later", "skip")), ("archive", ("archive", "move")), ("merge", ("yes", "merge")),
               ("model", ("opus",)),  # answer Opus, not the default, so a pass proves the answer reached the Agent tool
-              ("go ahead", ("go",))]
+              ("go ahead", ("go",)),
+              ("apply", ("apply", "all", "yes")), ("write", ("apply", "all", "yes")),  # the brainstorm proposal: apply every row
+              ("grill", ("later",)), ("ready: no", ("later",)), ("now, or later", ("later",))]  # keep a brainstorm run bounded: new tickets are grilled in their own run
 
 
 def reeval(model, scenario, out_root):
@@ -395,6 +402,23 @@ def evaluate(scenario, repo, tools, texts, events):
         acc = t8.split("## Acceptance")[1].split("## ")[0] if "## Acceptance" in t8 else ""
         c["acceptance_sharpened"] = "does something" not in acc and acc.count("- [ ]") >= 1
         c["T009_untouched"] = "ready: no" in (docs / "tickets/T009-remember-me-expiry.md").read_text()
+        c["validate_ok"] = h.validate_ok(repo, h.LOGIN_ALLOW)
+        c["not_committed"] = commits == "1"
+    elif scenario == "brainstorm_session":
+        items = h.new_pm_items(repo)
+        new_tickets = [(docs / "tickets" / n).read_text() for n in items["tickets"]]
+        status = h.git(repo, "status", "--porcelain").stdout
+        c["skill_invoked"] = any(n == "Skill" and i.get("skill") == "pm:brainstorm" for n, i in tools)
+        c["asked_questions"] = 3 <= len(asks) <= 12
+        c["one_question_at_a_time"] = bool(asks) and all(len(a.get("questions", [])) == 1 for a in asks)
+        c["each_question_has_options"] = bool(asks) and all(len(q.get("options", [])) >= 2 for a in asks for q in a.get("questions", []))
+        c["asked_before_writing"] = any(any(w in q.lower() for w in ("apply", "write", "update")) for q in questions) or \
+            any(e["kind"] == "text_reply" and "apply" in e["detail"].lower() for e in events)
+        c["proposal_has_why"] = any("why" in t.lower() and "|" in t for t in texts)
+        c["wrote_something"] = bool(items["tickets"] or items["epics"] or items["backlog_changed"] or items["decisions_changed"])
+        grilled_on_request = any(e["kind"] == "ask_answered" and "grill" in e["detail"].lower() and e["detail"].lower().rsplit(" -> ", 1)[-1].startswith("grill") for e in events)
+        c["new_tickets_thin"] = all("ready: no" in t for t in new_tickets) or (grilled_on_request and sum("ready: yes" in t for t in new_tickets) <= 1)
+        c["only_docs_changed"] = all(l[3:].startswith("docs/pm/") or l[3:] == "CONTEXT.md" for l in status.splitlines())
         c["validate_ok"] = h.validate_ok(repo, h.LOGIN_ALLOW)
         c["not_committed"] = commits == "1"
     elif scenario == "retro_interview":

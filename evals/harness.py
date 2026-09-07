@@ -120,6 +120,30 @@ def validate_ok(root, allow=()):
 LOGIN_ALLOW = ("T007: owner set but status is todo",)
 
 
+def new_pm_items(repo):
+    """What a run added under docs/pm compared with HEAD: new ticket and epic files, and whether Backlog, decisions or the roadmap changed."""
+    status = git(repo, "status", "--porcelain").stdout
+    added = [l[3:] for l in status.splitlines() if l[:2].strip() in ("??", "A")]
+    tickets = sorted(pathlib_name(x) for x in added if x.startswith("docs/pm/tickets/"))
+    epics = sorted(pathlib_name(x) for x in added if x.startswith("docs/pm/epics/"))
+
+    def section(text, head):
+        return text.split(head)[1] if head in text else ""
+
+    road_now = (repo / "docs/pm/roadmap.md").read_text() if (repo / "docs/pm/roadmap.md").exists() else ""
+    road_head = git(repo, "show", "HEAD:docs/pm/roadmap.md").stdout
+    dec_now = (repo / "docs/pm/decisions.md").read_text() if (repo / "docs/pm/decisions.md").exists() else ""
+    dec_head = git(repo, "show", "HEAD:docs/pm/decisions.md").stdout
+    return {"tickets": tickets, "epics": epics,
+            "backlog_changed": section(road_now, "## Backlog").strip() != section(road_head, "## Backlog").strip(),
+            "decisions_changed": dec_now.strip() != dec_head.strip(),
+            "roadmap_changed": road_now.strip() != road_head.strip()}
+
+
+def pathlib_name(rel):
+    return rel.rsplit("/", 1)[-1]
+
+
 def ticket_text(tid, title, status, prio, deps, what, acc, auto="yes", plan="none", proposed="", ready="yes", why="Part of the four basic operations."):
     return f"---\nid: {tid}\ntitle: {title}\nepic: E01\nmilestone: M1\nstatus: {status}\npriority: {prio}\ndepends_on: [{deps}]\nowner:\nauto: {auto}\nplan: {plan}\nready: {ready}\nissue:\npr:\n---\n## What\n{what}\n\n## Why\n{why}\n\n## Acceptance\n{acc}\n\n## Subtasks\n- [ ] write the failing test\n- [ ] make it pass\n\n## Plan\nApproach:\nTouches:\nTests first:\nDecisions to record:\napproved: no\n\n## Notes\n\n## Proposed changes\n{proposed}"
 
@@ -351,6 +375,18 @@ SCENARIOS = {
         setup=lambda r: calc_repo(r, True, "ungrilled"), max_turns=30,
         prompt="Do ticket T002 from our project tracking now. No questions.",
         expect_skill="pm:work"),
+    "brainstorm_proposal_only": dict(
+        setup=login_repo, max_turns=40,
+        prompt="Let us brainstorm what the login part of this app still needs before a person could use it. "
+               "I cannot answer questions right now, so think it through yourself and tell me which files in our project tracking "
+               "you would change and why. Do not change anything yet.",
+        expect_skill="pm:brainstorm"),
+    "brainstorm_delegated": dict(
+        setup=login_repo, max_turns=60,
+        prompt="Brainstorm with me what the login part of this app still needs before a person could use it, then update our "
+               "project tracking with what comes out. Do not ask me questions: take your own recommended answers all the way through, "
+               "including applying the proposal. Do not commit.",
+        expect_skill="pm:brainstorm"),
     "plan_ticket_thin": dict(
         setup=login_repo, max_turns=30,
         prompt="Add a ticket to our project tracking under the login epic: a remember me box on the login form. "
@@ -643,6 +679,26 @@ def evaluate(name: str, spec: dict, repo: Path, run_dir: Path, tools, skills, re
         checks["points_at_grill"] = "grill" in full.lower()
         checks["did_not_force"] = "--force" not in bashes
         checks["nothing_committed"] = commits == "1"
+    elif name == "brainstorm_proposal_only":
+        low = (full + "\n" + text).lower()
+        checks["proposes_pm_files"] = any(k in low for k in ("roadmap", "ticket", "epic", "decisions", "backlog"))
+        checks["gives_a_why"] = "why" in low or "because" in low
+        checks["no_files_changed"] = status.strip() == ""
+        checks["did_not_grill"] = "pm:grill" not in pm_skills
+        checks["says_how_to_apply"] = "brainstorm" in low or "pm:plan" in low
+        checks["not_committed"] = commits == "1"
+    elif name == "brainstorm_delegated":
+        items = new_pm_items(repo)
+        new_tickets = [(docs / "tickets" / n).read_text() for n in items["tickets"]]
+        checks["wrote_something"] = bool(items["tickets"] or items["epics"] or items["backlog_changed"] or items["decisions_changed"])
+        checks["new_tickets_thin"] = all("ready: no" in t for t in new_tickets)
+        checks["no_placeholder_left"] = all("(fill in)" not in t and "one testable line per item" not in t for t in new_tickets)
+        checks["flow_redrawn"] = all(any(n[:4] in e.read_text() for e in (docs / "epics").glob("E*.md")) for n in items["tickets"])
+        checks["only_docs_changed"] = all(l[3:].startswith("docs/pm/") or l[3:] == "CONTEXT.md" for l in status.splitlines())
+        checks["did_not_grill"] = "pm:grill" not in pm_skills and not any("ready: yes" in t for t in new_tickets)
+        checks["proposal_has_why"] = "why" in (text + full).lower() and "|" in text  # the file | change | why table, printed before the write
+        checks["validate_ok"] = validate_ok(repo, LOGIN_ALLOW)
+        checks["not_committed"] = commits == "1"
     elif name == "plan_ticket_thin":
         new = sorted(p.name for p in (docs / "tickets").glob("T008*.md"))
         checks["ticket_T008_created"] = bool(new)
