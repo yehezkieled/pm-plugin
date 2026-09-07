@@ -20,6 +20,7 @@ GitHub is a one-way mirror (milestone, epic issue with task list, ticket issue).
 | Skill | Does | Input | Output |
 | --- | --- | --- | --- |
 | `/pm:init` | interview, then create docs/pm and the pm block | `[--quick]` | files, board, next steps |
+| `/pm:brainstorm` | think out loud on a topic, then propose which pm files to change and why; write the rows you accept | `[topic]` | `file \| change \| why` table, thin tickets, Backlog lines, decisions |
 | `/pm:plan` | add a milestone, epic, ticket, bug, or idea; apply proposed changes | `kind [title or Txxx]` | thin ticket file (`ready: no`), redrawn Flow |
 | `/pm:grill` | question one ticket until What, Why and Acceptance are settled | `[Txxx or Exx]` | ticket marked `ready: yes` |
 | `/pm:work` | one ticket end to end: claim, plan, tests first, gates, two review agents, PR | `[Txxx] [--routine]` | branch or PR, report |
@@ -86,6 +87,7 @@ Without python3 the skills do the same work by hand from `templates/`.
 ## Rules the plugin keeps
 
 - No dates, deadlines, or effort numbers anywhere. Milestones are ordered versions. `tests/test_no_time_tracking.py` fails the build if the plugin's own text breaks this.
+- Thinking is separate from filing: `/pm:brainstorm` asks first and ends with a table of proposed file changes with a reason each. Nothing is written before you accept rows.
 - No ticket without a testable acceptance line, and no work on a ticket before it is grilled: `/pm:plan` writes tickets thin (`ready: no`), `/pm:grill` runs the questioning round and marks them ready, `/pm:work` and the plan gate refuse the rest. Blocked tickets are grilled once their dependency lands; one grilled early is flagged on the board. Tickets written before the flag existed count as ready.
 - An agent never widens a ticket. Extra ideas go under "Proposed changes" for a person to accept, edit, or reject.
 - Claims are committed before branching, so several agents can work in their own worktrees without colliding.
@@ -115,6 +117,6 @@ Run them after changing a skill, a hook, or an agent, and when a new model appea
 
 ## Credits
 
-The questioning style in `/pm:init` and `/pm:grill` borrows the essence of Matt Pocock's grill-me skill
+The questioning style in `/pm:init`, `/pm:brainstorm` and `/pm:grill` borrows the essence of Matt Pocock's grill-me skill
 (https://github.com/mattpocock/skills, MIT): one question at a time, a recommended answer with each,
 look things up instead of asking, stop when understanding is shared. Nothing from it is installed as a dependency.

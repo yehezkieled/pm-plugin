@@ -33,7 +33,7 @@ bash "${CLAUDE_PLUGIN_ROOT}/scripts/pm_detect.sh"
 
 Keys: git, host (github | gitlab | other | none), remote, branch, fork, commits, files, languages, check_guess, readme, context_md, claude_md, planning_docs, pm, flow_suggest, python3, gh.
 
-If `pm=yes`: stop here, tell the user pm is already set up, and offer /pm:status or /pm:plan.
+If `pm=yes`: stop here, tell the user pm is already set up, and offer /pm:status, /pm:plan, or /pm:brainstorm.
 
 ## 2. Audit (existing repos: commits > 0 or files > 0)
 

@@ -152,3 +152,38 @@ class GrillWordingTest(unittest.TestCase):
         self.assertIn("/pm:grill", read("README.md"))
         self.assertIn("ready: {{ready}}", read("templates/ticket.md"))
         self.assertIn("/pm:grill", read("docs/blueprint.html"))
+
+
+class BrainstormWordingTest(unittest.TestCase):
+    """An open thinking session is its own skill; it proposes file changes with a why and writes only after a yes."""
+
+    def test_brainstorm_skill_exists_and_routes_on_the_right_words(self):
+        fm = frontmatter(read("skills/brainstorm/SKILL.md"))
+        self.assertEqual(fm["name"].strip(), "brainstorm")
+        desc = fm["description"].lower()
+        for word in ("brainstorm", "think out loud", "explore", "not for", "pm:plan", "pm:grill", "pm:init"):
+            self.assertIn(word, desc)
+
+    def test_brainstorm_asks_one_at_a_time_then_proposes_then_writes_on_a_yes(self):
+        body = read("skills/brainstorm/SKILL.md")
+        for needle in ("One question at a time", "recommended answer", "Intent versus fact", "Nothing is written",
+                       "file | change | why", "ready: no", "Backlog", "decisions.md", "pm:grill", "pm:init",
+                       "Do not commit", "never pass `--ready`", "pm.py validate", "a delegated run never invokes pm:grill", "apply every row", "print the proposal table all the same", "comes after the table, never before it"):
+            self.assertIn(needle, body)
+        self.assertNotIn("grill me", body.lower())
+
+    def test_other_skills_and_docs_know_about_brainstorming(self):
+        help_text = read("skills/help/SKILL.md")
+        self.assertIn("/pm:brainstorm", help_text.split("```")[1])  # the cheat sheet block
+        self.assertIn("## brainstorm", help_text)
+        self.assertIn("brainstorm", frontmatter(help_text)["argument-hint"])
+        self.assertIn("pm:brainstorm", read("skills/status/SKILL.md").split("## Hand-off")[1])
+        self.assertIn("pm:brainstorm", frontmatter(read("skills/status/SKILL.md"))["description"])
+        self.assertIn("still needs", frontmatter(read("skills/brainstorm/SKILL.md"))["description"])
+        self.assertIn("cannot answer questions", frontmatter(read("skills/brainstorm/SKILL.md"))["description"])
+        self.assertIn("Route first", read("skills/status/SKILL.md").split("## ")[0])  # before the board is printed
+        self.assertIn("pm:brainstorm", frontmatter(read("skills/plan/SKILL.md"))["description"])
+        self.assertIn("/pm:brainstorm", read("skills/init/SKILL.md"))
+        self.assertIn("/pm:brainstorm", read("README.md"))
+        self.assertIn("/pm:brainstorm", read("docs/blueprint.html"))
+        self.assertIn("brainstorm", read(".claude-plugin/plugin.json"))

@@ -160,7 +160,7 @@
       <tr><td class="k">metadata</td><td>Priority and dependencies only</td><td>No dates, no deadlines, no time estimates anywhere. Milestones are ordered versions, not calendar targets. Matches your rule to weight quality far above development cost.</td></tr>
       <tr><td class="k">hooks</td><td>Session start summary; session stop warning</td><td>Warn only, never block.</td></tr>
       <tr><td class="k">retro</td><td>Yes, at milestone close</td><td>What shipped, what moved, what to keep and what to change, recorded in roadmap.md and decisions.md.</td></tr>
-      <tr><td class="k">quality</td><td>Grilling in init and grill; plan mode in work</td><td>Init runs a questioning round before writing, and <code>/pm:grill</code> runs one per ticket before it may be worked (<code>/pm:plan</code> only captures, writing the ticket thin as <code>ready: no</code>), borrowing the essence of Matt Pocock's grill-me (credited in the README, not a dependency): one question at a time with a recommended answer, facts looked up instead of asked, a gate on shared understanding. <code>/pm:work</code> always writes a Plan section before any edit; it waits for your approval only when the ticket says <code>plan: required</code>.</td></tr>
+      <tr><td class="k">quality</td><td>Grilling in init, brainstorm and grill; plan mode in work</td><td>Init runs a questioning round before writing, <code>/pm:brainstorm</code> runs an open one that ends in a table of proposed file changes with a reason each (nothing written before you accept rows), and <code>/pm:grill</code> runs one per ticket before it may be worked (<code>/pm:plan</code> only captures, writing the ticket thin as <code>ready: no</code>), borrowing the essence of Matt Pocock's grill-me (credited in the README, not a dependency): one question at a time with a recommended answer, facts looked up instead of asked, a gate on shared understanding. <code>/pm:work</code> always writes a Plan section before any edit; it waits for your approval only when the ticket says <code>plan: required</code>.</td></tr>
       <tr><td class="k">routines</td><td>Skills in the plugin, the timer per project</td><td>Each project turns on the work routine and the audit routine itself, with its own cadence and caps, recorded in the pm block. Nothing runs unattended unless a project asked for it.</td></tr>
       <tr><td class="k">audit</td><td><code>/pm:audit</code> is part of the plugin</td><td>Finds bugs, inconsistencies, and structure problems and files them as tickets. Never edits code. You approve by marking a ticket <code>auto: yes</code>.</td></tr>
       <tr><td class="k">help</td><td><code>/pm:help</code> is part of the plugin</td><td>Prints a one-screen cheat sheet of every skill with input, output, and an example, plus this project's pm block. <code>/pm:help &lt;skill&gt;</code> prints the fuller version for one skill.</td></tr>
@@ -177,6 +177,7 @@
 │   └── marketplace.json            <span class="cm">lets `claude plugin install pm@pm-plugin` work from this folder</span>
 ├── skills/                         <span class="cm">Claude Code names them /pm:&lt;folder&gt;</span>
 │   ├── init/SKILL.md               <span class="cm">detect → (audit) → interview → propose → create the files</span>
+│   ├── brainstorm/SKILL.md         <span class="cm">read → frame → widen and narrow, one question at a time → file | change | why table → write the accepted rows</span>
 │   ├── plan/SKILL.md               <span class="cm">milestone / epic / ticket / bug / idea / apply; sync</span>
 │   ├── work/SKILL.md               <span class="cm">one ticket per run: claim → branch → plan (plan mode when required) → TDD → gates → PR → done</span>
 │   ├── status/SKILL.md             <span class="cm">the board, problems, three lines of reading, hand-off to work/plan/audit</span>
@@ -353,6 +354,7 @@ Single-user tool, no server. SQLite keeps deploy to one file. Revisit if a secon
   <div class="tablewrap"><table>
     <thead><tr><th>You want to</th><th>You type</th><th>What happens</th></tr></thead>
     <tbody>
+      <tr><td>Think before filing</td><td class="k">/pm:brainstorm "sharing lists"</td><td>Reads the repo and the board, then asks one question at a time with a recommended answer: problem, what exists, options with trade-offs, risks, first usable version. Ends with a <code>file | change | why</code> table (milestone, epic, thin tickets, Backlog lines, decisions) and writes only the rows you accept. Without docs/pm the proposal feeds <code>/pm:init</code>.</td></tr>
       <tr><td>A new epic</td><td class="k">/pm:plan epic "password reset"</td><td>Asks which milestone and priority. Creates the epic file, adds it to the roadmap, opens the epic issue.</td></tr>
       <tr><td>A feature ticket</td><td class="k">/pm:plan ticket "remember me box" E03</td><td>Next number, thin ticket file (<code>ready: no</code>) with a first draft of what/why/acceptance, listed in E03, issue linked from the epic issue. Ends with "grill now or later?".</td></tr>
       <tr><td>Get a ticket ready to build</td><td class="k">/pm:grill T016</td><td>Reads the code first, then one question at a time with a recommended answer until What, Why and a testable Acceptance line are settled. Sets <code>ready: yes</code>. A blocked ticket waits for its dependency; grilled early, the board flags it.</td></tr>
@@ -456,6 +458,7 @@ flowchart TD
     <thead><tr><th>Skill</th><th>Plan mode</th><th>Grilling session</th></tr></thead>
     <tbody>
       <tr><td class="k">/pm:init</td><td>Not needed; it writes nothing until you say ok.</td><td><b>Yes.</b> The interview pushes back on scope, asks what failure would look like, and forces non-goals.</td></tr>
+      <tr><td class="k">/pm:brainstorm</td><td>Not needed; it writes nothing until you accept the proposal.</td><td><b>Yes, open-ended.</b> Widens first (problem, person, what exists, options, risks), narrows to a first usable version, then proposes rows. Intent questions only; an unknown fact becomes a <code>plan: required</code> design ticket. A run that cannot ask ends at the proposal.</td></tr>
       <tr><td class="k">/pm:plan</td><td>Not needed.</td><td>No. It captures: the ticket is written thin and handed to <code>/pm:grill</code>, now or once its dependency lands.</td></tr>
       <tr><td class="k">/pm:grill</td><td>Not needed.</td><td><b>Yes, the important one.</b> Per ticket, before it may be worked: what, why, acceptance lines proposed for you to accept or change, and whether it carries a design choice. One question at a time, each with a recommended answer; anything the codebase already answers is looked up, not asked. Intent questions only: a fact nobody knows yet becomes a <code>plan: required</code> design ticket instead of a guess. No ticket is marked ready without testable acceptance.</td></tr>
       <tr><td class="k">/pm:work</td><td><b>Built in, every ticket.</b> Explores the code read-only and writes the Plan section into the ticket (approach, files, tests first, decisions to record) before any edit. Waits for your approval only when <code>plan: required</code>; a trivial ticket gets a three-line plan and continues at once.</td><td>No.</td></tr>
@@ -515,6 +518,20 @@ each run:                /pm:audit  →  new tickets, auto: no  →  you flip so
 <span class="ag">agent:</span>  writes CONTEXT.md and docs/pm/, sets up tooling if the repo is new,
         syncs to GitHub if there is a remote
         report: "M1 with 3 epics and 8 tickets. Board: 8 todo. Next: /pm:work"</pre>
+
+  <h3>/pm:brainstorm</h3>
+<pre><span class="yo">you:</span>    /pm:brainstorm "sharing lists"   <span class="cm"># or no topic: the agent proposes one from the board</span>
+<span class="ag">agent:</span>  reads README, roadmap, E01-E03, board, decisions; "sharing is in the Backlog, nothing in M1 touches it"
+        5 questions, one at a time, each with a recommended answer; every third one restates what settled
+        proposal:  file | change | why
+                   roadmap.md      M2 "share a list with one person"      sharing needs sign-in, which is M1
+                   epics/E04       sharing epic under M2                  one goal, two to four tickets
+                   tickets/T016    thin: share link (ready: no)           first draft What/Acceptance from the talk
+                   tickets/T017    thin, plan: required: who may see what  nobody knows the permission shape yet
+                   decisions.md    "a list has one owner"                 a reader would otherwise guess
+        "apply all rows, pick, or none?"  → apply → written, Flow redrawn, validate ok
+        "grill T016 now, or later?"
+        report: settled in talk / written / next: /pm:grill T016</pre>
 
   <h3>/pm:plan</h3>
 <pre>/pm:plan epic "password reset"        → asks milestone + priority → E04 file, roadmap line, epic issue
@@ -759,7 +776,7 @@ each run:                /pm:audit  →  new tickets, auto: no  →  you flip so
   <!-- ============ 8 OPEN ============ -->
   <h2 id="open">9 · Decisions the build settled</h2>
   <ul class="tight prose">
-    <li><b>Skill names</b>: <code>/pm:init</code>, <code>/pm:plan</code>, <code>/pm:work</code>, <code>/pm:status</code>, <code>/pm:retro</code>, <code>/pm:audit</code>, <code>/pm:help</code>. Plugin name <code>pm</code>; Claude Code adds the <code>pm:</code> prefix itself, the folders are <code>skills/init</code> and so on. Typing <code>/pm</code> lists them.</li>
+    <li><b>Skill names</b>: <code>/pm:init</code>, <code>/pm:brainstorm</code>, <code>/pm:plan</code>, <code>/pm:work</code>, <code>/pm:status</code>, <code>/pm:retro</code>, <code>/pm:audit</code>, <code>/pm:help</code>. Plugin name <code>pm</code>; Claude Code adds the <code>pm:</code> prefix itself, the folders are <code>skills/init</code> and so on. Typing <code>/pm</code> lists them.</li>
     <li><b>Docs live under <code>docs/pm/</code></b> so they never collide with a repo's own docs folder.</li>
     <li><b>Decisions</b> are one file, <code>docs/pm/decisions.md</code>, newest entry first. Say "drop it" and it goes.</li>
     <li><b>Ticket status</b> has four values: todo, in progress, review, done. "review" means a PR is open. Blocked is not a status; it is a dependency that is not done, and the board shows it as a note on the card.</li>
