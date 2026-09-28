@@ -1,14 +1,13 @@
 #!/usr/bin/env bash
-# SessionStart hook: prints one line of pm context when the project has docs/pm.
+# SessionStart: show the board and ready items without model-specific setup.
 cat >/dev/null  # hook input is not needed
 root="${CLAUDE_PROJECT_DIR:-$PWD}"
-[ -f "$root/docs/pm/roadmap.md" ] || exit 0
+[ -f "$root/docs/pm/BOARD.md" ] || exit 0
 plugin="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 if command -v python3 >/dev/null 2>&1; then
-  line="$(python3 "$plugin/scripts/pm.py" --root "$root" line 2>/dev/null)"
-  [ -n "$line" ] && echo "$line"
+  (cd "$root" && python3 "$plugin/scripts/pm.py" board 2>/dev/null)
 else
-  echo "pm: docs/pm found, python3 missing; the pm skills will read the files by hand."
+  cat "$root/docs/pm/BOARD.md"
+  echo "Run /pm:status for dependency-aware Ready next items."
 fi
-echo "pm skills: board /pm:status | think it through, what is missing /pm:brainstorm | add or file work /pm:plan | get a ticket ready /pm:grill | do a ticket /pm:work | find bugs /pm:audit | cheat sheet /pm:help"
 exit 0

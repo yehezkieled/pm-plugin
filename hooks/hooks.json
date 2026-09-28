@@ -1,5 +1,5 @@
 {
-  "description": "pm plugin: one board line at session start, a plan gate before code edits on a ticket branch, a ticket reminder at stop (warn only)",
+  "description": "Show project status at session start and remind agents to update item notes after code changes.",
   "hooks": {
     "SessionStart": [
       {
@@ -18,17 +18,6 @@
           {
             "type": "command",
             "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/stop.sh\""
-          }
-        ]
-      }
-    ],
-    "PreToolUse": [
-      {
-        "matcher": "Edit|Write|MultiEdit|NotebookEdit|Bash",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/plan-gate.sh\""
           }
         ]
       }
