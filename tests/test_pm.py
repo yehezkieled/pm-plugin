@@ -17,16 +17,16 @@ class ProjectBoardTests(unittest.TestCase):
     def tearDown(self):
         self.temp.cleanup()
 
-    def run_cli(self, *args, ok=True):
-        result = subprocess.run(["python3", str(CLI), *args], cwd=self.root, text=True, capture_output=True)
+    def run_cli(self, *args, ok=True, input_text=None):
+        result = subprocess.run(["python3", str(CLI), *args], cwd=self.root, text=True, input=input_text, capture_output=True)
         self.assertEqual(result.returncode == 0, ok, result.stderr)
         return result
 
     def add(self, title, intent):
-        return self.run_cli("add", title, "--intent", intent).stdout.split(":", 1)[0].split()[-1]
+        return self.run_cli("add", title, "--intent-stdin", input_text=intent).stdout.split(":", 1)[0].split()[-1]
 
     def test_keeps_requester_words_and_board_points_to_detail(self):
-        exact = 'Please add a "shared" view — exactly as requested.'
+        exact = 'Please add a "shared" view with $HOME and $(touch should-not-exist) — exactly as requested.'
         item_id = self.add("Shared view", exact)
         detail = next((self.root / "docs/pm/items").glob(f"{item_id}-*.md")).read_text()
         board = (self.root / "docs/pm/BOARD.md").read_text()
@@ -54,8 +54,16 @@ class ProjectBoardTests(unittest.TestCase):
         self.run_cli("finish", first)
         self.assertEqual(self.run_cli("next").stdout.strip().split()[0], second)
         self.run_cli("hold", second, "Need a decision", "--until", "2026-10-10")
-        self.assertIn("none", self.run_cli("next").stdout.lower())
+        self.assertIn("no queued items are ready", self.run_cli("next").stdout.lower())
         self.assertIn("Need a decision", (self.root / "docs/pm/BOARD.md").read_text())
+
+    def test_same_owner_can_resume_but_another_owner_cannot_take_over(self):
+        item_id = self.add("Resume task", "Keep the claim")
+        self.run_cli("claim", item_id, "Ari")
+        resumed = self.run_cli("claim", item_id, "ari")
+        self.assertIn("resuming the existing claim", resumed.stdout)
+        refused = self.run_cli("claim", item_id, "Bea", ok=False)
+        self.assertIn("already claimed by Ari", refused.stderr)
 
     def test_done_board_is_capped_and_older_summaries_are_archived(self):
         ids = []

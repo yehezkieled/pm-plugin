@@ -218,9 +218,10 @@ def cmd_add(root: Path, args) -> None:
         number = max((int(re.search(r"\d+$", i["id"]).group()) for i in items), default=0) + 1
         item_id = f"PM-{number:03}"
         slug = re.sub(r"[^a-z0-9]+", "-", args.title.lower()).strip("-")[:50] or "item"
+        intent = sys.stdin.read() if args.intent_stdin else args.intent
         item = {"id": item_id, "title": args.title.strip(), "status": "queued", "owner": "",
                 "depends_on": [], "hold": "", "hold_until": "", "github_issue": "",
-                "intent": args.intent, "notes": "", "done_order": 0,
+                "intent": intent, "notes": "", "done_order": 0,
                 "path": item_dir(root) / f"{item_id}-{slug}.md"}
         item["path"].parent.mkdir(parents=True, exist_ok=True)
         save_item(item)
@@ -250,6 +251,9 @@ def cmd_claim(root: Path, args) -> None:
         items = read_items(root)
         item = find_item(items, args.id)
         if item.get("owner"):
+            if item.get("status") == "in-flight" and item["owner"].casefold() == args.person.casefold():
+                print(f"{item['id']} is already in flight for {args.person}; resuming the existing claim.")
+                return
             raise ValueError(f"{item['id']} is already claimed by {item['owner']}.")
         can_start, reason = ready(item, {i["id"]: i for i in items})
         if not can_start:
@@ -383,7 +387,10 @@ def parser() -> argparse.ArgumentParser:
     sub.add_parser("board", help="show status at a glance")
     sub.add_parser("next", help="list queued items whose dependencies are done")
     add = sub.add_parser("add", help="create an item with the requester's exact words")
-    add.add_argument("title"); add.add_argument("--intent", required=True)
+    add.add_argument("title")
+    intent = add.add_mutually_exclusive_group(required=True)
+    intent.add_argument("--intent", help="requester words supplied as one already-safe argv value")
+    intent.add_argument("--intent-stdin", action="store_true", help="read exact requester words from stdin")
     claim = sub.add_parser("claim", help="atomically claim an item before work")
     claim.add_argument("id"); claim.add_argument("person")
     for command, help_text in (("finish", "mark an in-flight item done"), ("resume", "return a held item to queue")):
