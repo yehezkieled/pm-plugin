@@ -14,6 +14,8 @@ class ProjectBoardTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.root = Path(self.temp.name)
         subprocess.run(["git", "init", "-q"], cwd=self.root, check=True)
+        subprocess.run(["git", "config", "user.name", "Test"], cwd=self.root, check=True)
+        subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=self.root, check=True)
         self.run_cli("init")
 
     def tearDown(self):
@@ -87,11 +89,17 @@ class ProjectBoardTests(unittest.TestCase):
         self.assertIn("already claimed by Ari", refused.stderr)
 
     def test_done_board_is_capped_and_older_summaries_are_archived(self):
+        code = self.root / "app.py"
+        code.write_text("original\n")
+        subprocess.run(["git", "add", "app.py"], cwd=self.root, check=True)
+        subprocess.run(["git", "commit", "-qm", "add app"], cwd=self.root, check=True)
         ids = []
         for number in range(11):
             item_id = self.add(f"Task {number}", f"Request {number}")
             ids.append(item_id)
             self.run_cli("claim", item_id, "Ari")
+            code.write_text(f"changed {number}\n")
+            subprocess.run(["git", "add", "app.py"], cwd=self.root, check=True)
             self.run_cli("finish", item_id)
         board = (self.root / "docs/pm/BOARD.md").read_text()
         archive = (self.root / "docs/pm/archive.md").read_text()
@@ -101,6 +109,14 @@ class ProjectBoardTests(unittest.TestCase):
         self.run_cli("set", ids[0], "--note", "Updated archived item")
         archive = (self.root / "docs/pm/archive.md").read_text()
         self.assertEqual(archive.count(f"[{ids[0]}]"), 1)
+        self.assertEqual(subprocess.check_output(["git", "log", "-1", "--format=%s"], cwd=self.root, text=True).strip(),
+                         f"pm: finish {ids[-1]}")
+        committed = subprocess.check_output(["git", "show", "HEAD:docs/pm/items/" +
+                                               next((self.root / "docs/pm/items").glob(f"{ids[-1]}-*.md")).name],
+                                            cwd=self.root, text=True)
+        self.assertIn('status: "done"', committed)
+        self.assertIn("app.py", subprocess.check_output(["git", "diff", "--cached", "--name-only"],
+                                                        cwd=self.root, text=True))
 
     def test_stop_hook_recognizes_slug_id_item_updates(self):
         with tempfile.TemporaryDirectory() as temp:

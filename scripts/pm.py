@@ -376,7 +376,13 @@ def cmd_finish(root: Path, args) -> None:
         item.update(status="done", owner="", notes=args.note or item.get("notes", ""), done_order=next_order)
         save_item(item)
         refresh(root)
-    print(f"Finished {item['id']}; board refreshed.")
+        paths = ["docs/pm/BOARD.md", "docs/pm/archive.md", item["path"].relative_to(root).as_posix()]
+        is_git_repo = git(root, "rev-parse", "--is-inside-work-tree", check=False).returncode == 0
+        if is_git_repo:
+            git(root, "add", "--", *paths)
+            git(root, "commit", "--only", "-m", f"pm: finish {item['id']}", "--", *paths)
+    suffix = " and completion committed locally" if is_git_repo else ""
+    print(f"Finished {item['id']}; board refreshed{suffix}.")
 
 
 def cmd_hold(root: Path, args) -> None:
