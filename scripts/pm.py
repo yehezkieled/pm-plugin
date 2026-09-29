@@ -80,7 +80,7 @@ def read_items(root: Path) -> list[dict]:
 
 
 def item_text(item: dict) -> str:
-    keys = ("id", "status", "owner", "depends_on", "hold", "hold_until", "github_issue", "done_at", "intent_length")
+    keys = ("id", "status", "owner", "depends_on", "hold", "hold_until", "done_at", "intent_length", "github_issue")
     lines = ["---"]
     lines.extend(f"{key}: {json.dumps(item.get(key, [] if key == 'depends_on' else 0 if key == 'intent_length' else ''), ensure_ascii=False)}" for key in keys)
     lines.extend(("---", f"# {item['title']}", "", "## Requester intent", item["intent"], "", "## Current notes", item.get("notes", ""), ""))
@@ -449,56 +449,64 @@ def cmd_mirror(root: Path, args) -> None:
 
 
 def cmd_sync(root: Path, args) -> None:
-    if mirror_setting(root) != "github":
-        raise ValueError("GitHub Issues mirror is off. Enable it with `pm.py mirror github` first.")
     created: dict[str, str] = {}
+    failure: list[ValueError] = []
 
-    def record(board: Path):
+    def change(board: Path):
+        if mirror_setting(board) != "github":
+            raise ValueError("GitHub Issues mirror is off. Enable it with `pm.py mirror github` first.")
+        failure.clear()
+        items = read_items(board)
+        recorded = {item["id"]: item.get("github_issue", "") for item in items}
+        lines = []
+        try:
+            for item in items:
+                item["github_issue"] = recorded[item["id"]] or created.get(item["id"], "")
+                lines.append(sync_issue(root, item, created))
+        except ValueError as exc:
+            failure.append(exc)
         paths = []
-        for item in read_items(board):
-            if item["id"] in created and not item.get("github_issue"):
+        for item in items:
+            if item["id"] in created and not recorded[item["id"]]:
                 item["github_issue"] = created[item["id"]]
                 save_item(item)
                 paths.append(item["path"])
-        return paths, "Record GitHub issue numbers for " + ", ".join(created)
+        return paths, "\n".join([f"Synced {len(lines)} items to GitHub Issues", *lines])
     with write_lock(root):
-        try:
-            sync_issues(root, created)
-        finally:
-            if created:
-                print(publish(root, record))
+        print(publish(root, change))
+    if failure:
+        raise failure[0]
 
 
-def sync_issues(root: Path, created: dict[str, str]) -> None:
-    for item in read_items(root):
-        body = f"Requester intent (verbatim):\n\n{item['intent']}\n\nCurrent notes:\n\n{item.get('notes', '')}\n\nLocal status: {item.get('status')}"
-        if item.get("github_issue"):
-            number = str(item["github_issue"])
-            command = ["gh", "issue", "edit", number, "--title", item["title"], "--body", body]
-        else:
-            number = ""
-            command = ["gh", "issue", "create", "--title", item["title"], "--body", body]
-        result = subprocess.run(command, cwd=root, text=True, capture_output=True)
-        if result.returncode:
-            raise ValueError(result.stderr.strip() or "gh issue sync failed")
-        issue_url = result.stdout.strip().splitlines()[-1] if result.stdout.strip() else ""
-        number_match = re.search(r"/(\d+)$", issue_url)
-        if number_match and not number:
-            number = number_match.group(1)
-            created[item["id"]] = number
-        if number:
-            details = subprocess.run(["gh", "issue", "view", number, "--json", "url,state"], cwd=root, text=True, capture_output=True)
-            if details.returncode:
-                raise ValueError(details.stderr.strip() or f"could not read GitHub issue {number}")
-            issue = json.loads(details.stdout)
-            issue_url = issue["url"]
-            desired_state = "closed" if item.get("status") == "done" else "open"
-            if issue["state"].lower() != desired_state:
-                verb = "close" if desired_state == "closed" else "reopen"
-                changed = subprocess.run(["gh", "issue", verb, number], cwd=root, text=True, capture_output=True)
-                if changed.returncode:
-                    raise ValueError(changed.stderr.strip() or f"could not {verb} GitHub issue {number}")
-        print(f"{item['id']} -> {issue_url}")
+def sync_issue(root: Path, item: dict, created: dict[str, str]) -> str:
+    body = f"Requester intent (verbatim):\n\n{item['intent']}\n\nCurrent notes:\n\n{item.get('notes', '')}\n\nStatus: {item.get('status')}"
+    if item.get("github_issue"):
+        number = str(item["github_issue"])
+        command = ["gh", "issue", "edit", number, "--title", item["title"], "--body", body]
+    else:
+        number = ""
+        command = ["gh", "issue", "create", "--title", item["title"], "--body", body]
+    result = subprocess.run(command, cwd=root, text=True, capture_output=True)
+    if result.returncode:
+        raise ValueError(result.stderr.strip() or "gh issue sync failed")
+    issue_url = result.stdout.strip().splitlines()[-1] if result.stdout.strip() else ""
+    number_match = re.search(r"/(\d+)$", issue_url)
+    if number_match and not number:
+        number = number_match.group(1)
+        created[item["id"]] = number
+    if number:
+        details = subprocess.run(["gh", "issue", "view", number, "--json", "url,state"], cwd=root, text=True, capture_output=True)
+        if details.returncode:
+            raise ValueError(details.stderr.strip() or f"could not read GitHub issue {number}")
+        issue = json.loads(details.stdout)
+        issue_url = issue["url"]
+        desired_state = "closed" if item.get("status") == "done" else "open"
+        if issue["state"].lower() != desired_state:
+            verb = "close" if desired_state == "closed" else "reopen"
+            changed = subprocess.run(["gh", "issue", verb, number], cwd=root, text=True, capture_output=True)
+            if changed.returncode:
+                raise ValueError(changed.stderr.strip() or f"could not {verb} GitHub issue {number}")
+    return f"{item['id']} -> {issue_url}"
 
 
 def parser() -> argparse.ArgumentParser:

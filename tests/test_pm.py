@@ -278,7 +278,7 @@ class ProjectBoardTests(unittest.TestCase):
             result = self.cli_in(clone_a, "add", input_text="From a branch\nPlanned during work")
             self.assertIn("branch pm/other shows it only after syncing with origin/main", result.stdout)
 
-    def test_sync_publishes_new_issue_numbers_so_other_clones_do_not_duplicate(self):
+    def test_sync_uses_the_shared_board_and_finish_still_merges(self):
         with tempfile.TemporaryDirectory() as temp:
             space = Path(temp)
             item_id, (clone_a, clone_b) = self.shared_clones(space)
@@ -298,16 +298,27 @@ esac
             run = lambda cwd, *args: subprocess.run(["python3", str(CLI), *args], cwd=cwd, env=env,
                                                     text=True, capture_output=True, input="")
             self.assertEqual(run(clone_a, "mirror", "github").returncode, 0)
-            synced = run(clone_a, "sync")
-            self.assertEqual(synced.returncode, 0, synced.stderr)
+            self.cli_in(clone_a, "claim", item_id, input_text="Ari")
+            subprocess.run(["git", "switch", "-qc", f"pm/{item_id}"], cwd=clone_a, check=True)
+            for _ in range(2):
+                synced = run(clone_a, "sync")
+                self.assertEqual(synced.returncode, 0, synced.stderr)
+            self.assertEqual(log.read_text().count("issue create"), 1)
             self.assertEqual(subprocess.check_output(["git", "status", "--porcelain"], cwd=clone_a, text=True), "")
-            self.assertEqual(self.cli_in(clone_a, "claim", item_id, input_text="Ari").returncode, 0)
             subprocess.run(["git", "pull", "-q", "--ff-only"], cwd=clone_b, check=True)
-            log.write_text("")
             synced = run(clone_b, "sync")
             self.assertEqual(synced.returncode, 0, synced.stderr)
-            self.assertNotIn("issue create", log.read_text())
-            self.assertIn("issue edit", log.read_text())
+            self.assertEqual(log.read_text().count("issue create"), 1)
+
+            self.cli_in(clone_a, "finish", item_id, input_text="Done")
+            subprocess.run(["git", "switch", "-q", "main"], cwd=clone_a, check=True)
+            subprocess.run(["git", "pull", "-q", "--ff-only"], cwd=clone_a, check=True)
+            merged = subprocess.run(["git", "merge", "--no-edit", f"pm/{item_id}"], cwd=clone_a,
+                                    text=True, capture_output=True)
+            self.assertEqual(merged.returncode, 0, merged.stdout + merged.stderr)
+            item_path = next((clone_a / "docs/pm/items").glob(f"{item_id}-*.md")).read_text()
+            self.assertIn('github_issue: "7"', item_path)
+            self.assertIn('status: "done"', item_path)
 
     def test_parallel_finishes_merge_without_board_conflicts(self):
         with tempfile.TemporaryDirectory() as temp:
