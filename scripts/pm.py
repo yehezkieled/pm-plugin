@@ -6,6 +6,7 @@ import argparse
 import hashlib
 import json
 import re
+import secrets
 import subprocess
 import sys
 import tempfile
@@ -38,7 +39,7 @@ def read_items(root: Path) -> list[dict]:
     items = []
     if not item_dir(root).exists():
         return items
-    for path in sorted(item_dir(root).glob("PM-*.md")):
+    for path in sorted(item_dir(root).glob("*.md")):
         raw = path.read_text(encoding="utf-8")
         match = re.match(r"\A---\n(.*?)\n---\n(.*)\Z", raw, re.S)
         if not match:
@@ -308,9 +309,13 @@ def cmd_add(root: Path, args) -> None:
         if not (pm_dir(root) / "BOARD.md").exists():
             raise ValueError("No project board. Run /pm:init first.")
         items = read_items(root)
-        number = max((int(re.search(r"\d+$", i["id"]).group()) for i in items), default=0) + 1
-        item_id = f"PM-{number:03}"
         slug = re.sub(r"[^a-z0-9]+", "-", args.title.lower()).strip("-")[:50] or "item"
+        id_slug = slug[:32].rstrip("-") or "item"
+        existing_ids = {item["id"].casefold() for item in items}
+        while True:
+            item_id = f"{id_slug}-{secrets.token_hex(3)}"
+            if item_id.casefold() not in existing_ids:
+                break
         intent = sys.stdin.read() if args.intent_stdin else args.intent
         item = {"id": item_id, "title": args.title.strip(), "status": "queued", "owner": "",
                 "depends_on": [], "hold": "", "hold_until": "", "github_issue": "",
@@ -401,11 +406,12 @@ def cmd_set(root: Path, args) -> None:
         items = read_items(root)
         item = find_item(items, args.id)
         if args.depends is not None:
-            deps = [v.strip().upper() for v in args.depends.split(",") if v.strip()]
-            known = {i["id"] for i in items}
-            missing = [d for d in deps if d not in known]
+            requested = [value.strip() for value in args.depends.split(",") if value.strip()]
+            known = {i["id"].casefold(): i["id"] for i in items}
+            missing = [dependency for dependency in requested if dependency.casefold() not in known]
             if missing:
                 raise ValueError("Unknown dependencies: " + ", ".join(missing))
+            deps = [known[dependency.casefold()] for dependency in requested]
             if item["id"] in deps:
                 raise ValueError("An item cannot depend on itself.")
             graph = {i["id"]: set(i.get("depends_on", [])) for i in items}

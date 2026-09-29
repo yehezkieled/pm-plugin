@@ -9,7 +9,7 @@ flowchart LR
   U[User request] --> S[Claude Code skills<br/>skills/*/SKILL.md]
   S --> C[scripts/pm.py<br/>board operations]
   C --> B[docs/pm/BOARD.md<br/>generated status view]
-  C --> I[docs/pm/items/PM-NNN.md<br/>intent and current notes]
+  C --> I[docs/pm/items/slug-random.md<br/>intent and current notes]
   C --> A[docs/pm/archive.md<br/>older completed summaries]
   H[Claude Code hooks<br/>hooks/hooks.json] --> SH[hooks/session-start.sh<br/>hooks/stop.sh]
   SH --> C
@@ -30,7 +30,7 @@ sequenceDiagram
   participant CLI as scripts/pm.py
   participant Lock as local file lock
   participant Remote as remote default branch
-  participant Item as docs/pm/items/PM-NNN.md
+  participant Item as docs/pm/items/slug-random.md
   participant Board as docs/pm/BOARD.md
   Person->>Skill: request or start work
   Skill->>CLI: add / claim / hold / finish
@@ -60,4 +60,4 @@ sequenceDiagram
 | `Stop` hook | Git status and board files | Reminder when code changed without an item update | `git`, bash |
 | Optional `sync` | Item Markdown and GitHub repo | GitHub Issues created/updated; issue ID saved in item | `gh` CLI and opt-in mirror setting |
 
-The model is selected by the Claude Code session. The plugin does not name a model or launch subagents. Its persistent data is plain Markdown; the CLI uses only Python's standard library. It uses OS file locking (`fcntl` on Unix-like systems and `msvcrt` on Windows). With a remote, separate clones serialize new claims through non-forced pushes to the remote default branch; a losing push is followed by a fetch and ownership re-check. With no remote, the lock only coordinates processes sharing that clone. Work branches start after the shared claim commit lands. GitHub mirroring is off by default; enabling it authorizes publishing each item's requester intent and current notes to the repository's GitHub Issues audience when `sync` runs.
+The model is selected by the Claude Code session. The plugin does not name a model or launch subagents. Its persistent data is plain Markdown; the CLI uses only Python's standard library. New item IDs combine a short title slug and random suffix, with a local duplicate check; separate clones therefore avoid ID collisions without shared coordination. The CLI uses OS file locking (`fcntl` on Unix-like systems and `msvcrt` on Windows). With a remote, separate clones serialize new claims through non-forced pushes to the remote default branch; a losing push is followed by a fetch and ownership re-check. With no remote, the lock only coordinates processes sharing that clone. Work branches start after the shared claim commit lands. GitHub mirroring is off by default; enabling it authorizes publishing each item's requester intent and current notes to the repository's GitHub Issues audience when `sync` runs.

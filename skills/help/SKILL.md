@@ -8,7 +8,7 @@ description: Show the short pm plugin command guide. Use when the user asks how 
 ```text
 /pm:init             Set up docs/pm and concise AGENTS.md guidance
 /pm:plan <request>   Record a request verbatim as a queued item
-/pm:work [PM-NNN]    Claim first, then implement and update notes
+/pm:work [item-id]   Claim first, then implement and update notes
 /pm:status           Show owners, waiting items, and what's ready
 /pm:map [area]       Write a codebase overview with diagrams
 /pm:help             Show this guide

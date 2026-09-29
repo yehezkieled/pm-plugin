@@ -35,6 +35,24 @@ class ProjectBoardTests(unittest.TestCase):
         self.assertIn("## Queued", board)
         self.assertIn("This heading remains part of requester intent", board)
 
+    def test_item_ids_use_title_slugs_with_distinct_random_suffixes(self):
+        first = self.add("Shared task", "First request")
+        second = self.add("Shared task", "Second request")
+        self.assertRegex(first, r"^shared-task-[0-9a-f]{6}$")
+        self.assertRegex(second, r"^shared-task-[0-9a-f]{6}$")
+        self.assertNotEqual(first, second)
+        self.assertEqual(len(list((self.root / "docs/pm/items").glob("*.md"))), 2)
+
+        with tempfile.TemporaryDirectory() as temp:
+            other = Path(temp)
+            subprocess.run(["git", "init", "-q"], cwd=other, check=True)
+            subprocess.run(["python3", str(CLI), "init"], cwd=other, check=True, capture_output=True, text=True)
+            result = subprocess.run(["python3", str(CLI), "add", "Shared task", "--intent-stdin"], cwd=other,
+                                    input="Another request", check=True, capture_output=True, text=True)
+            other_id = result.stdout.split(":", 1)[0].split()[-1]
+            self.assertRegex(other_id, r"^shared-task-[0-9a-f]{6}$")
+            self.assertNotEqual(first, other_id)
+
     def test_claim_is_exclusive_and_happens_before_in_flight(self):
         item_id = self.add("One task", "Do one task")
         self.run_cli("claim", item_id, "Ari")
@@ -47,7 +65,7 @@ class ProjectBoardTests(unittest.TestCase):
     def test_next_skips_incomplete_dependencies_and_holds(self):
         first = self.add("First", "Build first")
         second = self.add("Second", "Build second")
-        self.run_cli("set", second, "--depends", first)
+        self.run_cli("set", second, "--depends", first.upper())
         ready = self.run_cli("next").stdout
         self.assertIn(first, ready)
         self.assertNotIn(second, ready)
@@ -96,8 +114,9 @@ class ProjectBoardTests(unittest.TestCase):
             subprocess.run(["git", "config", "user.name", "Fixture"], cwd=seed, check=True)
             subprocess.run(["git", "config", "user.email", "fixture@example.com"], cwd=seed, check=True)
             subprocess.run(["python3", str(CLI), "init"], cwd=seed, check=True, capture_output=True, text=True)
-            subprocess.run(["python3", str(CLI), "add", "Shared task", "--intent-stdin"], cwd=seed,
-                           input="Build the shared task", check=True, capture_output=True, text=True)
+            added = subprocess.run(["python3", str(CLI), "add", "Shared task", "--intent-stdin"], cwd=seed,
+                                   input="Build the shared task", check=True, capture_output=True, text=True)
+            item_id = added.stdout.split(":", 1)[0].split()[-1]
             subprocess.run(["git", "add", "docs/pm"], cwd=seed, check=True)
             subprocess.run(["git", "commit", "-qm", "seed board"], cwd=seed, check=True)
             subprocess.run(["git", "init", "-q", "--bare", "--initial-branch=main", str(origin)], check=True)
@@ -107,15 +126,16 @@ class ProjectBoardTests(unittest.TestCase):
             subprocess.run(["git", "clone", "-q", str(origin), str(clone_a)], check=True)
             subprocess.run(["git", "clone", "-q", str(origin), str(clone_b)], check=True)
 
-            claimed = subprocess.run(["python3", str(CLI), "claim", "PM-001", "Ari"], cwd=clone_a,
+            claimed = subprocess.run(["python3", str(CLI), "claim", item_id, "Ari"], cwd=clone_a,
                                      text=True, capture_output=True)
             self.assertEqual(claimed.returncode, 0, claimed.stderr)
             self.assertIn("shared origin/main", claimed.stdout)
-            refused = subprocess.run(["python3", str(CLI), "claim", "PM-001", "Bea"], cwd=clone_b,
+            refused = subprocess.run(["python3", str(CLI), "claim", item_id, "Bea"], cwd=clone_b,
                                      text=True, capture_output=True)
             self.assertNotEqual(refused.returncode, 0)
             self.assertIn("already claimed by Ari on origin/main", refused.stderr)
-            owner = subprocess.check_output(["git", "-C", str(clone_b), "show", "HEAD:docs/pm/items/PM-001-shared-task.md"], text=True)
+            item_path = next((clone_b / "docs/pm/items").glob(f"{item_id}-*.md"))
+            owner = subprocess.check_output(["git", "-C", str(clone_b), "show", f"HEAD:{item_path.relative_to(clone_b)}"], text=True)
             self.assertIn('owner: "Ari"', owner)
 
 
