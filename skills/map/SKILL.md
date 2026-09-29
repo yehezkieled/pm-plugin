@@ -22,4 +22,4 @@ Keep the map focused on architecture a maintainer needs; do not list every file.
 
 ## Reply
 
-Talk in outcomes, not mechanics: plain words, no internal jargon (say "waiting on your decision", not "hold"). The reply must stand alone: lead with the result, then any decision needed. No progress narration. Mark unverified claims `[UNSURE]`. Lead with a two-line summary of how the system works, then the diagrams; prefer ASCII or Mermaid over prose.
+Talk in outcomes, not mechanics: plain words, no internal jargon (say "waiting on your decision", not "hold"). The reply must stand alone: lead with the result, then any decision needed. No progress narration. Mark unverified claims `[UNSURE]`. Lead with a two-line summary of how the system works, then the diagrams drawn in ASCII so they read as plain text in a terminal (use Mermaid only when the user asks for it); prefer diagrams over prose.
