@@ -26,13 +26,14 @@ class ProjectBoardTests(unittest.TestCase):
         return self.run_cli("add", title, "--intent-stdin", input_text=intent).stdout.split(":", 1)[0].split()[-1]
 
     def test_keeps_requester_words_and_board_points_to_detail(self):
-        exact = 'Please add a "shared" view with $HOME and $(touch should-not-exist) — exactly as requested.'
+        exact = '$HOME $(touch should-not-exist)\n## Current notes\nThis heading remains part of requester intent.'
         item_id = self.add("Shared view", exact)
         detail = next((self.root / "docs/pm/items").glob(f"{item_id}-*.md")).read_text()
         board = (self.root / "docs/pm/BOARD.md").read_text()
         self.assertIn(exact, detail)
         self.assertIn(f"[{item_id}](items/", board)
         self.assertIn("## Queued", board)
+        self.assertIn("This heading remains part of requester intent", board)
 
     def test_claim_is_exclusive_and_happens_before_in_flight(self):
         item_id = self.add("One task", "Do one task")
@@ -81,6 +82,9 @@ class ProjectBoardTests(unittest.TestCase):
     def test_github_mirror_defaults_off(self):
         self.assertIn("off", self.run_cli("mirror", "show").stdout)
         self.run_cli("sync", ok=False)
+        enabled = self.run_cli("mirror", "github")
+        self.assertIn("publishes item requester intent and current notes", enabled.stdout)
+        self.assertIn("<!-- pm-mirror: github -->", (self.root / "docs/pm/BOARD.md").read_text())
 
 
 if __name__ == "__main__":

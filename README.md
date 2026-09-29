@@ -24,7 +24,7 @@ docs/pm/
 
 `/pm:work` claims an item under a file lock before inspecting or changing product code. A second user or agent sees the claim and cannot claim it again. Items can depend on other item IDs; `pm.py next` skips dependencies that are not done. A decision hold moves an item to Waiting with a reason and an optional review date. Finishing items keeps the newest ten on the board and adds older summaries to `archive.md`; the full item detail stays under `items/`.
 
-GitHub Issues sync is off by default. A project can enable it with `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/pm.py" mirror github` and sync with `.../pm.py sync`. The local Markdown files remain the source of truth.
+GitHub Issues sync is off by default. Enabling it with `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/pm.py" mirror github` authorizes publishing each item's requester intent and current notes to this repository's GitHub Issues audience when `.../pm.py sync` runs. The command prints this disclosure when enabled. The local Markdown files remain the source of truth.
 
 Hooks print the board at session start and remind the agent at stop when code changed without an item detail update. They do not block ordinary coding sessions.
 

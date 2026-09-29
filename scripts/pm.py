@@ -54,19 +54,29 @@ def read_items(root: Path) -> list[dict]:
         title = re.search(r"^# (.+)$", match.group(2), re.M)
         if title:
             body = match.group(2)
-            intent = re.search(r"^## Requester intent\n(.*?)(?=^## Current notes\n|\Z)", body, re.M | re.S)
-            notes = re.search(r"^## Current notes\n(.*)\Z", body, re.M | re.S)
+            section = "## Requester intent\n"
+            start = body.find(section)
+            if start >= 0 and isinstance(meta.get("intent_length"), int):
+                intent_start = start + len(section)
+                intent_length = meta["intent_length"]
+                intent_text = body[intent_start:intent_start + intent_length]
+                notes_header = body.find("## Current notes\n", intent_start + intent_length)
+                notes_text = body[notes_header + len("## Current notes\n"):] if notes_header >= 0 else ""
+            else:
+                intent = re.search(r"^## Requester intent\n(.*?)(?=^## Current notes\n|\Z)", body, re.M | re.S)
+                notes = re.search(r"^## Current notes\n(.*)\Z", body, re.M | re.S)
+                intent_text = intent.group(1).rstrip("\n") if intent else ""
+                notes_text = notes.group(1) if notes else ""
             meta.update(path=path, body=body, title=title.group(1),
-                        intent=intent.group(1).rstrip("\n") if intent else "",
-                        notes=notes.group(1).rstrip("\n") if notes else "")
+                        intent=intent_text, notes=notes_text.rstrip("\n"))
             items.append(meta)
     return items
 
 
 def item_text(item: dict) -> str:
-    keys = ("id", "status", "owner", "depends_on", "hold", "hold_until", "github_issue", "done_order")
+    keys = ("id", "status", "owner", "depends_on", "hold", "hold_until", "github_issue", "done_order", "intent_length")
     lines = ["---"]
-    lines.extend(f"{key}: {json.dumps(item.get(key, [] if key == 'depends_on' else ''), ensure_ascii=False)}" for key in keys)
+    lines.extend(f"{key}: {json.dumps(item.get(key, [] if key == 'depends_on' else 0 if key == 'intent_length' else ''), ensure_ascii=False)}" for key in keys)
     lines.extend(("---", f"# {item['title']}", "", "## Requester intent", item["intent"], "", "## Current notes", item.get("notes", ""), ""))
     return "\n".join(lines)
 
@@ -221,7 +231,7 @@ def cmd_add(root: Path, args) -> None:
         intent = sys.stdin.read() if args.intent_stdin else args.intent
         item = {"id": item_id, "title": args.title.strip(), "status": "queued", "owner": "",
                 "depends_on": [], "hold": "", "hold_until": "", "github_issue": "",
-                "intent": intent, "notes": "", "done_order": 0,
+                "intent": intent, "intent_length": len(intent), "notes": "", "done_order": 0,
                 "path": item_dir(root) / f"{item_id}-{slug}.md"}
         item["path"].parent.mkdir(parents=True, exist_ok=True)
         save_item(item)
@@ -340,7 +350,10 @@ def cmd_mirror(root: Path, args) -> None:
         current = re.sub(r"^<!-- pm-mirror: (off|github) -->$", f"<!-- pm-mirror: {args.mode} -->", current, count=1, flags=re.M)
         (pm_dir(root) / "BOARD.md").write_text(current, encoding="utf-8")
         refresh(root)
-    print(f"GitHub Issues mirror: {args.mode}")
+    if args.mode == "github":
+        print("GitHub Issues mirror enabled: syncing publishes item requester intent and current notes to this repository's GitHub Issues audience.")
+    else:
+        print("GitHub Issues mirror: off")
 
 
 def cmd_sync(root: Path, args) -> None:
