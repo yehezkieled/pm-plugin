@@ -1,6 +1,6 @@
 {
   "name": "pm-plugin",
-  "description": "Project management for coding projects: milestone -> epic -> ticket -> subtask in markdown, mirrored one way to GitHub issues.",
+  "description": "A lightweight shared project board for Claude Code, stored in Markdown.",
   "owner": {
     "name": "hezki"
   },
@@ -8,7 +8,7 @@
     {
       "name": "pm",
       "source": "./",
-      "description": "Project management skills: milestone -> epic -> ticket -> subtask in markdown, mirrored one way to GitHub."
+      "description": "Shared Markdown project board with atomic claims, dependencies, decision holds, and an optional GitHub Issues mirror."
     }
   ]
 }
