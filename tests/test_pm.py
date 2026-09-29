@@ -346,16 +346,26 @@ class SkillDescriptionTests(unittest.TestCase):
     """Descriptions are what a model reads to choose a skill, so keep them short and explicit."""
     SKILLS = sorted((Path(__file__).resolve().parents[1] / "skills").glob("*/SKILL.md"))
 
-    def description(self, path):
-        match = re.search(r"^description: (.+)$", path.read_text(), re.M)
-        self.assertIsNotNone(match, f"{path.parent.name} has no one-line description")
-        return match.group(1)
+    def frontmatter(self, path):
+        lines = path.read_text().splitlines()
+        self.assertEqual(lines[0], "---", f"{path.parent.name} must start with frontmatter")
+        fields = {}
+        for line in lines[1:lines.index("---", 1)]:
+            key, sep, value = line.partition(": ")
+            self.assertTrue(sep and re.fullmatch(r"[a-z-]+", key), f"{path.parent.name}: bad line {line!r}")
+            fields[key] = value
+        return fields
 
     def test_every_skill_says_when_to_use_it_briefly(self):
         self.assertTrue(self.SKILLS)
         for path in self.SKILLS:
-            text = self.description(path)
             name = path.parent.name
+            fields = self.frontmatter(path)
+            self.assertEqual(fields.get("name"), name)
+            raw = fields.get("description", "")
+            self.assertTrue(raw.startswith('"'), f"{name} description must be a double-quoted YAML string")
+            text = json.loads(raw)
+            self.assertIsInstance(text, str)
             self.assertLessEqual(len(text), 300, f"{name} description is too long")
             self.assertIn("Use when", text, f"{name} description needs a 'Use when' clause")
             self.assertRegex(text, r'"[^"]+"', f"{name} description needs quoted trigger phrases")

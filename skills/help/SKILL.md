@@ -1,6 +1,6 @@
 ---
 name: help
-description: Print the short guide to the pm commands. Use when the user asks how pm works, what commands exist, or says "help" or "how do I use this". Not for showing project progress (use status).
+description: "Print the short guide to the pm commands. Use when the user asks how pm works, what commands exist, or says \"help\" or \"how do I use this\". Not for showing project progress (use status)."
 ---
 
 # /pm:help
