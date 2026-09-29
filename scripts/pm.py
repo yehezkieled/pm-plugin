@@ -518,7 +518,7 @@ def parser() -> argparse.ArgumentParser:
     sub.add_parser("add", help="create an item; stdin is the title line followed by the requester's exact words")
     for command, help_text in (("claim", "claim an item before work; stdin is the person's name"),
                                ("finish", "mark an in-flight item done; stdin is the completion note"),
-                               ("resume", "return a held item to queue")):
+                               ("resume", "release a hold; a claimed item returns to its owner In flight, others to queue")):
         sub.add_parser(command, help=help_text).add_argument("id")
     hold = sub.add_parser("hold", help="park an item for a decision; stdin is the question")
     hold.add_argument("id"); hold.add_argument("--until", default="")
