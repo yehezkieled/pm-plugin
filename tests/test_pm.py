@@ -80,7 +80,6 @@ class ProjectBoardTests(unittest.TestCase):
         hold = next(line.partition(": ")[2] for line in metadata.splitlines() if line.startswith("hold:"))
         self.assertEqual(json.loads(hold), reason)
         self.run_cli("resume", item_id)
-        self.run_literal_cli("claim", item_id, input_text="Ari")
         note = 'Finished with "$HOME" and $(touch injected-note).'
         self.run_literal_cli("finish", item_id, input_text=note)
         self.assertIn(f"{note}", detail_path.read_text())
@@ -243,13 +242,28 @@ class ProjectBoardTests(unittest.TestCase):
             subprocess.run(["git", "switch", "-qc", f"pm/{first}"], cwd=clone_a, check=True)
             self.cli_in(clone_a, "hold", first, input_text="Which storage?")
             waiting = self.cli_in(clone_b, "claim", first, input_text="Bea", ok=False)
-            self.assertIn("status is waiting", waiting.stderr)
+            self.assertIn("already claimed by Ari", waiting.stderr)
             self.cli_in(clone_a, "resume", first)
             subprocess.run(["git", "switch", "-q", "main"], cwd=clone_a, check=True)
-            reclaimed = self.cli_in(clone_a, "claim", first, input_text="Ari")
-            self.assertIn(f"Claimed {first} for Ari", reclaimed.stdout)
+            resumed = self.cli_in(clone_a, "claim", first, input_text="Ari")
+            self.assertIn("resuming the existing claim", resumed.stdout)
             subprocess.run(["git", "switch", "-q", f"pm/{first}"], cwd=clone_a, check=True)
             self.cli_in(clone_a, "finish", first, input_text="Done")
+
+    def test_hold_and_resume_by_another_person_keep_the_claim(self):
+        with tempfile.TemporaryDirectory() as temp:
+            item_id, (clone_a, clone_b) = self.shared_clones(Path(temp))
+            self.cli_in(clone_a, "claim", item_id, input_text="Ari")
+            subprocess.run(["git", "pull", "-q", "--ff-only"], cwd=clone_b, check=True)
+            self.cli_in(clone_b, "hold", item_id, input_text="Should this wait?")
+            held = self.cli_in(clone_b, "claim", item_id, input_text="Bea", ok=False)
+            self.assertIn("already claimed by Ari", held.stderr)
+            self.cli_in(clone_b, "resume", item_id)
+            refused = self.cli_in(clone_b, "claim", item_id, input_text="Bea", ok=False)
+            self.assertIn("already claimed by Ari", refused.stderr)
+            in_flight = self.cli_in(clone_b, "board").stdout.split("## Queued")[0]
+            self.assertIn(f"[{item_id}]", in_flight)
+            self.assertIn("claimed by Ari", in_flight)
 
     def test_parallel_finishes_merge_without_board_conflicts(self):
         with tempfile.TemporaryDirectory() as temp:

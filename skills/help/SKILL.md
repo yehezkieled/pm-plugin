@@ -14,4 +14,4 @@ description: Show the short pm plugin command guide. Use when the user asks how 
 /pm:help             Show this guide
 ```
 
-Each item is one file in `docs/pm/items/`, the only board state stored in git. `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/pm.py" board` renders In flight, Queued, Waiting, and the latest ten Done items from those files. `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/pm.py" next` shows queued items with completed dependencies. A hold keeps an item in Waiting until the decision is resolved. See the README for GitHub mirror behavior and its publication disclosure.
+Each item is one file in `docs/pm/items/`, the only board state stored in git. `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/pm.py" board` renders In flight, Queued, Waiting, and the latest ten Done items from those files. `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/pm.py" next` shows queued items with completed dependencies. A hold keeps an item in Waiting, still owned by any claimer, until the decision is resolved. See the README for GitHub mirror behavior and its publication disclosure.

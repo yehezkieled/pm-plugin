@@ -337,10 +337,10 @@ def cmd_claim(root: Path, args) -> None:
     def change(board: Path):
         items = read_items(board)
         item = find_item(items, args.id)
-        if item.get("owner"):
-            if item.get("status") == "in-flight" and item["owner"].casefold() == person.casefold():
-                return [], f"{item['id']} is already in flight for {person}; resuming the existing claim."
+        if item.get("owner") and item["owner"].casefold() != person.casefold():
             raise ValueError(f"{item['id']} is already claimed by {item['owner']}.")
+        if item.get("owner") and item.get("status") == "in-flight":
+            return [], f"{item['id']} is already in flight for {person}; resuming the existing claim."
         can_start, reason = ready(item, {i["id"]: i for i in items})
         if not can_start:
             raise ValueError(f"Cannot claim {item['id']}: {reason}.")
@@ -378,7 +378,7 @@ def cmd_hold(root: Path, args) -> None:
         item = find_item(read_items(board), args.id)
         if item.get("status") == "done":
             raise ValueError(f"{item['id']} is already done and cannot be held.")
-        item.update(status="waiting", owner="", hold=reason, hold_until=args.until)
+        item.update(status="waiting", hold=reason, hold_until=args.until)
         save_item(item)
         return [item["path"]], f"Parked {item['id']}: {reason}"
     with write_lock(root):
@@ -390,9 +390,10 @@ def cmd_resume(root: Path, args) -> None:
         item = find_item(read_items(board), args.id)
         if item.get("status") != "waiting":
             raise ValueError(f"{item['id']} is not waiting on a decision.")
-        item.update(status="queued", hold="", hold_until="")
+        status = "in-flight" if item.get("owner") else "queued"
+        item.update(status=status, hold="", hold_until="")
         save_item(item)
-        return [item["path"]], f"Returned {item['id']} to Queued."
+        return [item["path"]], f"Returned {item['id']} to {'In flight' if item.get('owner') else 'Queued'}."
     with write_lock(root):
         print(publish(root, change))
 
