@@ -19,3 +19,7 @@ Write a compact, accurate report with:
 5. Unknowns or inferred edges, clearly labeled `[UNSURE]`.
 
 Keep the map focused on architecture a maintainer needs; do not list every file. Re-read the source for changed components whenever refreshing the document. Print the diagrams and the report's main paths in the response.
+
+## Reply
+
+Talk in outcomes, not mechanics: plain words, no internal jargon (say "waiting on your decision", not "hold"). The reply must stand alone: lead with the result, then any decision needed. No progress narration. Mark unverified claims `[UNSURE]`. Lead with a two-line summary of how the system works, then the diagrams drawn in ASCII so they read as plain text in a terminal (use Mermaid only when the user asks for it); prefer diagrams over prose.

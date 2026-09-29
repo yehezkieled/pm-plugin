@@ -15,3 +15,7 @@ argument-hint: "[item-id]"
 7. Show `pm.py board` and relate the result to the requester's exact words.
 
 This workflow uses the active Claude Code model. It does not start reviewer agents or switch model providers.
+
+## Reply
+
+Talk in outcomes, not mechanics: plain words, no internal jargon (say "waiting on your decision", not "hold"). The reply must stand alone: lead with the result, then any decision needed. No progress narration. Mark unverified claims `[UNSURE]`. When finished, state what changed for the requester, the branch or PR link, checks run and their real results, and any decision or review needed. When stopping (owned by someone else, needs a decision), lead with the evidence, then the consequence, then options with a recommendation. Report failures plainly with the command output.
