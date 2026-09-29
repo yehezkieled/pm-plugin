@@ -14,3 +14,7 @@ argument-hint: "[short title]"
 6. Show the item ID and detail path, then the output of `pm.py board`. If the CLI says the change was published from another branch, say that it is on the shared default branch and appears on the current branch only after syncing with it.
 
 Do not invent hierarchy, priority, due dates, effort, or a plan approval gate. Item notes are the current concise state; rewrite them when facts change instead of appending a log.
+
+## Reply
+
+Talk in outcomes, not mechanics: plain words, no internal jargon (say "waiting on your decision", not "hold"). The reply must stand alone: lead with the result, then any decision needed. No progress narration. Mark unverified claims `[UNSURE]`. Confirm what was captured (item ID, path, title) and, if something is blocked or parked, the one question you need answered. Ask only for real decisions.

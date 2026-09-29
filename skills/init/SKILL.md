@@ -13,3 +13,7 @@ description: Set up the lightweight project board and concise agent instructions
 6. Show the board and explain `/pm:plan`, `/pm:work`, and `/pm:status` in one line each.
 
 Do not create milestones, epics, sample items, schedules, or unrelated docs.
+
+## Reply
+
+Talk in outcomes, not mechanics: plain words, no internal jargon (say "waiting on your decision", not "hold"). The reply must stand alone: lead with the result, then any decision needed. No progress narration. Mark unverified claims `[UNSURE]`. Say whether the board was created or already existed, what was committed or pushed, and the three commands to use next.
