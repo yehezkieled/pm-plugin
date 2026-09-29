@@ -56,7 +56,12 @@ class ProjectBoardTests(unittest.TestCase):
         detail_path = next((self.root / "docs/pm/items").glob(f"{item_id}-*.md"))
         detail = detail_path.read_text()
         self.assertIn(f"# {title}", detail)
-        self.assertIn(intent, detail)
+        raw = detail.split("---\n", 2)[2]
+        start = raw.index("## Requester intent\n") + len("## Requester intent\n")
+        metadata = detail.split("---\n", 2)[1]
+        intent_length = json.loads(next(line.partition(": ")[2] for line in metadata.splitlines()
+                                        if line.startswith("intent_length:")))
+        self.assertEqual(raw[start:start + intent_length], intent)
 
         person = 'Ari"; touch injected-person; $(touch injected-person-sub); #'
         self.run_literal_cli("claim", item_id, "--person-stdin", input_text=person)

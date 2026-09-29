@@ -321,11 +321,13 @@ def cmd_add(root: Path, args) -> None:
             title, separator, intent = request.partition("\n")
             if not separator:
                 intent = ""
+            elif intent.endswith("\n"):
+                intent = intent[:-1]
         else:
             if args.title is None:
                 raise ValueError("A title is required unless --request-stdin is used.")
             title = args.title
-            intent = sys.stdin.read() if args.intent_stdin else args.intent
+            intent = read_literal_stdin() if args.intent_stdin else args.intent
         slug = re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-")[:50] or "item"
         id_slug = slug[:32].rstrip("-") or "item"
         existing_ids = {item["id"].casefold() for item in items}
