@@ -1,428 +1,547 @@
 #!/usr/bin/env python3
-"""Command line for the pm plugin. Standard library only.
-
-  pm.py board                      one-page board
-  pm.py line                       one-line summary (empty when no docs/pm)
-  pm.py next [--routine] [--json]  pick the next ticket
-  pm.py flow <Exx> | --all         redraw Tickets + Flow sections of an epic
-  pm.py claim <Txxx> <owner>       set owner and status in progress
-  pm.py release <Txxx>             clear owner, status back to todo
-  pm.py ready <Txxx> [--early]     grilled: What, Why, Acceptance settled (--early: blocked ticket, on the user's word)
-  pm.py set <Txxx> key=value ...   change frontmatter fields
-  pm.py validate                   list problems; exit 1 if any
-  pm.py backup                     forks only: copy docs/pm and CONTEXT.md to $PM_BACKUP_DIR or ~/.pm-backup
-  pm.py next-id ticket|epic|milestone
-  pm.py config [--json]            the pm block of CONTEXT.md with defaults
-  pm.py new ticket|epic|milestone  create a file from the template
-  pm.py sync [--dry-run]           mirror to the host named in the pm block
-"""
+"""Small markdown-backed project board used by the /pm Claude Code skills."""
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
-import os
-import shutil
 import re
+import secrets
+import subprocess
 import sys
+import tempfile
+from contextlib import contextmanager
+from datetime import datetime, timezone
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-import pm_lib  # noqa: E402
-
-TEMPLATES = Path(__file__).resolve().parent.parent / "templates"
-
-
-def fill(template: str, **values) -> str:
-    for key, value in values.items():
-        template = template.replace("{{" + key + "}}", str(value))
-    return template
+try:
+    import fcntl
+except ImportError:  # pragma: no cover - exercised on Windows
+    fcntl = None
+    import msvcrt
 
 
-def fail(message: str, code: int = 1):
-    print(message, file=sys.stderr)
-    sys.exit(code)
-
-
-def need_pm(root: Path):
-    if not pm_lib.has_pm(root):
-        fail(f"no docs/pm/roadmap.md under {root}. Run /pm:init first.")
-
-
-def ticket_summary(t: pm_lib.Ticket) -> str:
-    deps = f" after {', '.join(t.depends_on)}" if t.depends_on else ""
-    return f"{t.id}  {t.title}  ({t.epic}, {t.milestone}, {t.priority}, plan: {t.plan}{deps})"
-
-
-def ticket_json(t: pm_lib.Ticket) -> dict:
-    return {
-        "id": t.id, "title": t.title, "epic": t.epic, "milestone": t.milestone,
-        "status": t.status, "priority": t.priority, "depends_on": t.depends_on,
-        "owner": t.owner, "auto": t.auto, "plan": t.plan, "plan_approved": t.plan_approved, "ready": t.ready,
-        "issue": t.issue, "pr": t.pr, "path": str(t.path),
-    }
-
-
-# ---------------------------------------------------------------- commands
-
-def cmd_board(root, args):
-    need_pm(root)
-    print(pm_lib.render_board(root))
-
-
-def cmd_line(root, args):
-    print(pm_lib.board_line(root))
-
-
-def cmd_next(root, args):
-    need_pm(root)
-    tickets = pm_lib.load_tickets(root)
-    t = pm_lib.pick_next(tickets, root, routine=args.routine)
-    if args.json:
-        print(json.dumps(ticket_json(t) if t else {}))
-    else:
-        grill = [g.id for g in pm_lib.to_grill(tickets)]
-        if t:
-            print(ticket_summary(t))
-        elif grill:
-            print(f"none (to grill: {', '.join(grill)}; a ticket is worked only after /pm:grill marks it ready)")
-        else:
-            print("none")
-        if t and args.routine:
-            print(f"routine: claim with `pm.py claim {t.id} routine-{t.id.lower()}`; never merge, stop at status=review")
-
-
-def cmd_flow(root, args):
-    need_pm(root)
-    epic_ids = [e.id for e in pm_lib.load_epics(root)] if args.all else [args.epic]
-    if not epic_ids or epic_ids == [None]:
-        fail("give an epic id or --all", 2)
-    for epic_id in epic_ids:
-        try:
-            text = pm_lib.update_epic(root, epic_id)
-        except KeyError as exc:
-            fail(str(exc))
-        print(f"{epic_id}\n{text}\n")
-
-
-def cmd_claim(root, args):
-    need_pm(root)
-    tickets = {t.id: t for t in pm_lib.load_tickets(root)}
-    t = tickets.get(args.ticket)
-    if not t:
-        fail(f"unknown ticket {args.ticket}")
-    if t.owner and t.owner != args.owner and not args.force:
-        fail(f"{t.id} already claimed by {t.owner} (use --force to take it over)")
-    if t.status == "done":
-        fail(f"{t.id} is already done")
-    open_deps = [f"{d} ({tickets[d].status})" for d in t.depends_on if d in tickets and tickets[d].status != "done"]
-    if open_deps and not args.force:
-        fail(f"{t.id} depends on {', '.join(open_deps)}: finish that first, or use --force to start it out of order")
-    if not t.ready and not args.force:
-        fail(f"{t.id} is not grilled yet (ready: no): run /pm:grill {t.id} first so What, Why and Acceptance are settled, or use --force to skip the grill")
-    pm_lib.set_fields(root, t.id, owner=args.owner, status="in progress")
-    print(f"{t.id} claimed by {args.owner}: {t.title}")
-    if t.plan == "required" and not t.plan_approved:
-        print("plan: required and not approved -> write the ## Plan section first, then get the user's approval before any code edit. Headless run: stop after the plan.")
-    cfg = pm_lib.read_config(root)
-    commit = f'git add docs/pm && git commit -m "pm: claim {t.id}"'
-    if cfg.get("flow") == "branch-pr":
-        commit += " && git push"
-    print(f"next: {commit}")
-    if cfg.get("flow") in ("branch-pr", "branch-local"):
-        slug = t.path.stem.split("-", 1)[1] if t.path and "-" in t.path.stem else pm_lib.slug(t.title)
-        print(f"then: git switch -c {t.id.lower()}-{slug}")
-
-
-def cmd_backup(root, args):
-    """Forks keep docs/pm out of git; copy it somewhere a reset cannot reach."""
-    exclude = root / ".git" / "info" / "exclude"
-    if not (exclude.exists() and "docs/pm" in exclude.read_text()):
-        print("not a fork: docs/pm is tracked by git, no backup needed")
-        return
-    dest = Path(os.environ.get("PM_BACKUP_DIR") or Path.home() / ".pm-backup") / root.name
-    shutil.copytree(root / "docs" / "pm", dest / "docs" / "pm", dirs_exist_ok=True)
-    if (root / "CONTEXT.md").exists():
-        shutil.copy2(root / "CONTEXT.md", dest / "CONTEXT.md")
-    print(f"backup copy: {dest}")
-
-
-def cmd_release(root, args):
-    need_pm(root)
+def root_dir() -> Path:
     try:
-        t = pm_lib.set_fields(root, args.ticket, owner="", status="todo")
-    except KeyError as exc:
-        fail(str(exc))
-    print(f"{t.id} released")
+        return Path(subprocess.check_output(["git", "rev-parse", "--show-toplevel"], text=True).strip())
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        return Path.cwd()
 
 
-def cmd_freeze(root, args):
-    need_pm(root)
-    try:
-        t = pm_lib.set_fields(root, args.ticket, tests="frozen")
-    except (KeyError, ValueError) as exc:
-        fail(str(exc))
-    print(f"{t.id}: tests frozen. Test files stay as they are while the fix is written; `pm.py unfreeze {t.id} --reason \"...\"` lifts it.")
+def pm_dir(root: Path) -> Path:
+    return root / "docs" / "pm"
 
 
-def cmd_unfreeze(root, args):
-    need_pm(root)
-    try:
-        t = pm_lib.set_fields(root, args.ticket, tests="open")
-        pm_lib.add_note(root, t.id, f"Test change: {args.reason.strip()}")
-    except (KeyError, ValueError) as exc:
-        fail(str(exc))
-    print(f"{t.id}: tests open again; reason recorded under Notes")
+def item_dir(root: Path) -> Path:
+    return pm_dir(root) / "items"
 
 
-def cmd_dismiss(root, args):
-    need_pm(root)
-    try:
-        t = pm_lib.set_fields(root, args.ticket, status="dismissed", owner="")
-        pm_lib.add_note(root, t.id, f"Dismissed: {args.reason.strip()}")
-    except (KeyError, ValueError) as exc:
-        fail(str(exc))
-    if t.epic in {e.id for e in pm_lib.load_epics(root)}:
-        pm_lib.update_epic(root, t.epic)
-    print(f"{t.id} dismissed: {args.reason.strip()}")
+def config_path(root: Path) -> Path:
+    return pm_dir(root) / "config.json"
 
 
-def cmd_ready(root, args):
-    need_pm(root)
-    tickets = {t.id: t for t in pm_lib.load_tickets(root)}
-    if args.ticket not in tickets:
-        fail(f"unknown ticket {args.ticket}")
-    try:
-        t = pm_lib.set_fields(root, args.ticket, early=args.early, ready="yes")
-    except ValueError as exc:
-        fail(str(exc))
-    waits = pm_lib.open_deps(t, tickets)
-    if waits:
-        print(f"{t.id} ready (grilled early: waits on {', '.join(waits)}; re-check with /pm:grill {t.id} once that is done)")
-    else:
-        print(f"{t.id} ready: start it with /pm:work {t.id}")
-
-
-def cmd_set(root, args):
-    need_pm(root)
-    fields = {}
-    for pair in args.pairs:
-        key, sep, value = pair.partition("=")
-        if not sep:
-            fail(f"expected key=value, got {pair}", 2)
-        fields[key.strip()] = value.strip()
-    try:
-        t = pm_lib.set_fields(root, args.ticket, **fields)
-    except (KeyError, ValueError) as exc:
-        fail(str(exc))
-    if "status" in fields or "depends_on" in fields:
-        pm_lib.update_epic(root, t.epic) if t.epic in {e.id for e in pm_lib.load_epics(root)} else None
-    print(f"{t.id}: " + ", ".join(f"{k}={v}" for k, v in fields.items()))
-
-
-def cmd_validate(root, args):
-    need_pm(root)
-    problems = pm_lib.validate(root)
-    if problems:
-        print("\n".join(problems))
-        sys.exit(1)
-    print("ok")
-
-
-def cmd_next_id(root, args):
-    need_pm(root)
-    print(pm_lib.next_id(root, args.kind))
-
-
-def cmd_config(root, args):
-    cfg = pm_lib.read_config(root)
-    if args.json:
-        print(json.dumps(cfg))
-    else:
-        print("\n".join(f"{k}: {v}" for k, v in cfg.items()))
-
-
-def cmd_new(root, args):
-    need_pm(root)
-    if args.kind == "ticket":
-        epics = {e.id: e for e in pm_lib.load_epics(root)}
-        if args.epic not in epics:
-            fail(f"unknown epic {args.epic}")
-        tid = pm_lib.next_id(root, "ticket")
-        deps = [d.strip() for d in (args.depends or "").split(",") if d.strip()]
-        known = {t.id for t in pm_lib.load_tickets(root)}
-        for d in deps:
-            if d not in known:
-                fail(f"depends on unknown ticket {d}")
-        text = fill((TEMPLATES / "ticket.md").read_text(),
-                    id=tid, title=args.title, epic=args.epic,
-                    milestone=args.milestone or epics[args.epic].milestone,
-                    priority=args.priority, depends_on=", ".join(deps),
-                    auto="yes" if args.auto else "no", plan=args.plan, ready="yes" if args.ready else "no",
-                    what=args.what or "(fill in)", why=args.why or "(fill in)",
-                    acceptance=args.acceptance or "(one testable line per item)",
-                    subtask="(first step)")
-        path = pm_lib.ticket_path(root, tid, args.title)
-        path.write_text(text)
-        if args.confidence:
-            pm_lib.set_fields(root, tid, confidence=args.confidence)
-        pm_lib.update_epic(root, args.epic)
-        print(f"created {path}")
-    elif args.kind == "epic":
-        milestones = [m.id for m in pm_lib.load_milestones(root)]
-        if args.milestone not in milestones:
-            fail(f"unknown milestone {args.milestone}; roadmap has {', '.join(milestones) or 'none'}")
-        eid = pm_lib.next_id(root, "epic")
-        text = fill((TEMPLATES / "epic.md").read_text(), id=eid, title=args.title,
-                    milestone=args.milestone, goal=args.goal or "(fill in)")
-        path = pm_lib.epic_path(root, eid, args.title)
-        path.write_text(text)
-        _add_epic_to_roadmap(root, args.milestone, eid)
-        print(f"created {path}")
-    elif args.kind == "milestone":
-        mid = pm_lib.next_id(root, "milestone")
-        roadmap = pm_lib.pm_dir(root) / "roadmap.md"
-        block = f"## {mid}: {args.title}\nGoal: {args.goal or '(fill in)'}\nEpics: (none yet)\n\n"
-        text = roadmap.read_text()
-        idx = text.find("## Backlog")
-        text = (text[:idx] + block + text[idx:]) if idx != -1 else text.rstrip() + "\n\n" + block
-        roadmap.write_text(text)
-        print(f"added {mid}: {args.title} to {roadmap}")
-
-
-def _add_epic_to_roadmap(root: Path, milestone_id: str, epic_id: str):
-    roadmap = pm_lib.pm_dir(root) / "roadmap.md"
-    lines = roadmap.read_text().splitlines()
-    in_block = False
-    for i, line in enumerate(lines):
-        if line.startswith(f"## {milestone_id}"):
-            in_block = True
+def read_items(root: Path) -> list[dict]:
+    items = []
+    if not item_dir(root).exists():
+        return items
+    for path in sorted(item_dir(root).glob("*.md")):
+        raw = path.read_text(encoding="utf-8")
+        match = re.match(r"\A---\n(.*?)\n---\n(.*)\Z", raw, re.S)
+        if not match:
             continue
-        if in_block and line.startswith("## "):
-            lines.insert(i, f"Epics: {epic_id}")
-            break
-        if in_block and line.startswith("Epics:"):
-            current = [e.strip() for e in line[len("Epics:"):].split(",") if e.strip() and not e.strip().startswith("(")]
-            ids = [re.match(r"[EM]\d+", e).group(0) if re.match(r"[EM]\d+", e) else e for e in current]
-            if epic_id not in ids:
-                current.append(epic_id)
-            lines[i] = "Epics: " + ", ".join(current)
-            break
+        meta = {}
+        for line in match.group(1).splitlines():
+            key, sep, value = line.partition(":")
+            if sep:
+                try:
+                    meta[key.strip()] = json.loads(value.strip())
+                except json.JSONDecodeError:
+                    meta[key.strip()] = value.strip()
+        title = re.search(r"^# (.+)$", match.group(2), re.M)
+        if title:
+            body = match.group(2)
+            section = "## Requester intent\n"
+            start = body.find(section)
+            if start >= 0 and isinstance(meta.get("intent_length"), int):
+                intent_start = start + len(section)
+                intent_length = meta["intent_length"]
+                intent_text = body[intent_start:intent_start + intent_length]
+                notes_header = body.find("## Current notes\n", intent_start + intent_length)
+                notes_text = body[notes_header + len("## Current notes\n"):] if notes_header >= 0 else ""
+            else:
+                intent = re.search(r"^## Requester intent\n(.*?)(?=^## Current notes\n|\Z)", body, re.M | re.S)
+                notes = re.search(r"^## Current notes\n(.*)\Z", body, re.M | re.S)
+                intent_text = intent.group(1).rstrip("\n") if intent else ""
+                notes_text = notes.group(1) if notes else ""
+            meta.update(path=path, body=body, title=title.group(1),
+                        intent=intent_text, notes=notes_text.rstrip("\n"))
+            items.append(meta)
+    return items
+
+
+def item_text(item: dict) -> str:
+    keys = ("id", "status", "owner", "depends_on", "hold", "hold_until", "done_at", "intent_length", "github_issue")
+    lines = ["---"]
+    lines.extend(f"{key}: {json.dumps(item.get(key, [] if key == 'depends_on' else 0 if key == 'intent_length' else ''), ensure_ascii=False)}" for key in keys)
+    lines.extend(("---", f"# {item['title']}", "", "## Requester intent", item["intent"], "", "## Current notes", item.get("notes", ""), ""))
+    return "\n".join(lines)
+
+
+def save_item(item: dict) -> None:
+    path = item["path"]
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(item_text(item), encoding="utf-8")
+
+
+def read_literal_stdin() -> str:
+    value = sys.stdin.read()
+    return value[:-1] if value.endswith("\n") else value
+
+
+def mirror_setting(root: Path) -> str:
+    if not config_path(root).exists():
+        return "off"
+    return json.loads(config_path(root).read_text(encoding="utf-8")).get("mirror", "off")
+
+
+def render_board(root: Path, items: list[dict]) -> str:
+    lines = ["# Project board", "", "Rendered from `docs/pm/items/`, which holds each item's requester intent and current notes.", ""]
+    groups = (("In flight", "in-flight"), ("Queued", "queued"), ("Waiting", "waiting"), ("Done", "done"))
+    by_id = {i["id"]: i for i in items}
+    for heading, status in groups:
+        lines.extend((f"## {heading}", ""))
+        selected = [i for i in items if i.get("status", "queued") == status]
+        if status == "queued":
+            selected = [i for i in selected if not i.get("hold")]
+        older = 0
+        if status == "done":
+            selected = sorted(selected, key=lambda item: str(item.get("done_at", "")))
+            older = max(len(selected) - 10, 0)
+            selected = selected[older:]
+        if not selected:
+            lines.extend(("- None.", ""))
+            continue
+        for item in selected:
+            notes = []
+            current_note = " ".join((item.get("notes") or item.get("intent", "")).split())
+            if current_note:
+                notes.append(current_note if len(current_note) <= 120 else current_note[:119] + "…")
+            if item.get("owner"):
+                notes.append(f"claimed by {item['owner']}")
+            waiting = [dep for dep in item.get("depends_on", []) if dep in by_id and by_id[dep].get("status") != "done"]
+            if waiting:
+                notes.append("blocked by " + ", ".join(waiting))
+            if item.get("hold"):
+                notes.append("held: " + item["hold"])
+                if item.get("hold_until"):
+                    notes[-1] += f" (review after {item['hold_until']})"
+            suffix = f" — {'; '.join(notes)}" if notes else ""
+            lines.append(f"- [{item['id']}]({item['path'].relative_to(root).as_posix()}) {item['title']}{suffix}")
+        if older:
+            lines.append(f"- {older} older done item{'s' if older > 1 else ''} kept in `docs/pm/items/`.")
+        lines.append("")
+    return "\n".join(lines).rstrip() + "\n"
+
+
+@contextmanager
+def write_lock(root: Path):
+    try:
+        git_common = subprocess.check_output(["git", "rev-parse", "--git-common-dir"], cwd=root, text=True, stderr=subprocess.DEVNULL).strip()
+        lock_dir = Path(git_common)
+        if not lock_dir.is_absolute():
+            lock_dir = root / lock_dir
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        digest = hashlib.sha256(str(root.resolve()).encode()).hexdigest()[:20]
+        lock_dir = Path(tempfile.gettempdir()) / "pm-plugin-locks"
+        lock_dir = lock_dir / digest
+    lock_dir.mkdir(parents=True, exist_ok=True)
+    with (lock_dir / "board.lock").open("a+") as lock:
+        if fcntl:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+        else:
+            lock.seek(0, 2)
+            if lock.tell() == 0:
+                lock.write("\0")
+                lock.flush()
+            lock.seek(0)
+            msvcrt.locking(lock.fileno(), msvcrt.LK_LOCK, 1)
+        try:
+            yield
+        finally:
+            if fcntl:
+                fcntl.flock(lock, fcntl.LOCK_UN)
+            else:
+                lock.seek(0)
+                msvcrt.locking(lock.fileno(), msvcrt.LK_UNLCK, 1)
+
+
+def find_item(items: list[dict], item_id: str) -> dict:
+    found = next((i for i in items if i["id"].upper() == item_id.upper()), None)
+    if not found:
+        raise ValueError(f"Unknown item {item_id}; run /pm:status to see the board.")
+    return found
+
+
+def git(root: Path, *args: str, check: bool = True) -> subprocess.CompletedProcess:
+    result = subprocess.run(["git", "-C", str(root), *args], text=True, capture_output=True)
+    if check and result.returncode:
+        detail = result.stderr.strip() or result.stdout.strip()
+        raise ValueError(detail or f"git {' '.join(args)} failed")
+    return result
+
+
+def remote_default(root: Path) -> tuple[str, str] | None:
+    remotes = git(root, "remote").stdout.splitlines()
+    if not remotes:
+        return None
+    remote = "origin" if "origin" in remotes else sorted(remotes)[0]
+    result = git(root, "ls-remote", "--symref", remote, "HEAD")
+    match = re.search(r"^ref: refs/heads/(.+)\tHEAD$", result.stdout, re.M)
+    if not match:
+        raise ValueError(f"Remote {remote} does not advertise a default branch; cannot coordinate claims safely.")
+    return remote, match.group(1)
+
+
+def fetch_default(root: Path, remote: str, branch: str) -> str:
+    tracking_ref = f"refs/remotes/{remote}/{branch}"
+    git(root, "fetch", "--no-tags", remote, f"+refs/heads/{branch}:{tracking_ref}")
+    return git(root, "rev-parse", tracking_ref).stdout.strip()
+
+
+def sync_default_checkout(root: Path, tracking_ref: str) -> None:
+    merged = git(root, "merge", "--ff-only", tracking_ref, check=False)
+    if merged.returncode:
+        raise ValueError("Local default branch cannot fast-forward to the shared board. Sync it first.")
+    head = git(root, "rev-parse", "HEAD").stdout.strip()
+    remote_head = git(root, "rev-parse", tracking_ref).stdout.strip()
+    if head != remote_head:
+        raise ValueError("Local default branch has unpublished commits. Sync it first.")
+
+
+def publish(root: Path, change, require_default_branch: bool = False) -> str:
+    remote = remote_default(root)
+    if not remote:
+        return change(root)[1]
+    name, branch = remote
+    tracking_ref = f"refs/remotes/{name}/{branch}"
+    last_error = ""
+    for _ in range(3):
+        base = fetch_default(root, name, branch)
+        current = git(root, "rev-parse", "--abbrev-ref", "HEAD").stdout.strip()
+        if require_default_branch and current != branch:
+            raise ValueError(f"This change requires the default branch {branch}; current branch is {current}.")
+        if current == branch:
+            sync_default_checkout(root, tracking_ref)
+        with tempfile.TemporaryDirectory(prefix="pm-publish-") as temp:
+            checkout = Path(temp) / "checkout"
+            git(root, "worktree", "add", "--quiet", "--detach", str(checkout), base)
+            try:
+                paths, text = change(checkout)
+                if not paths:
+                    return text
+                git(checkout, "add", "--", *(path.relative_to(checkout).as_posix() for path in paths))
+                git(checkout, "commit", "-m", f"pm: {text.splitlines()[0]}")
+                pushed = git(checkout, "push", "--porcelain", name, f"HEAD:refs/heads/{branch}", check=False)
+                if pushed.returncode:
+                    last_error = pushed.stderr.strip() or pushed.stdout.strip() or "push rejected"
+                    continue
+            finally:
+                git(root, "worktree", "remove", "--force", str(checkout), check=False)
+        fetch_default(root, name, branch)
+        if current == branch:
+            sync_default_checkout(root, tracking_ref)
+            return f"{text}\nPublished to shared {name}/{branch}."
+        return f"{text}\nPublished to shared {name}/{branch}; branch {current} shows it only after syncing with {name}/{branch}."
+    raise ValueError(f"Could not publish to {name}/{branch} after three attempts: {last_error}")
+
+
+def ready(item: dict, by_id: dict[str, dict]) -> tuple[bool, str]:
+    if item.get("status") != "queued":
+        return False, f"status is {item.get('status')}"
+    if item.get("hold"):
+        return False, f"held: {item['hold']}"
+    blocked = [dep for dep in item.get("depends_on", []) if dep not in by_id or by_id[dep].get("status") != "done"]
+    if blocked:
+        return False, "blocked by " + ", ".join(blocked)
+    return True, "ready"
+
+
+def next_items(items: list[dict]) -> list[dict]:
+    by_id = {i["id"]: i for i in items}
+    return [i for i in items if ready(i, by_id)[0]]
+
+
+def require_board(root: Path) -> None:
+    if not config_path(root).exists():
+        raise ValueError("No project board. Run /pm:init first.")
+
+
+def cmd_init(root: Path, args) -> None:
+    def change(board: Path):
+        config = config_path(board)
+        if config.exists():
+            raise ValueError(f"{config.relative_to(board).as_posix()} already exists.")
+        config.parent.mkdir(parents=True, exist_ok=True)
+        config.write_text(json.dumps({"mirror": "off"}) + "\n", encoding="utf-8")
+        return [config], "Initialized docs/pm. Add the first item with /pm:plan."
+    with write_lock(root):
+        print(publish(root, change))
+
+
+def cmd_add(root: Path, args) -> None:
+    title, _, intent = read_literal_stdin().partition("\n")
+    title = title.strip()
+    if not title:
+        raise ValueError("The first stdin line must be the item title.")
+    slug = re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-")[:50] or "item"
+    id_slug = slug[:32].rstrip("-") or "item"
+
+    def change(board: Path):
+        require_board(board)
+        existing_ids = {item["id"].casefold() for item in read_items(board)}
+        while True:
+            item_id = f"{id_slug}-{secrets.token_hex(3)}"
+            if item_id.casefold() not in existing_ids:
+                break
+        item = {"id": item_id, "title": title, "status": "queued", "owner": "",
+                "depends_on": [], "hold": "", "hold_until": "", "github_issue": "",
+                "intent": intent, "intent_length": len(intent), "notes": "", "done_at": "",
+                "path": item_dir(board) / f"{item_id}-{slug}.md"}
+        save_item(item)
+        return [item["path"]], f"Created {item_id}: {title}\nDetail: {item['path'].relative_to(board).as_posix()}"
+    with write_lock(root):
+        print(publish(root, change))
+
+
+def cmd_board(root: Path, args) -> None:
+    if not config_path(root).exists():
+        print("No project board. Run /pm:init to create one.")
+        return
+    items = read_items(root)
+    print(render_board(root, items), end="")
+    print("\nReady next: " + (", ".join(f"{i['id']} {i['title']}" for i in next_items(items)) or "none"))
+
+
+def cmd_next(root: Path, args) -> None:
+    items = next_items(read_items(root))
+    for i in items:
+        print(f"{i['id']} {i['title']} — {i['path'].relative_to(root)}")
+    if not items:
+        print("No queued items are ready. Check dependencies or decisions in Waiting.")
+
+
+def cmd_claim(root: Path, args) -> None:
+    person = read_literal_stdin().strip()
+    if not person:
+        raise ValueError("A person's name is required on stdin.")
+
+    def change(board: Path):
+        items = read_items(board)
+        item = find_item(items, args.id)
+        if item.get("owner") and item["owner"].casefold() != person.casefold():
+            raise ValueError(f"{item['id']} is already claimed by {item['owner']}.")
+        if item.get("owner") and item.get("status") == "in-flight":
+            return [], f"{item['id']} is already in flight for {person}; resuming the existing claim."
+        can_start, reason = ready(item, {i["id"]: i for i in items})
+        if not can_start:
+            raise ValueError(f"Cannot claim {item['id']}: {reason}.")
+        item.update(status="in-flight", owner=person, hold="", hold_until="")
+        save_item(item)
+        return [item["path"]], f"Claimed {item['id']} for {person}. Claim is saved before work starts."
+    with write_lock(root):
+        print(publish(root, change, require_default_branch=True))
+
+
+def cmd_finish(root: Path, args) -> None:
+    note = read_literal_stdin()
+    with write_lock(root):
+        item = find_item(read_items(root), args.id)
+        if item.get("status") != "in-flight":
+            raise ValueError(f"{item['id']} is not in flight.")
+        item.update(status="done", owner="", notes=note or item.get("notes", ""),
+                    done_at=datetime.now(timezone.utc).isoformat(timespec="microseconds"))
+        save_item(item)
+        path = item["path"].relative_to(root).as_posix()
+        is_git_repo = git(root, "rev-parse", "--is-inside-work-tree", check=False).returncode == 0
+        if is_git_repo:
+            git(root, "add", "--", path)
+            git(root, "commit", "--only", "-m", f"pm: finish {item['id']}", "--", path)
+    suffix = " and committed locally" if is_git_repo else ""
+    print(f"Finished {item['id']}{suffix}.")
+
+
+def cmd_hold(root: Path, args) -> None:
+    reason = read_literal_stdin()
+    if not reason.strip():
+        raise ValueError("A decision question is required on stdin.")
+
+    def change(board: Path):
+        item = find_item(read_items(board), args.id)
+        if item.get("status") == "done":
+            raise ValueError(f"{item['id']} is already done and cannot be held.")
+        item.update(status="waiting", hold=reason, hold_until=args.until)
+        save_item(item)
+        return [item["path"]], f"Parked {item['id']}: {reason}"
+    with write_lock(root):
+        print(publish(root, change))
+
+
+def cmd_resume(root: Path, args) -> None:
+    def change(board: Path):
+        item = find_item(read_items(board), args.id)
+        if item.get("status") != "waiting":
+            raise ValueError(f"{item['id']} is not waiting on a decision.")
+        status = "in-flight" if item.get("owner") else "queued"
+        item.update(status=status, hold="", hold_until="")
+        save_item(item)
+        return [item["path"]], f"Returned {item['id']} to {'In flight' if item.get('owner') else 'Queued'}."
+    with write_lock(root):
+        print(publish(root, change))
+
+
+def cmd_set(root: Path, args) -> None:
+    requested = [value.strip() for value in args.depends.split(",") if value.strip()]
+
+    def change(board: Path):
+        items = read_items(board)
+        item = find_item(items, args.id)
+        known = {i["id"].casefold(): i["id"] for i in items}
+        missing = [dependency for dependency in requested if dependency.casefold() not in known]
+        if missing:
+            raise ValueError("Unknown dependencies: " + ", ".join(missing))
+        deps = [known[dependency.casefold()] for dependency in requested]
+        if item["id"] in deps:
+            raise ValueError("An item cannot depend on itself.")
+        graph = {i["id"]: set(i.get("depends_on", [])) for i in items}
+        graph[item["id"]] = set(deps)
+        def reaches(start: str, target: str, seen: set[str]) -> bool:
+            if start == target:
+                return True
+            if start in seen:
+                return False
+            seen.add(start)
+            return any(reaches(child, target, seen) for child in graph.get(start, set()))
+        if any(reaches(dependency, item["id"], set()) for dependency in deps):
+            raise ValueError("These dependencies create a cycle.")
+        item["depends_on"] = deps
+        save_item(item)
+        return [item["path"]], f"Updated {item['id']} dependencies."
+    with write_lock(root):
+        print(publish(root, change))
+
+
+def cmd_mirror(root: Path, args) -> None:
+    if args.mode == "show":
+        print(f"GitHub Issues mirror: {mirror_setting(root)}")
+        return
+
+    def change(board: Path):
+        require_board(board)
+        config = json.loads(config_path(board).read_text(encoding="utf-8"))
+        config["mirror"] = args.mode
+        config_path(board).write_text(json.dumps(config) + "\n", encoding="utf-8")
+        if args.mode == "github":
+            return [config_path(board)], ("GitHub Issues mirror enabled: syncing publishes item requester intent "
+                                          "and current notes to this repository's GitHub Issues audience.")
+        return [config_path(board)], "GitHub Issues mirror: off"
+    with write_lock(root):
+        print(publish(root, change))
+
+
+def cmd_sync(root: Path, args) -> None:
+    created: dict[str, str] = {}
+    failure: list[ValueError] = []
+
+    def change(board: Path):
+        if mirror_setting(board) != "github":
+            raise ValueError("GitHub Issues mirror is off. Enable it with `pm.py mirror github` first.")
+        failure.clear()
+        items = read_items(board)
+        recorded = {item["id"]: item.get("github_issue", "") for item in items}
+        lines = []
+        try:
+            for item in items:
+                item["github_issue"] = recorded[item["id"]] or created.get(item["id"], "")
+                lines.append(sync_issue(root, item, created))
+        except ValueError as exc:
+            failure.append(exc)
+        paths = []
+        for item in items:
+            if item["id"] in created and not recorded[item["id"]]:
+                item["github_issue"] = created[item["id"]]
+                save_item(item)
+                paths.append(item["path"])
+        return paths, "\n".join([f"Synced {len(lines)} items to GitHub Issues", *lines])
+    with write_lock(root):
+        print(publish(root, change))
+    if failure:
+        raise failure[0]
+
+
+def sync_issue(root: Path, item: dict, created: dict[str, str]) -> str:
+    body = f"Requester intent (verbatim):\n\n{item['intent']}\n\nCurrent notes:\n\n{item.get('notes', '')}\n\nStatus: {item.get('status')}"
+    if item.get("github_issue"):
+        number = str(item["github_issue"])
+        command = ["gh", "issue", "edit", number, "--title", item["title"], "--body", body]
     else:
-        if in_block:
-            lines.append(f"Epics: {epic_id}")
-    roadmap.write_text("\n".join(lines) + "\n")
+        number = ""
+        command = ["gh", "issue", "create", "--title", item["title"], "--body", body]
+    result = subprocess.run(command, cwd=root, text=True, capture_output=True)
+    if result.returncode:
+        raise ValueError(result.stderr.strip() or "gh issue sync failed")
+    issue_url = result.stdout.strip().splitlines()[-1] if result.stdout.strip() else ""
+    number_match = re.search(r"/(\d+)$", issue_url)
+    if number_match and not number:
+        number = number_match.group(1)
+        created[item["id"]] = number
+    if number:
+        details = subprocess.run(["gh", "issue", "view", number, "--json", "url,state"], cwd=root, text=True, capture_output=True)
+        if details.returncode:
+            raise ValueError(details.stderr.strip() or f"could not read GitHub issue {number}")
+        issue = json.loads(details.stdout)
+        issue_url = issue["url"]
+        desired_state = "closed" if item.get("status") == "done" else "open"
+        if issue["state"].lower() != desired_state:
+            verb = "close" if desired_state == "closed" else "reopen"
+            changed = subprocess.run(["gh", "issue", verb, number], cwd=root, text=True, capture_output=True)
+            if changed.returncode:
+                raise ValueError(changed.stderr.strip() or f"could not {verb} GitHub issue {number}")
+    return f"{item['id']} -> {issue_url}"
 
 
-def cmd_sync(root, args):
-    need_pm(root)
-    import pm_sync  # noqa: WPS433
-    cfg = pm_lib.read_config(root)
-    if cfg.get("mirror", "off") != "on" and not args.dry_run:
-        fail("mirror is off in the pm block; set `mirror: on` or use --dry-run")
-    if cfg.get("host") != "github":
-        fail(f"host is '{cfg.get('host')}'; only github has an adapter for now")
-    from adapters.github import GithubAdapter
-    log = pm_sync.sync(root, GithubAdapter(), dry_run=args.dry_run)
-    print("\n".join(log) or "nothing to do")
-
-
-# ---------------------------------------------------------------- parser
-
-def build_parser():
-    p = argparse.ArgumentParser(prog="pm.py", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("--root", help="repo root (default: git top level of the current folder)")
+def parser() -> argparse.ArgumentParser:
+    p = argparse.ArgumentParser(description="Manage the docs/pm markdown board. Text values are read literally from stdin.")
     sub = p.add_subparsers(dest="command", required=True)
-
-    sub.add_parser("board").set_defaults(func=cmd_board)
-    sub.add_parser("line").set_defaults(func=cmd_line)
-
-    s = sub.add_parser("next")
-    s.add_argument("--routine", action="store_true", help="only tickets a routine may take")
-    s.add_argument("--json", action="store_true")
-    s.set_defaults(func=cmd_next)
-
-    s = sub.add_parser("flow")
-    s.add_argument("epic", nargs="?")
-    s.add_argument("--all", action="store_true")
-    s.set_defaults(func=cmd_flow)
-
-    s = sub.add_parser("claim")
-    s.add_argument("ticket")
-    s.add_argument("owner")
-    s.add_argument("--force", action="store_true")
-    s.set_defaults(func=cmd_claim)
-
-    s = sub.add_parser("release")
-    s.add_argument("ticket")
-    s.set_defaults(func=cmd_release)
-
-    s = sub.add_parser("freeze", help="bug fix in progress: test files may not be edited until unfreeze")
-    s.add_argument("ticket")
-    s.set_defaults(func=cmd_freeze)
-
-    s = sub.add_parser("unfreeze", help="allow test edits again; the reason goes under Notes")
-    s.add_argument("ticket")
-    s.add_argument("--reason", required=True)
-    s.set_defaults(func=cmd_unfreeze)
-
-    s = sub.add_parser("dismiss", help="close a ticket without doing it; the reason goes under Notes")
-    s.add_argument("ticket")
-    s.add_argument("--reason", required=True)
-    s.set_defaults(func=cmd_dismiss)
-
-    s = sub.add_parser("set")
-    s.add_argument("ticket")
-    s.add_argument("pairs", nargs="+")
-    s.set_defaults(func=cmd_set)
-
-    s = sub.add_parser("ready", help="mark a grilled ticket ready for /pm:work")
-    s.add_argument("ticket")
-    s.add_argument("--early", action="store_true", help="the ticket is blocked and the user said to grill it anyway")
-    s.set_defaults(func=cmd_ready)
-
-    sub.add_parser("validate").set_defaults(func=cmd_validate)
-    sub.add_parser("backup", help="forks only: copy docs/pm and CONTEXT.md to $PM_BACKUP_DIR or ~/.pm-backup").set_defaults(func=cmd_backup)
-
-    s = sub.add_parser("next-id")
-    s.add_argument("kind", choices=["ticket", "epic", "milestone"])
-    s.set_defaults(func=cmd_next_id)
-
-    s = sub.add_parser("config")
-    s.add_argument("--json", action="store_true")
-    s.set_defaults(func=cmd_config)
-
-    s = sub.add_parser("new")
-    s.add_argument("kind", choices=["ticket", "epic", "milestone"])
-    s.add_argument("--title", required=True)
-    s.add_argument("--epic")
-    s.add_argument("--milestone")
-    s.add_argument("--priority", default="P2", choices=pm_lib.PRIORITIES)
-    s.add_argument("--depends", help="comma-separated ticket ids")
-    s.add_argument("--auto", action="store_true", help="a routine may take this ticket")
-    s.add_argument("--plan", default="none", choices=["none", "required"])
-    s.add_argument("--ready", action="store_true", help="already grilled: What, Why and a testable Acceptance line are settled")
-    s.add_argument("--confidence", choices=pm_lib.CONFIDENCE, help="audit findings: how sure the finding is")
-    s.add_argument("--goal")
-    s.add_argument("--what")
-    s.add_argument("--why")
-    s.add_argument("--acceptance")
-    s.set_defaults(func=cmd_new)
-
-    s = sub.add_parser("sync")
-    s.add_argument("--dry-run", action="store_true")
-    s.set_defaults(func=cmd_sync)
+    sub.add_parser("init", help="create an empty board")
+    sub.add_parser("board", help="show status at a glance")
+    sub.add_parser("next", help="list queued items whose dependencies are done")
+    sub.add_parser("add", help="create an item; stdin is the title line followed by the requester's exact words")
+    for command, help_text in (("claim", "claim an item before work; stdin is the person's name"),
+                               ("finish", "mark an in-flight item done; stdin is the completion note"),
+                               ("resume", "release a hold; a claimed item returns to its owner In flight, others to queue")):
+        sub.add_parser(command, help=help_text).add_argument("id")
+    hold = sub.add_parser("hold", help="park an item for a decision; stdin is the question")
+    hold.add_argument("id"); hold.add_argument("--until", default="")
+    update = sub.add_parser("set", help="set dependencies")
+    update.add_argument("id"); update.add_argument("--depends", required=True)
+    mirror = sub.add_parser("mirror", help="configure the optional GitHub Issues mirror")
+    mirror.add_argument("mode", choices=("show", "off", "github"))
+    sub.add_parser("sync", help="sync items to GitHub Issues when enabled")
     return p
 
 
-def main(argv=None):
-    args = build_parser().parse_args(argv)
-    root = Path(args.root).resolve() if args.root else pm_lib.find_root()
-    if args.command == "new" and args.kind == "ticket" and not args.epic:
-        fail("--epic is required for a ticket", 2)
-    if args.command == "new" and args.kind == "epic" and not args.milestone:
-        fail("--milestone is required for an epic", 2)
-    args.func(root, args)
+def main() -> int:
+    args = parser().parse_args()
+    root = root_dir()
+    try:
+        {"init": cmd_init, "board": cmd_board, "next": cmd_next, "add": cmd_add,
+         "claim": cmd_claim, "finish": cmd_finish, "hold": cmd_hold, "resume": cmd_resume,
+         "set": cmd_set, "mirror": cmd_mirror, "sync": cmd_sync}[args.command](root, args)
+    except (ValueError, OSError) as exc:
+        print(f"pm: {exc}", file=sys.stderr)
+        return 1
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())
