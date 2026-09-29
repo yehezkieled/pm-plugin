@@ -11,6 +11,7 @@ import subprocess
 import sys
 import tempfile
 from contextlib import contextmanager
+from datetime import datetime, timezone
 from pathlib import Path
 
 try:
@@ -33,6 +34,10 @@ def pm_dir(root: Path) -> Path:
 
 def item_dir(root: Path) -> Path:
     return pm_dir(root) / "items"
+
+
+def config_path(root: Path) -> Path:
+    return pm_dir(root) / "config.json"
 
 
 def read_items(root: Path) -> list[dict]:
@@ -75,7 +80,7 @@ def read_items(root: Path) -> list[dict]:
 
 
 def item_text(item: dict) -> str:
-    keys = ("id", "status", "owner", "depends_on", "hold", "hold_until", "github_issue", "done_order", "intent_length")
+    keys = ("id", "status", "owner", "depends_on", "hold", "hold_until", "github_issue", "done_at", "intent_length")
     lines = ["---"]
     lines.extend(f"{key}: {json.dumps(item.get(key, [] if key == 'depends_on' else 0 if key == 'intent_length' else ''), ensure_ascii=False)}" for key in keys)
     lines.extend(("---", f"# {item['title']}", "", "## Requester intent", item["intent"], "", "## Current notes", item.get("notes", ""), ""))
@@ -94,16 +99,13 @@ def read_literal_stdin() -> str:
 
 
 def mirror_setting(root: Path) -> str:
-    board = pm_dir(root) / "BOARD.md"
-    if not board.exists():
+    if not config_path(root).exists():
         return "off"
-    match = re.search(r"^<!-- pm-mirror: (off|github) -->$", board.read_text(), re.M)
-    return match.group(1) if match else "off"
+    return json.loads(config_path(root).read_text(encoding="utf-8")).get("mirror", "off")
 
 
 def render_board(root: Path, items: list[dict]) -> str:
-    lines = ["# Project board", "", f"<!-- pm-mirror: {mirror_setting(root)} -->", "",
-             "Short status index. Full item context lives in `items/`; older completed summaries are in `archive.md`.", ""]
+    lines = ["# Project board", "", "Rendered from `docs/pm/items/`, which holds each item's requester intent and current notes.", ""]
     groups = (("In flight", "in-flight"), ("Queued", "queued"), ("Waiting", "waiting"), ("Done", "done"))
     by_id = {i["id"]: i for i in items}
     for heading, status in groups:
@@ -111,8 +113,11 @@ def render_board(root: Path, items: list[dict]) -> str:
         selected = [i for i in items if i.get("status", "queued") == status]
         if status == "queued":
             selected = [i for i in selected if not i.get("hold")]
+        older = 0
         if status == "done":
-            selected = sorted(selected, key=lambda item: int(item.get("done_order", 0)))[-10:]
+            selected = sorted(selected, key=lambda item: str(item.get("done_at", "")))
+            older = max(len(selected) - 10, 0)
+            selected = selected[older:]
         if not selected:
             lines.extend(("- None.", ""))
             continue
@@ -131,31 +136,11 @@ def render_board(root: Path, items: list[dict]) -> str:
                 if item.get("hold_until"):
                     notes[-1] += f" (review after {item['hold_until']})"
             suffix = f" — {'; '.join(notes)}" if notes else ""
-            lines.append(f"- [{item['id']}]({item['path'].relative_to(pm_dir(root))}) {item['title']}{suffix}")
+            lines.append(f"- [{item['id']}]({item['path'].relative_to(root).as_posix()}) {item['title']}{suffix}")
+        if older:
+            lines.append(f"- {older} older done item{'s' if older > 1 else ''} kept in `docs/pm/items/`.")
         lines.append("")
     return "\n".join(lines).rstrip() + "\n"
-
-
-def archive_old_done(root: Path, items: list[dict]) -> None:
-    done = sorted((i for i in items if i.get("status") == "done"), key=lambda item: int(item.get("done_order", 0)))
-    older = done[:-10]
-    if not older:
-        return
-    archive = pm_dir(root) / "archive.md"
-    existing = archive.read_text(encoding="utf-8") if archive.exists() else "# Completed item archive\n\n"
-    known = set(re.findall(r"^- \[([^\]]+)\]\(", existing, re.M))
-    added = [f"- [{i['id']}]({i['path'].relative_to(pm_dir(root))}) {i['title']} — "
-             f"{' '.join((i.get('notes') or i.get('intent', '')).split())[:100]}"
-             for i in older if i["id"] not in known]
-    if added:
-        archive.write_text(existing.rstrip() + "\n" + "\n".join(added) + "\n", encoding="utf-8")
-
-
-def refresh(root: Path) -> list[dict]:
-    items = read_items(root)
-    archive_old_done(root, items)
-    (pm_dir(root) / "BOARD.md").write_text(render_board(root, items), encoding="utf-8")
-    return items
 
 
 @contextmanager
@@ -223,61 +208,50 @@ def fetch_default(root: Path, remote: str, branch: str) -> str:
     return git(root, "rev-parse", tracking_ref).stdout.strip()
 
 
-def sync_default_checkout(root: Path, branch: str, tracking_ref: str) -> None:
-    current = git(root, "rev-parse", "--abbrev-ref", "HEAD").stdout.strip()
-    if current != branch:
-        raise ValueError(f"Claim on the shared remote requires the default branch {branch}; current branch is {current}.")
-    dirty = git(root, "status", "--porcelain", "--", "docs/pm").stdout.strip()
-    if dirty:
-        raise ValueError("Commit or discard local docs/pm changes before claiming on the shared remote.")
+def sync_default_checkout(root: Path, tracking_ref: str) -> None:
     merged = git(root, "merge", "--ff-only", tracking_ref, check=False)
     if merged.returncode:
-        raise ValueError("Local default branch cannot fast-forward to the shared claim branch. Sync it before claiming.")
+        raise ValueError("Local default branch cannot fast-forward to the shared board. Sync it first.")
     head = git(root, "rev-parse", "HEAD").stdout.strip()
     remote_head = git(root, "rev-parse", tracking_ref).stdout.strip()
     if head != remote_head:
-        raise ValueError("Local default branch has unpublished commits. Sync it before claiming.")
+        raise ValueError("Local default branch has unpublished commits. Sync it first.")
 
 
-def claim_remote(root: Path, item_id: str, person: str, remote: str, branch: str) -> str:
-    tracking_ref = f"refs/remotes/{remote}/{branch}"
+def publish(root: Path, change, require_default_branch: bool = False) -> str:
+    remote = remote_default(root)
+    if not remote:
+        return change(root)[1]
+    name, branch = remote
+    tracking_ref = f"refs/remotes/{name}/{branch}"
     last_error = ""
     for _ in range(3):
-        base = fetch_default(root, remote, branch)
-        if git(root, "rev-parse", "--abbrev-ref", "HEAD").stdout.strip() == branch:
-            sync_default_checkout(root, branch, tracking_ref)
-        with tempfile.TemporaryDirectory(prefix="pm-claim-") as temp:
+        base = fetch_default(root, name, branch)
+        current = git(root, "rev-parse", "--abbrev-ref", "HEAD").stdout.strip()
+        if require_default_branch and current != branch:
+            raise ValueError(f"This change requires the default branch {branch}; current branch is {current}.")
+        if current == branch:
+            sync_default_checkout(root, tracking_ref)
+        with tempfile.TemporaryDirectory(prefix="pm-publish-") as temp:
             checkout = Path(temp) / "checkout"
             git(root, "worktree", "add", "--quiet", "--detach", str(checkout), base)
             try:
-                items = read_items(checkout)
-                item = find_item(items, item_id)
-                if item.get("owner"):
-                    if item.get("status") == "in-flight" and item["owner"].casefold() == person.casefold():
-                        return f"{item['id']} is already in flight for {person}; resuming the existing shared claim."
-                    raise ValueError(f"{item['id']} is already claimed by {item['owner']} on {remote}/{branch}.")
-                can_start, reason = ready(item, {entry["id"]: entry for entry in items})
-                if not can_start:
-                    raise ValueError(f"Cannot claim {item['id']}: {reason}.")
-                if git(root, "rev-parse", "--abbrev-ref", "HEAD").stdout.strip() != branch:
-                    raise ValueError(f"Claim on the shared remote requires the default branch {branch}.")
-                item.update(status="in-flight", owner=person, hold="", hold_until="")
-                save_item(item)
-                refresh(checkout)
-                item_path = item["path"].relative_to(checkout).as_posix()
-                git(checkout, "add", "--", "docs/pm/BOARD.md", item_path)
-                git(checkout, "-c", f"user.name={person}", "-c", "user.email=pm-claims@users.noreply.github.com",
-                    "commit", "-m", f"pm: claim {item['id']} for {person}")
-                pushed = git(checkout, "push", "--porcelain", remote, f"HEAD:refs/heads/{branch}", check=False)
+                paths, text = change(checkout)
+                if not paths:
+                    return text
+                git(checkout, "add", "--", *(path.relative_to(checkout).as_posix() for path in paths))
+                git(checkout, "commit", "-m", f"pm: {text.splitlines()[0]}")
+                pushed = git(checkout, "push", "--porcelain", name, f"HEAD:refs/heads/{branch}", check=False)
                 if pushed.returncode:
                     last_error = pushed.stderr.strip() or pushed.stdout.strip() or "push rejected"
                     continue
             finally:
                 git(root, "worktree", "remove", "--force", str(checkout), check=False)
-        fetch_default(root, remote, branch)
-        sync_default_checkout(root, branch, tracking_ref)
-        return f"Claimed {item_id} for {person} on shared {remote}/{branch}; claim push succeeded before work starts."
-    raise ValueError(f"Could not publish the claim to {remote}/{branch} after three attempts: {last_error}")
+        fetch_default(root, name, branch)
+        if current == branch:
+            sync_default_checkout(root, tracking_ref)
+        return f"{text}\nPublished to shared {name}/{branch}."
+    raise ValueError(f"Could not publish to {name}/{branch} after three attempts: {last_error}")
 
 
 def ready(item: dict, by_id: dict[str, dict]) -> tuple[bool, str]:
@@ -296,61 +270,54 @@ def next_items(items: list[dict]) -> list[dict]:
     return [i for i in items if ready(i, by_id)[0]]
 
 
+def require_board(root: Path) -> None:
+    if not config_path(root).exists():
+        raise ValueError("No project board. Run /pm:init first.")
+
+
 def cmd_init(root: Path, args) -> None:
+    def change(board: Path):
+        config = config_path(board)
+        if config.exists():
+            raise ValueError(f"{config.relative_to(board).as_posix()} already exists.")
+        config.parent.mkdir(parents=True, exist_ok=True)
+        config.write_text(json.dumps({"mirror": "off"}) + "\n", encoding="utf-8")
+        return [config], "Initialized docs/pm. Add the first item with /pm:plan."
     with write_lock(root):
-        folder = item_dir(root)
-        folder.mkdir(parents=True, exist_ok=True)
-        board = pm_dir(root) / "BOARD.md"
-        if board.exists():
-            raise ValueError(f"{board.relative_to(root)} already exists.")
-        board.write_text("# Project board\n\n<!-- pm-mirror: off -->\n", encoding="utf-8")
-        (pm_dir(root) / "archive.md").write_text("# Completed item archive\n", encoding="utf-8")
-        refresh(root)
-    print(f"Initialized {pm_dir(root).relative_to(root)}. Add the first item with /pm:plan.")
+        print(publish(root, change))
 
 
 def cmd_add(root: Path, args) -> None:
-    with write_lock(root):
-        if not (pm_dir(root) / "BOARD.md").exists():
-            raise ValueError("No project board. Run /pm:init first.")
-        items = read_items(root)
-        if args.request_stdin:
-            if args.title is not None:
-                raise ValueError("Do not supply a title with --request-stdin.")
-            request = sys.stdin.read()
-            title, separator, intent = request.partition("\n")
-            if not separator:
-                intent = ""
-            elif intent.endswith("\n"):
-                intent = intent[:-1]
-        else:
-            if args.title is None:
-                raise ValueError("A title is required unless --request-stdin is used.")
-            title = args.title
-            intent = read_literal_stdin() if args.intent_stdin else args.intent
-        slug = re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-")[:50] or "item"
-        id_slug = slug[:32].rstrip("-") or "item"
-        existing_ids = {item["id"].casefold() for item in items}
+    title, _, intent = read_literal_stdin().partition("\n")
+    title = title.strip()
+    if not title:
+        raise ValueError("The first stdin line must be the item title.")
+    slug = re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-")[:50] or "item"
+    id_slug = slug[:32].rstrip("-") or "item"
+
+    def change(board: Path):
+        require_board(board)
+        existing_ids = {item["id"].casefold() for item in read_items(board)}
         while True:
             item_id = f"{id_slug}-{secrets.token_hex(3)}"
             if item_id.casefold() not in existing_ids:
                 break
-        item = {"id": item_id, "title": title.strip(), "status": "queued", "owner": "",
+        item = {"id": item_id, "title": title, "status": "queued", "owner": "",
                 "depends_on": [], "hold": "", "hold_until": "", "github_issue": "",
-                "intent": intent, "intent_length": len(intent), "notes": "", "done_order": 0,
-                "path": item_dir(root) / f"{item_id}-{slug}.md"}
-        item["path"].parent.mkdir(parents=True, exist_ok=True)
+                "intent": intent, "intent_length": len(intent), "notes": "", "done_at": "",
+                "path": item_dir(board) / f"{item_id}-{slug}.md"}
         save_item(item)
-        refresh(root)
-    print(f"Created {item_id}: {title}\nDetail: {item['path'].relative_to(root)}")
+        return [item["path"]], f"Created {item_id}: {title}\nDetail: {item['path'].relative_to(board).as_posix()}"
+    with write_lock(root):
+        print(publish(root, change))
 
 
 def cmd_board(root: Path, args) -> None:
-    if not (pm_dir(root) / "BOARD.md").exists():
+    if not config_path(root).exists():
         print("No project board. Run /pm:init to create one.")
         return
-    print((pm_dir(root) / "BOARD.md").read_text(encoding="utf-8"), end="")
     items = read_items(root)
+    print(render_board(root, items), end="")
     print("\nReady next: " + (", ".join(f"{i['id']} {i['title']}" for i in next_items(items)) or "none"))
 
 
@@ -363,132 +330,120 @@ def cmd_next(root: Path, args) -> None:
 
 
 def cmd_claim(root: Path, args) -> None:
-    if args.person_stdin:
-        if args.person is not None:
-            raise ValueError("Do not supply a person with --person-stdin.")
-        person = read_literal_stdin()
-    elif args.person is None:
-        raise ValueError("A person is required unless --person-stdin is used.")
-    else:
-        person = args.person
-    with write_lock(root):
-        remote = remote_default(root)
-        if remote:
-            message = claim_remote(root, args.id, person, *remote)
-            print(message)
-            return
-        items = read_items(root)
+    person = read_literal_stdin().strip()
+    if not person:
+        raise ValueError("A person's name is required on stdin.")
+
+    def change(board: Path):
+        items = read_items(board)
         item = find_item(items, args.id)
         if item.get("owner"):
             if item.get("status") == "in-flight" and item["owner"].casefold() == person.casefold():
-                print(f"{item['id']} is already in flight for {person}; resuming the existing claim.")
-                return
+                return [], f"{item['id']} is already in flight for {person}; resuming the existing claim."
             raise ValueError(f"{item['id']} is already claimed by {item['owner']}.")
         can_start, reason = ready(item, {i["id"]: i for i in items})
         if not can_start:
             raise ValueError(f"Cannot claim {item['id']}: {reason}.")
         item.update(status="in-flight", owner=person, hold="", hold_until="")
         save_item(item)
-        refresh(root)
-    print(f"Claimed {item['id']} for {person}. Claim is saved before work starts.")
+        return [item["path"]], f"Claimed {item['id']} for {person}. Claim is saved before work starts."
+    with write_lock(root):
+        print(publish(root, change, require_default_branch=True))
 
 
 def cmd_finish(root: Path, args) -> None:
-    note = read_literal_stdin() if args.note_stdin else (args.note or "")
+    note = read_literal_stdin()
     with write_lock(root):
         item = find_item(read_items(root), args.id)
         if item.get("status") != "in-flight":
             raise ValueError(f"{item['id']} is not in flight.")
-        next_order = max((int(i.get("done_order", 0)) for i in read_items(root)), default=0) + 1
-        item.update(status="done", owner="", notes=note or item.get("notes", ""), done_order=next_order)
+        item.update(status="done", owner="", notes=note or item.get("notes", ""),
+                    done_at=datetime.now(timezone.utc).isoformat(timespec="microseconds"))
         save_item(item)
-        refresh(root)
-        paths = ["docs/pm/BOARD.md", "docs/pm/archive.md", item["path"].relative_to(root).as_posix()]
+        path = item["path"].relative_to(root).as_posix()
         is_git_repo = git(root, "rev-parse", "--is-inside-work-tree", check=False).returncode == 0
         if is_git_repo:
-            git(root, "add", "--", *paths)
-            git(root, "commit", "--only", "-m", f"pm: finish {item['id']}", "--", *paths)
-    suffix = " and completion committed locally" if is_git_repo else ""
-    print(f"Finished {item['id']}; board refreshed{suffix}.")
+            git(root, "add", "--", path)
+            git(root, "commit", "--only", "-m", f"pm: finish {item['id']}", "--", path)
+    suffix = " and committed locally" if is_git_repo else ""
+    print(f"Finished {item['id']}{suffix}.")
 
 
 def cmd_hold(root: Path, args) -> None:
-    if args.reason_stdin:
-        if args.reason is not None:
-            raise ValueError("Do not supply a reason with --reason-stdin.")
-        reason = read_literal_stdin()
-    elif args.reason is None:
-        raise ValueError("A reason is required unless --reason-stdin is used.")
-    else:
-        reason = args.reason
-    with write_lock(root):
-        item = find_item(read_items(root), args.id)
+    reason = read_literal_stdin()
+    if not reason.strip():
+        raise ValueError("A decision question is required on stdin.")
+
+    def change(board: Path):
+        item = find_item(read_items(board), args.id)
         if item.get("status") == "done":
             raise ValueError(f"{item['id']} is already done and cannot be held.")
-        item.update(status="waiting", owner="", hold=reason, hold_until=args.until or "")
+        item.update(status="waiting", owner="", hold=reason, hold_until=args.until)
         save_item(item)
-        refresh(root)
-    print(f"Parked {item['id']}: {reason}")
+        return [item["path"]], f"Parked {item['id']}: {reason}"
+    with write_lock(root):
+        print(publish(root, change))
 
 
 def cmd_resume(root: Path, args) -> None:
-    with write_lock(root):
-        item = find_item(read_items(root), args.id)
+    def change(board: Path):
+        item = find_item(read_items(board), args.id)
         if item.get("status") != "waiting":
             raise ValueError(f"{item['id']} is not waiting on a decision.")
         item.update(status="queued", hold="", hold_until="")
         save_item(item)
-        refresh(root)
-    print(f"Returned {item['id']} to Queued.")
+        return [item["path"]], f"Returned {item['id']} to Queued."
+    with write_lock(root):
+        print(publish(root, change))
 
 
 def cmd_set(root: Path, args) -> None:
-    with write_lock(root):
-        items = read_items(root)
+    requested = [value.strip() for value in args.depends.split(",") if value.strip()]
+
+    def change(board: Path):
+        items = read_items(board)
         item = find_item(items, args.id)
-        if args.depends is not None:
-            requested = [value.strip() for value in args.depends.split(",") if value.strip()]
-            known = {i["id"].casefold(): i["id"] for i in items}
-            missing = [dependency for dependency in requested if dependency.casefold() not in known]
-            if missing:
-                raise ValueError("Unknown dependencies: " + ", ".join(missing))
-            deps = [known[dependency.casefold()] for dependency in requested]
-            if item["id"] in deps:
-                raise ValueError("An item cannot depend on itself.")
-            graph = {i["id"]: set(i.get("depends_on", [])) for i in items}
-            graph[item["id"]] = set(deps)
-            def reaches(start: str, target: str, seen: set[str]) -> bool:
-                if start == target:
-                    return True
-                if start in seen:
-                    return False
-                seen.add(start)
-                return any(reaches(child, target, seen) for child in graph.get(start, set()))
-            if any(reaches(dependency, item["id"], set()) for dependency in deps):
-                raise ValueError("These dependencies create a cycle.")
-            item["depends_on"] = deps
-        if args.note is not None:
-            item["notes"] = args.note
+        known = {i["id"].casefold(): i["id"] for i in items}
+        missing = [dependency for dependency in requested if dependency.casefold() not in known]
+        if missing:
+            raise ValueError("Unknown dependencies: " + ", ".join(missing))
+        deps = [known[dependency.casefold()] for dependency in requested]
+        if item["id"] in deps:
+            raise ValueError("An item cannot depend on itself.")
+        graph = {i["id"]: set(i.get("depends_on", [])) for i in items}
+        graph[item["id"]] = set(deps)
+        def reaches(start: str, target: str, seen: set[str]) -> bool:
+            if start == target:
+                return True
+            if start in seen:
+                return False
+            seen.add(start)
+            return any(reaches(child, target, seen) for child in graph.get(start, set()))
+        if any(reaches(dependency, item["id"], set()) for dependency in deps):
+            raise ValueError("These dependencies create a cycle.")
+        item["depends_on"] = deps
         save_item(item)
-        refresh(root)
-    print(f"Updated {item['id']}.")
+        return [item["path"]], f"Updated {item['id']} dependencies."
+    with write_lock(root):
+        print(publish(root, change))
 
 
 def cmd_mirror(root: Path, args) -> None:
     if args.mode == "show":
         print(f"GitHub Issues mirror: {mirror_setting(root)}")
         return
-    if args.mode not in ("off", "github"):
-        raise ValueError("Mirror mode must be off or github.")
+
+    def change(board: Path):
+        require_board(board)
+        config = json.loads(config_path(board).read_text(encoding="utf-8"))
+        config["mirror"] = args.mode
+        config_path(board).write_text(json.dumps(config) + "\n", encoding="utf-8")
+        if args.mode == "github":
+            return [config_path(board)], ("GitHub Issues mirror enabled: syncing publishes item requester intent "
+                                          "and current notes to this repository's GitHub Issues audience.")
+        return [config_path(board)], "GitHub Issues mirror: off"
     with write_lock(root):
-        current = (pm_dir(root) / "BOARD.md").read_text(encoding="utf-8")
-        current = re.sub(r"^<!-- pm-mirror: (off|github) -->$", f"<!-- pm-mirror: {args.mode} -->", current, count=1, flags=re.M)
-        (pm_dir(root) / "BOARD.md").write_text(current, encoding="utf-8")
-        refresh(root)
-    if args.mode == "github":
-        print("GitHub Issues mirror enabled: syncing publishes item requester intent and current notes to this repository's GitHub Issues audience.")
-    else:
-        print("GitHub Issues mirror: off")
+        print(publish(root, change))
 
 
 def cmd_sync(root: Path, args) -> None:
@@ -529,31 +484,20 @@ def cmd_sync(root: Path, args) -> None:
 
 
 def parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(description="Manage the docs/pm markdown board.")
+    p = argparse.ArgumentParser(description="Manage the docs/pm markdown board. Text values are read literally from stdin.")
     sub = p.add_subparsers(dest="command", required=True)
     sub.add_parser("init", help="create an empty board")
     sub.add_parser("board", help="show status at a glance")
     sub.add_parser("next", help="list queued items whose dependencies are done")
-    add = sub.add_parser("add", help="create an item with the requester's exact words")
-    add.add_argument("title", nargs="?")
-    intent = add.add_mutually_exclusive_group(required=True)
-    intent.add_argument("--intent", help="requester words supplied as one already-safe argv value")
-    intent.add_argument("--intent-stdin", action="store_true", help="read exact requester words from stdin")
-    intent.add_argument("--request-stdin", action="store_true", help="read title and requester words from stdin")
-    claim = sub.add_parser("claim", help="atomically claim an item before work")
-    claim.add_argument("id"); claim.add_argument("person", nargs="?")
-    claim.add_argument("--person-stdin", action="store_true", help="read person name literally from stdin")
-    for command, help_text in (("finish", "mark an in-flight item done"), ("resume", "return a held item to queue")):
-        item = sub.add_parser(command, help=help_text); item.add_argument("id")
-        if command == "finish":
-            note = item.add_mutually_exclusive_group()
-            note.add_argument("--note", help="completion note supplied as one already-safe argv value")
-            note.add_argument("--note-stdin", action="store_true", help="read completion note literally from stdin")
-    hold = sub.add_parser("hold", help="park an item for a decision")
-    hold.add_argument("id"); hold.add_argument("reason", nargs="?"); hold.add_argument("--until", default="")
-    hold.add_argument("--reason-stdin", action="store_true", help="read hold reason literally from stdin")
-    update = sub.add_parser("set", help="set dependencies or replace current notes")
-    update.add_argument("id"); update.add_argument("--depends"); update.add_argument("--note")
+    sub.add_parser("add", help="create an item; stdin is the title line followed by the requester's exact words")
+    for command, help_text in (("claim", "claim an item before work; stdin is the person's name"),
+                               ("finish", "mark an in-flight item done; stdin is the completion note"),
+                               ("resume", "return a held item to queue")):
+        sub.add_parser(command, help=help_text).add_argument("id")
+    hold = sub.add_parser("hold", help="park an item for a decision; stdin is the question")
+    hold.add_argument("id"); hold.add_argument("--until", default="")
+    update = sub.add_parser("set", help="set dependencies")
+    update.add_argument("id"); update.add_argument("--depends", required=True)
     mirror = sub.add_parser("mirror", help="configure the optional GitHub Issues mirror")
     mirror.add_argument("mode", choices=("show", "off", "github"))
     sub.add_parser("sync", help="sync items to GitHub Issues when enabled")

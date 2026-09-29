@@ -1,12 +1,11 @@
 # pm: a small project board for Claude Code
 
-The plugin keeps a team's current work in `docs/pm/BOARD.md` and one Markdown detail file per item. It uses Claude Code skills as the workflow, so the active Claude model can be Sonnet, Opus, or another supported model.
+The plugin keeps a team's work as one Markdown file per item under `docs/pm/items/`; `/pm:status` renders the board from those files. It uses Claude Code skills as the workflow, so the active Claude model can be Sonnet, Opus, or another supported model.
 
 ```text
 docs/pm/
-├── BOARD.md          # In flight, Queued, Waiting, and the latest 10 Done items
-├── items/             # One file per item: exact requester intent and current notes
-└── archive.md         # Older completed item summaries
+├── config.json       # Board marker and GitHub mirror setting
+└── items/            # One file per item: exact requester intent, status, owner, and current notes
 ```
 
 ## Skills
@@ -22,9 +21,9 @@ docs/pm/
 
 ## Collaboration and item flow
 
-`/pm:work` claims an item before code changes. When a remote is configured, the claim is published to the default branch before work starts; completion is committed on the work branch and becomes shared when its PR is merged. Items can depend on other items, and a decision hold moves an item to Waiting. The [architecture guide](docs/architecture.md) documents the coordination and board lifecycle details.
+The item files are the only board state in git. The board is rendered on demand, showing In flight, Queued, Waiting, and the latest ten Done items; no generated file is committed. When a remote is configured, `/pm:plan` and the other board updates (`add`, `set`, `hold`, `resume`, and `claim`) commit the item file and push it to the default branch, so every clone sees the same items. `/pm:work` claims an item before code changes, and the claim is published the same way before work starts; completion is committed on the work branch and becomes shared when its PR is merged. Items can depend on other items, and a decision hold moves an item to Waiting. The [architecture guide](docs/architecture.md) documents the coordination and board lifecycle details.
 
-GitHub Issues sync is off by default. Enabling it with `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/pm.py" mirror github` authorizes publishing each item's requester intent and current notes to this repository's GitHub Issues audience when `.../pm.py sync` runs. The command prints this disclosure when enabled. The local Markdown files remain the source of truth.
+GitHub Issues sync is off by default. Enabling it with `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/pm.py" mirror github` authorizes publishing each item's requester intent and current notes to this repository's GitHub Issues audience when `.../pm.py sync` runs. The command prints this disclosure when enabled, and the setting is stored in `docs/pm/config.json`. The local Markdown files remain the source of truth.
 
 Hooks print the board at session start and remind the agent at stop when code changed without an item detail update. They do not block ordinary coding sessions.
 

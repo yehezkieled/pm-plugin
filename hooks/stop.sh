@@ -2,7 +2,7 @@
 # Stop hook: warn when code changed without a project item detail update.
 input="$(cat)"
 root="${CLAUDE_PROJECT_DIR:-$PWD}"
-[ -f "$root/docs/pm/BOARD.md" ] || exit 0
+[ -f "$root/docs/pm/config.json" ] || exit 0
 git -C "$root" rev-parse --is-inside-work-tree >/dev/null 2>&1 || exit 0
 changed="$(git -C "$root" status --porcelain --untracked-files=all 2>/dev/null | cut -c4-)"
 [ -n "$changed" ] || exit 0
