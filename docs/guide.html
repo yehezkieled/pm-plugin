@@ -530,7 +530,7 @@ Written to docs/pm/CODEBASE.md</pre>
 /pm:help             Show this guide</pre>
   <h3>The hooks</h3>
   <ul class="tight">
-    <li><strong>Session start:</strong> prints the board (the same text as step 5), so every session begins knowing what is in flight and ready.</li>
+    <li><strong>Session start:</strong> prints the board (the same text as step 5), so every session begins knowing what is in flight and ready. It adds one line telling the agent to claim an item with <code>/pm:work</code> before building it and to add work with <code>/pm:plan</code>, so any model follows the board rules.</li>
     <li><strong>Stop:</strong> if you changed code but no item file, it reminds the agent once: <em>“Code changed without an item detail update. If this work is tracked, rewrite its Current notes and refresh affected project docs before finishing.”</em></li>
   </ul>
 </section>

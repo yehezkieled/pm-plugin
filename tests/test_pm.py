@@ -10,6 +10,7 @@ import re
 
 CLI = Path(__file__).resolve().parents[1] / "scripts" / "pm.py"
 STOP_HOOK = Path(__file__).resolve().parents[1] / "hooks" / "stop.sh"
+START_HOOK = Path(__file__).resolve().parents[1] / "hooks" / "session-start.sh"
 
 
 class ProjectBoardTests(unittest.TestCase):
@@ -191,6 +192,17 @@ class ProjectBoardTests(unittest.TestCase):
             result = subprocess.run(["bash", str(STOP_HOOK)], cwd=root, env=env, input="{}", text=True,
                                     capture_output=True, check=True)
             self.assertNotIn("Code changed without an item detail update", result.stdout)
+
+    def test_session_start_context_shows_board_and_routes_to_skills(self):
+        item_id = self.add("Rate limiting", "Add rate limiting to the login endpoint")
+        env = os.environ.copy()
+        env["CLAUDE_PROJECT_DIR"] = str(self.root)
+        result = subprocess.run(["bash", str(START_HOOK)], cwd=self.root, env=env, input="{}", text=True,
+                                capture_output=True, check=True)
+        self.assertIn(f"Ready next: {item_id}", result.stdout)
+        routing = result.stdout.strip().splitlines()[-1]
+        self.assertIn("pm:work skill to claim it first", routing)
+        self.assertIn("pm:plan skill", routing)
 
     def test_github_mirror_defaults_off(self):
         self.assertIn("off", self.run_cli("mirror", "show").stdout)
