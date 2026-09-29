@@ -1,6 +1,6 @@
 ---
 name: map
-description: Inspect a codebase and explain its infrastructure, dependencies, data flow, logic, inputs, and outputs with diagrams. Use when the user asks how a codebase works or wants an architecture overview.
+description: Write an architecture overview of the codebase with diagrams (docs/pm/CODEBASE.md). Use when the user asks "how does this codebase work", "map the code", or wants an architecture or data-flow overview. Not for tracking tasks.
 argument-hint: "[area, optional]"
 ---
 

@@ -10,6 +10,8 @@ docs/pm/
 
 ## Skills
 
+New here? The [step-by-step guide](docs/guide.html) walks one sample project through every command with real output. Open the file in a browser.
+
 | Skill | Use | Main result |
 | --- | --- | --- |
 | `/pm:init` | Set up the board and concise `AGENTS.md` guidance | Board and project instructions |
