@@ -9,7 +9,7 @@ changed="$(git -C "$root" status --porcelain --untracked-files=all 2>/dev/null |
 code="$(printf '%s\n' "$changed" | grep -v -E '^(docs/pm/|.*\.(md|txt)$)' \
   | grep -v -E '(^|/)(__pycache__|node_modules|\.pytest_cache|\.mypy_cache|\.ruff_cache|dist|build|target|\.venv|venv|coverage)(/|$)' \
   | grep -v -E '\.(pyc|pyo|log|tmp)$' || true)"
-item="$(printf '%s\n' "$changed" | grep -E '^docs/pm/items/PM-[0-9]+-.*\.md$' || true)"
+item="$(printf '%s\n' "$changed" | grep -E '^docs/pm/items/[^/]+\.md$' || true)"
 [ -n "$code" ] && [ -z "$item" ] || exit 0
 printf '{"systemMessage":"Code changed without an item detail update. If this work is tracked, rewrite its Current notes and refresh affected project docs before finishing."}\n'
 exit 0

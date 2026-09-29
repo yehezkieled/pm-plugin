@@ -2,9 +2,11 @@ import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+import os
 
 
 CLI = Path(__file__).resolve().parents[1] / "scripts" / "pm.py"
+STOP_HOOK = Path(__file__).resolve().parents[1] / "hooks" / "stop.sh"
 
 
 class ProjectBoardTests(unittest.TestCase):
@@ -96,6 +98,30 @@ class ProjectBoardTests(unittest.TestCase):
         self.assertNotIn(f"[{ids[0]}]", board)
         self.assertIn(f"[{ids[0]}]", archive)
         self.assertIn(f"[{ids[-1]}]", board)
+        self.run_cli("set", ids[0], "--note", "Updated archived item")
+        archive = (self.root / "docs/pm/archive.md").read_text()
+        self.assertEqual(archive.count(f"[{ids[0]}]"), 1)
+
+    def test_stop_hook_recognizes_slug_id_item_updates(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+            (root / "docs/pm/items").mkdir(parents=True)
+            (root / "docs/pm/BOARD.md").write_text("# Board\n")
+            detail = root / "docs/pm/items/shared-task-a1b2c3-shared-task.md"
+            detail.write_text("item details\n")
+            code = root / "app.py"
+            code.write_text("original\n")
+            subprocess.run(["git", "add", "."], cwd=root, check=True)
+            subprocess.run(["git", "-c", "user.name=Test", "-c", "user.email=test@example.com",
+                            "commit", "-qm", "baseline"], cwd=root, check=True)
+            code.write_text("changed\n")
+            detail.write_text("updated notes\n")
+            env = os.environ.copy()
+            env["CLAUDE_PROJECT_DIR"] = str(root)
+            result = subprocess.run(["bash", str(STOP_HOOK)], cwd=root, env=env, input="{}", text=True,
+                                    capture_output=True, check=True)
+            self.assertNotIn("Code changed without an item detail update", result.stdout)
 
     def test_github_mirror_defaults_off(self):
         self.assertIn("off", self.run_cli("mirror", "show").stdout)

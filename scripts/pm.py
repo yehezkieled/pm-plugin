@@ -138,7 +138,7 @@ def archive_old_done(root: Path, items: list[dict]) -> None:
         return
     archive = pm_dir(root) / "archive.md"
     existing = archive.read_text(encoding="utf-8") if archive.exists() else "# Completed item archive\n\n"
-    known = set(re.findall(r"\[(PM-\d+)\]", existing))
+    known = set(re.findall(r"^- \[([^\]]+)\]\(", existing, re.M))
     added = [f"- [{i['id']}]({i['path'].relative_to(pm_dir(root))}) {i['title']} — "
              f"{' '.join((i.get('notes') or i.get('intent', '')).split())[:100]}"
              for i in older if i["id"] not in known]
