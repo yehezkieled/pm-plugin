@@ -28,15 +28,19 @@ sequenceDiagram
   actor Person
   participant Skill as Claude Code skill
   participant CLI as scripts/pm.py
-  participant Lock as shared Git lock
+  participant Lock as local file lock
+  participant Remote as remote default branch
   participant Item as docs/pm/items/PM-NNN.md
   participant Board as docs/pm/BOARD.md
   Person->>Skill: request or start work
   Skill->>CLI: add / claim / hold / finish
-  CLI->>Lock: acquire exclusive file lock
-  CLI->>Item: read current fields and exact intent
-  CLI->>Item: update status, owner, dependencies, or notes
-  CLI->>Board: regenerate one-glance view
+  CLI->>Lock: acquire exclusive local file lock
+  CLI->>Remote: fetch and read latest board
+  CLI->>Item: check claim, status, and dependencies
+  CLI->>Remote: push claim commit without force
+  Remote-->>CLI: accept one update or reject a race
+  CLI->>Remote: fetch and re-check after rejection
+  CLI->>Board: fast-forward local default branch after accepted claim
   CLI-->>Skill: item path and current board state
   Skill-->>Person: work result and next ready item
 ```
@@ -56,4 +60,4 @@ sequenceDiagram
 | `Stop` hook | Git status and board files | Reminder when code changed without an item update | `git`, bash |
 | Optional `sync` | Item Markdown and GitHub repo | GitHub Issues created/updated; issue ID saved in item | `gh` CLI and opt-in mirror setting |
 
-The model is selected by the Claude Code session. The plugin does not name a model or launch subagents. Its persistent data is plain Markdown; the CLI uses only Python's standard library. It uses OS file locking (`fcntl` on Unix-like systems and `msvcrt` on Windows). Separate clones coordinate by committing and pushing the claim before code work, as `/pm:work` directs. GitHub mirroring is off by default; enabling it authorizes publishing each item's requester intent and current notes to the repository's GitHub Issues audience when `sync` runs.
+The model is selected by the Claude Code session. The plugin does not name a model or launch subagents. Its persistent data is plain Markdown; the CLI uses only Python's standard library. It uses OS file locking (`fcntl` on Unix-like systems and `msvcrt` on Windows). With a remote, separate clones serialize new claims through non-forced pushes to the remote default branch; a losing push is followed by a fetch and ownership re-check. With no remote, the lock only coordinates processes sharing that clone. Work branches start after the shared claim commit lands. GitHub mirroring is off by default; enabling it authorizes publishing each item's requester intent and current notes to the repository's GitHub Issues audience when `sync` runs.

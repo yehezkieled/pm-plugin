@@ -86,6 +86,38 @@ class ProjectBoardTests(unittest.TestCase):
         self.assertIn("publishes item requester intent and current notes", enabled.stdout)
         self.assertIn("<!-- pm-mirror: github -->", (self.root / "docs/pm/BOARD.md").read_text())
 
+    def test_remote_default_branch_serializes_claims_across_clones(self):
+        with tempfile.TemporaryDirectory() as temp:
+            space = Path(temp)
+            origin = space / "origin.git"
+            seed = space / "seed"
+            seed.mkdir()
+            subprocess.run(["git", "init", "-q", "--initial-branch=main"], cwd=seed, check=True)
+            subprocess.run(["git", "config", "user.name", "Fixture"], cwd=seed, check=True)
+            subprocess.run(["git", "config", "user.email", "fixture@example.com"], cwd=seed, check=True)
+            subprocess.run(["python3", str(CLI), "init"], cwd=seed, check=True, capture_output=True, text=True)
+            subprocess.run(["python3", str(CLI), "add", "Shared task", "--intent-stdin"], cwd=seed,
+                           input="Build the shared task", check=True, capture_output=True, text=True)
+            subprocess.run(["git", "add", "docs/pm"], cwd=seed, check=True)
+            subprocess.run(["git", "commit", "-qm", "seed board"], cwd=seed, check=True)
+            subprocess.run(["git", "init", "-q", "--bare", "--initial-branch=main", str(origin)], check=True)
+            subprocess.run(["git", "remote", "add", "origin", str(origin)], cwd=seed, check=True)
+            subprocess.run(["git", "push", "-qu", "origin", "main"], cwd=seed, check=True)
+            clone_a, clone_b = space / "clone-a", space / "clone-b"
+            subprocess.run(["git", "clone", "-q", str(origin), str(clone_a)], check=True)
+            subprocess.run(["git", "clone", "-q", str(origin), str(clone_b)], check=True)
+
+            claimed = subprocess.run(["python3", str(CLI), "claim", "PM-001", "Ari"], cwd=clone_a,
+                                     text=True, capture_output=True)
+            self.assertEqual(claimed.returncode, 0, claimed.stderr)
+            self.assertIn("shared origin/main", claimed.stdout)
+            refused = subprocess.run(["python3", str(CLI), "claim", "PM-001", "Bea"], cwd=clone_b,
+                                     text=True, capture_output=True)
+            self.assertNotEqual(refused.returncode, 0)
+            self.assertIn("already claimed by Ari on origin/main", refused.stderr)
+            owner = subprocess.check_output(["git", "-C", str(clone_b), "show", "HEAD:docs/pm/items/PM-001-shared-task.md"], text=True)
+            self.assertIn('owner: "Ari"', owner)
+
 
 if __name__ == "__main__":
     unittest.main()

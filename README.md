@@ -22,7 +22,7 @@ docs/pm/
 
 ## Collaboration and item flow
 
-`/pm:work` claims an item under a file lock before inspecting or changing product code. A second user or agent sees the claim and cannot claim it again. Items can depend on other item IDs; `pm.py next` skips dependencies that are not done. A decision hold moves an item to Waiting with a reason and an optional review date. Finishing items keeps the newest ten on the board and adds older summaries to `archive.md`; the full item detail stays under `items/`.
+`/pm:work` claims an item before inspecting or changing product code. With a remote configured, the CLI fetches the remote default branch, creates a claim commit there, and pushes it without force. Git accepts only one competing update; a rejected claimant fetches again and sees the winner's owner. The work branch is created after the claim push succeeds. Without a remote, a local file lock prevents simultaneous claims in the same clone. Items can depend on other item IDs; `pm.py next` skips dependencies that are not done. A decision hold moves an item to Waiting with a reason and an optional review date. Finishing items keeps the newest ten on the board and adds older summaries to `archive.md`; the full item detail stays under `items/`.
 
 GitHub Issues sync is off by default. Enabling it with `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/pm.py" mirror github` authorizes publishing each item's requester intent and current notes to this repository's GitHub Issues audience when `.../pm.py sync` runs. The command prints this disclosure when enabled. The local Markdown files remain the source of truth.
 

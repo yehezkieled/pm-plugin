@@ -191,6 +191,89 @@ def find_item(items: list[dict], item_id: str) -> dict:
     return found
 
 
+def git(root: Path, *args: str, check: bool = True) -> subprocess.CompletedProcess:
+    result = subprocess.run(["git", "-C", str(root), *args], text=True, capture_output=True)
+    if check and result.returncode:
+        detail = result.stderr.strip() or result.stdout.strip()
+        raise ValueError(detail or f"git {' '.join(args)} failed")
+    return result
+
+
+def remote_default(root: Path) -> tuple[str, str] | None:
+    remotes = git(root, "remote").stdout.splitlines()
+    if not remotes:
+        return None
+    remote = "origin" if "origin" in remotes else sorted(remotes)[0]
+    result = git(root, "ls-remote", "--symref", remote, "HEAD")
+    match = re.search(r"^ref: refs/heads/(.+)\tHEAD$", result.stdout, re.M)
+    if not match:
+        raise ValueError(f"Remote {remote} does not advertise a default branch; cannot coordinate claims safely.")
+    return remote, match.group(1)
+
+
+def fetch_default(root: Path, remote: str, branch: str) -> str:
+    tracking_ref = f"refs/remotes/{remote}/{branch}"
+    git(root, "fetch", "--no-tags", remote, f"+refs/heads/{branch}:{tracking_ref}")
+    return git(root, "rev-parse", tracking_ref).stdout.strip()
+
+
+def sync_default_checkout(root: Path, branch: str, tracking_ref: str) -> None:
+    current = git(root, "rev-parse", "--abbrev-ref", "HEAD").stdout.strip()
+    if current != branch:
+        raise ValueError(f"Claim on the shared remote requires the default branch {branch}; current branch is {current}.")
+    dirty = git(root, "status", "--porcelain", "--", "docs/pm").stdout.strip()
+    if dirty:
+        raise ValueError("Commit or discard local docs/pm changes before claiming on the shared remote.")
+    merged = git(root, "merge", "--ff-only", tracking_ref, check=False)
+    if merged.returncode:
+        raise ValueError("Local default branch cannot fast-forward to the shared claim branch. Sync it before claiming.")
+    head = git(root, "rev-parse", "HEAD").stdout.strip()
+    remote_head = git(root, "rev-parse", tracking_ref).stdout.strip()
+    if head != remote_head:
+        raise ValueError("Local default branch has unpublished commits. Sync it before claiming.")
+
+
+def claim_remote(root: Path, item_id: str, person: str, remote: str, branch: str) -> str:
+    tracking_ref = f"refs/remotes/{remote}/{branch}"
+    last_error = ""
+    for _ in range(3):
+        base = fetch_default(root, remote, branch)
+        if git(root, "rev-parse", "--abbrev-ref", "HEAD").stdout.strip() == branch:
+            sync_default_checkout(root, branch, tracking_ref)
+        with tempfile.TemporaryDirectory(prefix="pm-claim-") as temp:
+            checkout = Path(temp) / "checkout"
+            git(root, "worktree", "add", "--quiet", "--detach", str(checkout), base)
+            try:
+                items = read_items(checkout)
+                item = find_item(items, item_id)
+                if item.get("owner"):
+                    if item.get("status") == "in-flight" and item["owner"].casefold() == person.casefold():
+                        return f"{item['id']} is already in flight for {person}; resuming the existing shared claim."
+                    raise ValueError(f"{item['id']} is already claimed by {item['owner']} on {remote}/{branch}.")
+                can_start, reason = ready(item, {entry["id"]: entry for entry in items})
+                if not can_start:
+                    raise ValueError(f"Cannot claim {item['id']}: {reason}.")
+                if git(root, "rev-parse", "--abbrev-ref", "HEAD").stdout.strip() != branch:
+                    raise ValueError(f"Claim on the shared remote requires the default branch {branch}.")
+                item.update(status="in-flight", owner=person, hold="", hold_until="")
+                save_item(item)
+                refresh(checkout)
+                item_path = item["path"].relative_to(checkout).as_posix()
+                git(checkout, "add", "--", "docs/pm/BOARD.md", item_path)
+                git(checkout, "-c", f"user.name={person}", "-c", "user.email=pm-claims@users.noreply.github.com",
+                    "commit", "-m", f"pm: claim {item['id']} for {person}")
+                pushed = git(checkout, "push", "--porcelain", remote, f"HEAD:refs/heads/{branch}", check=False)
+                if pushed.returncode:
+                    last_error = pushed.stderr.strip() or pushed.stdout.strip() or "push rejected"
+                    continue
+            finally:
+                git(root, "worktree", "remove", "--force", str(checkout), check=False)
+        fetch_default(root, remote, branch)
+        sync_default_checkout(root, branch, tracking_ref)
+        return f"Claimed {item_id} for {person} on shared {remote}/{branch}; claim push succeeded before work starts."
+    raise ValueError(f"Could not publish the claim to {remote}/{branch} after three attempts: {last_error}")
+
+
 def ready(item: dict, by_id: dict[str, dict]) -> tuple[bool, str]:
     if item.get("status") != "queued":
         return False, f"status is {item.get('status')}"
@@ -258,6 +341,11 @@ def cmd_next(root: Path, args) -> None:
 
 def cmd_claim(root: Path, args) -> None:
     with write_lock(root):
+        remote = remote_default(root)
+        if remote:
+            message = claim_remote(root, args.id, args.person, *remote)
+            print(message)
+            return
         items = read_items(root)
         item = find_item(items, args.id)
         if item.get("owner"):
