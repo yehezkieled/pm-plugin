@@ -54,6 +54,12 @@ class ProjectBoardTests(unittest.TestCase):
         self.assertIn("## Queued", board)
         self.assertIn("This heading remains part of requester intent", board)
 
+    def test_board_note_of_exactly_120_characters_is_not_truncated(self):
+        note = "x" * 119 + "y"
+        item_id = self.add("Long note", note)
+        line = next(line for line in self.board().splitlines() if f"[{item_id}]" in line)
+        self.assertTrue(line.endswith(f"— {note}"), line)
+
     def test_user_derived_fields_pass_through_literal_heredocs(self):
         title = 'x"; touch injected-title; $(touch injected-substitution); #'
         intent = 'Preserve $HOME, "quotes", and $(touch injected-intent).'
@@ -264,6 +270,44 @@ class ProjectBoardTests(unittest.TestCase):
             in_flight = self.cli_in(clone_b, "board").stdout.split("## Queued")[0]
             self.assertIn(f"[{item_id}]", in_flight)
             self.assertIn("claimed by Ari", in_flight)
+
+    def test_updates_from_a_work_branch_say_when_they_appear_locally(self):
+        with tempfile.TemporaryDirectory() as temp:
+            _, (clone_a, _) = self.shared_clones(Path(temp))
+            subprocess.run(["git", "switch", "-qc", "pm/other"], cwd=clone_a, check=True)
+            result = self.cli_in(clone_a, "add", input_text="From a branch\nPlanned during work")
+            self.assertIn("branch pm/other shows it only after syncing with origin/main", result.stdout)
+
+    def test_sync_publishes_new_issue_numbers_so_other_clones_do_not_duplicate(self):
+        with tempfile.TemporaryDirectory() as temp:
+            space = Path(temp)
+            item_id, (clone_a, clone_b) = self.shared_clones(space)
+            bin_dir = space / "bin"
+            bin_dir.mkdir()
+            log = space / "gh.log"
+            fake_gh = bin_dir / "gh"
+            fake_gh.write_text(f"""#!/usr/bin/env bash
+echo "$1 $2" >> {shlex.quote(str(log))}
+case "$2" in
+  create) echo https://github.com/o/r/issues/7 ;;
+  view) echo '{{"url": "https://github.com/o/r/issues/7", "state": "OPEN"}}' ;;
+esac
+""")
+            fake_gh.chmod(0o755)
+            env = {**os.environ, "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}"}
+            run = lambda cwd, *args: subprocess.run(["python3", str(CLI), *args], cwd=cwd, env=env,
+                                                    text=True, capture_output=True, input="")
+            self.assertEqual(run(clone_a, "mirror", "github").returncode, 0)
+            synced = run(clone_a, "sync")
+            self.assertEqual(synced.returncode, 0, synced.stderr)
+            self.assertEqual(subprocess.check_output(["git", "status", "--porcelain"], cwd=clone_a, text=True), "")
+            self.assertEqual(self.cli_in(clone_a, "claim", item_id, input_text="Ari").returncode, 0)
+            subprocess.run(["git", "pull", "-q", "--ff-only"], cwd=clone_b, check=True)
+            log.write_text("")
+            synced = run(clone_b, "sync")
+            self.assertEqual(synced.returncode, 0, synced.stderr)
+            self.assertNotIn("issue create", log.read_text())
+            self.assertIn("issue edit", log.read_text())
 
     def test_parallel_finishes_merge_without_board_conflicts(self):
         with tempfile.TemporaryDirectory() as temp:

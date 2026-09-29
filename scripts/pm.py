@@ -125,7 +125,7 @@ def render_board(root: Path, items: list[dict]) -> str:
             notes = []
             current_note = " ".join((item.get("notes") or item.get("intent", "")).split())
             if current_note:
-                notes.append(current_note[:119] + ("…" if len(current_note) > 120 else ""))
+                notes.append(current_note if len(current_note) <= 120 else current_note[:119] + "…")
             if item.get("owner"):
                 notes.append(f"claimed by {item['owner']}")
             waiting = [dep for dep in item.get("depends_on", []) if dep in by_id and by_id[dep].get("status") != "done"]
@@ -250,7 +250,8 @@ def publish(root: Path, change, require_default_branch: bool = False) -> str:
         fetch_default(root, name, branch)
         if current == branch:
             sync_default_checkout(root, tracking_ref)
-        return f"{text}\nPublished to shared {name}/{branch}."
+            return f"{text}\nPublished to shared {name}/{branch}."
+        return f"{text}\nPublished to shared {name}/{branch}; branch {current} shows it only after syncing with {name}/{branch}."
     raise ValueError(f"Could not publish to {name}/{branch} after three attempts: {last_error}")
 
 
@@ -450,38 +451,54 @@ def cmd_mirror(root: Path, args) -> None:
 def cmd_sync(root: Path, args) -> None:
     if mirror_setting(root) != "github":
         raise ValueError("GitHub Issues mirror is off. Enable it with `pm.py mirror github` first.")
-    with write_lock(root):
-        items = read_items(root)
-        for item in items:
-            body = f"Requester intent (verbatim):\n\n{item['intent']}\n\nCurrent notes:\n\n{item.get('notes', '')}\n\nLocal status: {item.get('status')}"
-            if item.get("github_issue"):
-                number = str(item["github_issue"])
-                command = ["gh", "issue", "edit", number, "--title", item["title"], "--body", body]
-            else:
-                number = ""
-                command = ["gh", "issue", "create", "--title", item["title"], "--body", body]
-            result = subprocess.run(command, cwd=root, text=True, capture_output=True)
-            if result.returncode:
-                raise ValueError(result.stderr.strip() or "gh issue sync failed")
-            issue_url = result.stdout.strip().splitlines()[-1] if result.stdout.strip() else ""
-            number_match = re.search(r"/(\d+)$", issue_url)
-            if number_match and not number:
-                number = number_match.group(1)
-                item["github_issue"] = number
+    created: dict[str, str] = {}
+
+    def record(board: Path):
+        paths = []
+        for item in read_items(board):
+            if item["id"] in created and not item.get("github_issue"):
+                item["github_issue"] = created[item["id"]]
                 save_item(item)
-            if number:
-                details = subprocess.run(["gh", "issue", "view", number, "--json", "url,state"], cwd=root, text=True, capture_output=True)
-                if details.returncode:
-                    raise ValueError(details.stderr.strip() or f"could not read GitHub issue {number}")
-                issue = json.loads(details.stdout)
-                issue_url = issue["url"]
-                desired_state = "closed" if item.get("status") == "done" else "open"
-                if issue["state"].lower() != desired_state:
-                    verb = "close" if desired_state == "closed" else "reopen"
-                    changed = subprocess.run(["gh", "issue", verb, number], cwd=root, text=True, capture_output=True)
-                    if changed.returncode:
-                        raise ValueError(changed.stderr.strip() or f"could not {verb} GitHub issue {number}")
-            print(f"{item['id']} -> {issue_url}")
+                paths.append(item["path"])
+        return paths, "Record GitHub issue numbers for " + ", ".join(created)
+    with write_lock(root):
+        try:
+            sync_issues(root, created)
+        finally:
+            if created:
+                print(publish(root, record))
+
+
+def sync_issues(root: Path, created: dict[str, str]) -> None:
+    for item in read_items(root):
+        body = f"Requester intent (verbatim):\n\n{item['intent']}\n\nCurrent notes:\n\n{item.get('notes', '')}\n\nLocal status: {item.get('status')}"
+        if item.get("github_issue"):
+            number = str(item["github_issue"])
+            command = ["gh", "issue", "edit", number, "--title", item["title"], "--body", body]
+        else:
+            number = ""
+            command = ["gh", "issue", "create", "--title", item["title"], "--body", body]
+        result = subprocess.run(command, cwd=root, text=True, capture_output=True)
+        if result.returncode:
+            raise ValueError(result.stderr.strip() or "gh issue sync failed")
+        issue_url = result.stdout.strip().splitlines()[-1] if result.stdout.strip() else ""
+        number_match = re.search(r"/(\d+)$", issue_url)
+        if number_match and not number:
+            number = number_match.group(1)
+            created[item["id"]] = number
+        if number:
+            details = subprocess.run(["gh", "issue", "view", number, "--json", "url,state"], cwd=root, text=True, capture_output=True)
+            if details.returncode:
+                raise ValueError(details.stderr.strip() or f"could not read GitHub issue {number}")
+            issue = json.loads(details.stdout)
+            issue_url = issue["url"]
+            desired_state = "closed" if item.get("status") == "done" else "open"
+            if issue["state"].lower() != desired_state:
+                verb = "close" if desired_state == "closed" else "reopen"
+                changed = subprocess.run(["gh", "issue", verb, number], cwd=root, text=True, capture_output=True)
+                if changed.returncode:
+                    raise ValueError(changed.stderr.strip() or f"could not {verb} GitHub issue {number}")
+        print(f"{item['id']} -> {issue_url}")
 
 
 def parser() -> argparse.ArgumentParser:
