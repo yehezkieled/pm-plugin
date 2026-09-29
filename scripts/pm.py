@@ -88,6 +88,11 @@ def save_item(item: dict) -> None:
     path.write_text(item_text(item), encoding="utf-8")
 
 
+def read_literal_stdin() -> str:
+    value = sys.stdin.read()
+    return value[:-1] if value.endswith("\n") else value
+
+
 def mirror_setting(root: Path) -> str:
     board = pm_dir(root) / "BOARD.md"
     if not board.exists():
@@ -309,22 +314,33 @@ def cmd_add(root: Path, args) -> None:
         if not (pm_dir(root) / "BOARD.md").exists():
             raise ValueError("No project board. Run /pm:init first.")
         items = read_items(root)
-        slug = re.sub(r"[^a-z0-9]+", "-", args.title.lower()).strip("-")[:50] or "item"
+        if args.request_stdin:
+            if args.title is not None:
+                raise ValueError("Do not supply a title with --request-stdin.")
+            request = sys.stdin.read()
+            title, separator, intent = request.partition("\n")
+            if not separator:
+                intent = ""
+        else:
+            if args.title is None:
+                raise ValueError("A title is required unless --request-stdin is used.")
+            title = args.title
+            intent = sys.stdin.read() if args.intent_stdin else args.intent
+        slug = re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-")[:50] or "item"
         id_slug = slug[:32].rstrip("-") or "item"
         existing_ids = {item["id"].casefold() for item in items}
         while True:
             item_id = f"{id_slug}-{secrets.token_hex(3)}"
             if item_id.casefold() not in existing_ids:
                 break
-        intent = sys.stdin.read() if args.intent_stdin else args.intent
-        item = {"id": item_id, "title": args.title.strip(), "status": "queued", "owner": "",
+        item = {"id": item_id, "title": title.strip(), "status": "queued", "owner": "",
                 "depends_on": [], "hold": "", "hold_until": "", "github_issue": "",
                 "intent": intent, "intent_length": len(intent), "notes": "", "done_order": 0,
                 "path": item_dir(root) / f"{item_id}-{slug}.md"}
         item["path"].parent.mkdir(parents=True, exist_ok=True)
         save_item(item)
         refresh(root)
-    print(f"Created {item_id}: {args.title}\nDetail: {item['path'].relative_to(root)}")
+    print(f"Created {item_id}: {title}\nDetail: {item['path'].relative_to(root)}")
 
 
 def cmd_board(root: Path, args) -> None:
@@ -345,35 +361,44 @@ def cmd_next(root: Path, args) -> None:
 
 
 def cmd_claim(root: Path, args) -> None:
+    if args.person_stdin:
+        if args.person is not None:
+            raise ValueError("Do not supply a person with --person-stdin.")
+        person = read_literal_stdin()
+    elif args.person is None:
+        raise ValueError("A person is required unless --person-stdin is used.")
+    else:
+        person = args.person
     with write_lock(root):
         remote = remote_default(root)
         if remote:
-            message = claim_remote(root, args.id, args.person, *remote)
+            message = claim_remote(root, args.id, person, *remote)
             print(message)
             return
         items = read_items(root)
         item = find_item(items, args.id)
         if item.get("owner"):
-            if item.get("status") == "in-flight" and item["owner"].casefold() == args.person.casefold():
-                print(f"{item['id']} is already in flight for {args.person}; resuming the existing claim.")
+            if item.get("status") == "in-flight" and item["owner"].casefold() == person.casefold():
+                print(f"{item['id']} is already in flight for {person}; resuming the existing claim.")
                 return
             raise ValueError(f"{item['id']} is already claimed by {item['owner']}.")
         can_start, reason = ready(item, {i["id"]: i for i in items})
         if not can_start:
             raise ValueError(f"Cannot claim {item['id']}: {reason}.")
-        item.update(status="in-flight", owner=args.person, hold="", hold_until="")
+        item.update(status="in-flight", owner=person, hold="", hold_until="")
         save_item(item)
         refresh(root)
-    print(f"Claimed {item['id']} for {args.person}. Claim is saved before work starts.")
+    print(f"Claimed {item['id']} for {person}. Claim is saved before work starts.")
 
 
 def cmd_finish(root: Path, args) -> None:
+    note = read_literal_stdin() if args.note_stdin else (args.note or "")
     with write_lock(root):
         item = find_item(read_items(root), args.id)
         if item.get("status") != "in-flight":
             raise ValueError(f"{item['id']} is not in flight.")
         next_order = max((int(i.get("done_order", 0)) for i in read_items(root)), default=0) + 1
-        item.update(status="done", owner="", notes=args.note or item.get("notes", ""), done_order=next_order)
+        item.update(status="done", owner="", notes=note or item.get("notes", ""), done_order=next_order)
         save_item(item)
         refresh(root)
         paths = ["docs/pm/BOARD.md", "docs/pm/archive.md", item["path"].relative_to(root).as_posix()]
@@ -386,14 +411,22 @@ def cmd_finish(root: Path, args) -> None:
 
 
 def cmd_hold(root: Path, args) -> None:
+    if args.reason_stdin:
+        if args.reason is not None:
+            raise ValueError("Do not supply a reason with --reason-stdin.")
+        reason = read_literal_stdin()
+    elif args.reason is None:
+        raise ValueError("A reason is required unless --reason-stdin is used.")
+    else:
+        reason = args.reason
     with write_lock(root):
         item = find_item(read_items(root), args.id)
         if item.get("status") == "done":
             raise ValueError(f"{item['id']} is already done and cannot be held.")
-        item.update(status="waiting", owner="", hold=args.reason, hold_until=args.until or "")
+        item.update(status="waiting", owner="", hold=reason, hold_until=args.until or "")
         save_item(item)
         refresh(root)
-    print(f"Parked {item['id']}: {args.reason}")
+    print(f"Parked {item['id']}: {reason}")
 
 
 def cmd_resume(root: Path, args) -> None:
@@ -500,17 +533,23 @@ def parser() -> argparse.ArgumentParser:
     sub.add_parser("board", help="show status at a glance")
     sub.add_parser("next", help="list queued items whose dependencies are done")
     add = sub.add_parser("add", help="create an item with the requester's exact words")
-    add.add_argument("title")
+    add.add_argument("title", nargs="?")
     intent = add.add_mutually_exclusive_group(required=True)
     intent.add_argument("--intent", help="requester words supplied as one already-safe argv value")
     intent.add_argument("--intent-stdin", action="store_true", help="read exact requester words from stdin")
+    intent.add_argument("--request-stdin", action="store_true", help="read title and requester words from stdin")
     claim = sub.add_parser("claim", help="atomically claim an item before work")
-    claim.add_argument("id"); claim.add_argument("person")
+    claim.add_argument("id"); claim.add_argument("person", nargs="?")
+    claim.add_argument("--person-stdin", action="store_true", help="read person name literally from stdin")
     for command, help_text in (("finish", "mark an in-flight item done"), ("resume", "return a held item to queue")):
         item = sub.add_parser(command, help=help_text); item.add_argument("id")
-        if command == "finish": item.add_argument("--note", default="")
+        if command == "finish":
+            note = item.add_mutually_exclusive_group()
+            note.add_argument("--note", help="completion note supplied as one already-safe argv value")
+            note.add_argument("--note-stdin", action="store_true", help="read completion note literally from stdin")
     hold = sub.add_parser("hold", help="park an item for a decision")
-    hold.add_argument("id"); hold.add_argument("reason"); hold.add_argument("--until", default="")
+    hold.add_argument("id"); hold.add_argument("reason", nargs="?"); hold.add_argument("--until", default="")
+    hold.add_argument("--reason-stdin", action="store_true", help="read hold reason literally from stdin")
     update = sub.add_parser("set", help="set dependencies or replace current notes")
     update.add_argument("id"); update.add_argument("--depends"); update.add_argument("--note")
     mirror = sub.add_parser("mirror", help="configure the optional GitHub Issues mirror")

@@ -3,6 +3,8 @@ import tempfile
 import unittest
 from pathlib import Path
 import os
+import shlex
+import json
 
 
 CLI = Path(__file__).resolve().parents[1] / "scripts" / "pm.py"
@@ -26,6 +28,13 @@ class ProjectBoardTests(unittest.TestCase):
         self.assertEqual(result.returncode == 0, ok, result.stderr)
         return result
 
+    def run_literal_cli(self, *args, input_text):
+        command = " ".join(shlex.quote(str(arg)) for arg in ("python3", CLI, *args))
+        script = f"{command} <<'PM_LITERAL'\n{input_text}\nPM_LITERAL\n"
+        result = subprocess.run(["bash", "-c", script], cwd=self.root, text=True, capture_output=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        return result
+
     def add(self, title, intent):
         return self.run_cli("add", title, "--intent-stdin", input_text=intent).stdout.split(":", 1)[0].split()[-1]
 
@@ -38,6 +47,35 @@ class ProjectBoardTests(unittest.TestCase):
         self.assertIn(f"[{item_id}](items/", board)
         self.assertIn("## Queued", board)
         self.assertIn("This heading remains part of requester intent", board)
+
+    def test_user_derived_fields_pass_through_literal_heredocs(self):
+        title = 'x"; touch injected-title; $(touch injected-substitution); #'
+        intent = 'Preserve $HOME, "quotes", and $(touch injected-intent).'
+        created = self.run_literal_cli("add", "--request-stdin", input_text=f"{title}\n{intent}")
+        item_id = created.stdout.split(":", 1)[0].split()[-1]
+        detail_path = next((self.root / "docs/pm/items").glob(f"{item_id}-*.md"))
+        detail = detail_path.read_text()
+        self.assertIn(f"# {title}", detail)
+        self.assertIn(intent, detail)
+
+        person = 'Ari"; touch injected-person; $(touch injected-person-sub); #'
+        self.run_literal_cli("claim", item_id, "--person-stdin", input_text=person)
+        metadata = detail_path.read_text().split("---\n", 2)[1]
+        owner = next(line.partition(": ")[2] for line in metadata.splitlines() if line.startswith("owner:"))
+        self.assertEqual(json.loads(owner), person)
+        reason = 'Need approval for "$HOME" and $(touch injected-reason).'
+        self.run_literal_cli("hold", item_id, "--reason-stdin", input_text=reason)
+        metadata = detail_path.read_text().split("---\n", 2)[1]
+        hold = next(line.partition(": ")[2] for line in metadata.splitlines() if line.startswith("hold:"))
+        self.assertEqual(json.loads(hold), reason)
+        self.run_cli("resume", item_id)
+        self.run_literal_cli("claim", item_id, "--person-stdin", input_text="Ari")
+        note = 'Finished with "$HOME" and $(touch injected-note).'
+        self.run_literal_cli("finish", item_id, "--note-stdin", input_text=note)
+        self.assertIn(f"{note}", detail_path.read_text())
+        for sentinel in ("injected-title", "injected-substitution", "injected-intent", "injected-person",
+                         "injected-person-sub", "injected-reason", "injected-note"):
+            self.assertFalse((self.root / sentinel).exists(), sentinel)
 
     def test_item_ids_use_title_slugs_with_distinct_random_suffixes(self):
         first = self.add("Shared task", "First request")
