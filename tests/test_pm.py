@@ -134,6 +134,19 @@ class ProjectBoardTests(unittest.TestCase):
         self.assertIn("no queued items are ready", self.run_cli("next").stdout.lower())
         self.assertIn("held: Need a decision (review after 2026-10-10)", self.board())
 
+    def test_resume_answer_saves_the_deciders_words_in_notes(self):
+        item_id = self.add("Expiry", "Links should expire")
+        self.run_cli("hold", item_id, input_text="Café: 404 or 410?")
+        self.run_literal_cli("resume", item_id, "--answer", input_text="Dana: use $HOME 410 Gone")
+        detail = next((self.root / "docs/pm/items").glob(f"{item_id}-*.md")).read_text()
+        self.assertIn('## Current notes\nDecision on "Café: 404 or 410?": Dana: use $HOME 410 Gone', detail)
+        self.assertIn("## Queued", self.board().split("## Waiting")[0])
+        self.run_cli("hold", item_id, input_text="Again?")
+        self.run_cli("resume", item_id, "--answer", ok=False, input_text=" ")
+        self.assertIn(f"[{item_id}]", self.board().split("## Waiting")[1].split("## Done")[0])
+        self.run_cli("resume", item_id)
+        self.assertIn('Decision on "Café: 404 or 410?"', next((self.root / "docs/pm/items").glob(f"{item_id}-*.md")).read_text())
+
     def test_same_owner_can_resume_but_another_owner_cannot_take_over(self):
         item_id = self.add("Resume task", "Keep the claim")
         self.run_cli("claim", item_id, input_text="Ari")

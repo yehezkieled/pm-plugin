@@ -10,6 +10,7 @@ flowchart LR
   S --> C[scripts/pm.py<br/>board operations]
   C --> I[docs/pm/items/slug-random.md<br/>intent, status, owner, notes]
   C --> K[docs/pm/config.json<br/>board marker and mirror setting]
+  S -. read .-> PG[docs/placement.md<br/>where knowledge and decisions go]
   I --> B[Rendered board<br/>pm.py board output]
   H[Claude Code hooks<br/>hooks/hooks.json] --> SH[hooks/session-start.sh<br/>hooks/stop.sh]
   SH --> C
@@ -17,7 +18,7 @@ flowchart LR
   C -. sync command .-> G
 ```
 
-Sources: [plugin manifest](../.claude-plugin/plugin.json), [skills](../skills/), [CLI](../scripts/pm.py), [hooks](../hooks/).
+Sources: [plugin manifest](../.claude-plugin/plugin.json), [skills](../skills/), [CLI](../scripts/pm.py), [hooks](../hooks/), [placement guide](placement.md).
 
 ## Work and data flow
 
@@ -44,14 +45,16 @@ sequenceDiagram
   Skill-->>Person: work result and next ready item
 ```
 
+`init`, `plan`, `work`, `map`, and `help` read the single [placement guide](placement.md) instead of restating it. For decisions, `hold` stores the question on the item and takes it to Waiting; `resume --answer` saves the decider's exact words at the top of `## Current notes` in the same commit as the resume, which matters because a notes edit made by hand on the default branch would block the CLI's fast-forward. Lasting decisions go to `AGENTS.md` or `CODEBASE.md` through the normal change.
+
 `next` selects only queued items with no hold and with all dependencies done. Claim changes a queued item to In flight while holding the same lock used by other CLI writes. Hold and resume never change the owner, so a held claim returns to In flight for the same person and no one else can claim it. Without a remote, writes change the local item files and only `finish` commits. Finishing records a UTC completion time; the rendered board shows the newest ten Done items and counts older ones. Because each change touches only its own item file, parallel work branches merge without board conflicts.
 
 ## Inputs, outputs, and external dependencies
 
 | Component | Input | Output | Depends on |
 | --- | --- | --- | --- |
-| `/pm:init` | Current project and existing instructions | `docs/pm/`, concise `AGENTS.md` when absent | Claude Code file tools, Python CLI |
-| `/pm:plan` | Requester's exact words, optional dependencies or decision question | Queued item detail published to the shared default branch | `scripts/pm.py add`, `set`, `hold` |
+| `/pm:init` | Current project and existing instructions | `docs/pm/`, concise `AGENTS.md` (with a pointer to the placement guide) when absent | Claude Code file tools, Python CLI |
+| `/pm:plan` | Requester's exact words, optional dependencies or decision question or answer | Queued item detail published to the shared default branch | `scripts/pm.py add`, `set`, `hold`, `resume` |
 | `/pm:work` | Queued item and person's name | Claim before changes, code/doc updates, current item notes, Done or In flight status | CLI lock and project checks |
 | `/pm:status` | Project board | In flight owners, Queued, Waiting, Done, ready items | `scripts/pm.py board` |
 | `/pm:map` | Repository source, metadata, docs, tests | `docs/pm/CODEBASE.md` with component and flow diagrams | Claude Code read/write tools |
