@@ -18,7 +18,7 @@ Write a compact, accurate report with:
 4. The main commands or runtime entry points and where their output goes.
 5. Unknowns or inferred edges, clearly labeled `[UNSURE]`.
 
-Keep the map focused on architecture a maintainer needs; do not list every file. Re-read the source for changed components whenever refreshing the document. Print the diagrams and the report's main paths in the response.
+Architecture belongs here and nowhere else: do not copy it into `AGENTS.md` or `README.md`; see `${CLAUDE_PLUGIN_ROOT}/docs/placement.md`. Keep the map focused on architecture a maintainer needs; do not list every file. Re-read the source for changed components whenever refreshing the document. Print the diagrams and the report's main paths in the response.
 
 ## Reply
 

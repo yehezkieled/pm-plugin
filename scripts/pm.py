@@ -387,11 +387,18 @@ def cmd_hold(root: Path, args) -> None:
 
 
 def cmd_resume(root: Path, args) -> None:
+    answer = read_literal_stdin() if args.answer else ""
+    if args.answer and not answer.strip():
+        raise ValueError("--answer needs the decider's words on stdin.")
+
     def change(board: Path):
         item = find_item(read_items(board), args.id)
         if item.get("status") != "waiting":
             raise ValueError(f"{item['id']} is not waiting on a decision.")
         status = "in-flight" if item.get("owner") else "queued"
+        if answer:
+            old = item.get("notes", "")
+            item["notes"] = f"Decision on {json.dumps(item['hold'])}: {answer}" + (f"\n\n{old}" if old else "")
         item.update(status=status, hold="", hold_until="")
         save_item(item)
         return [item["path"]], f"Returned {item['id']} to {'In flight' if item.get('owner') else 'Queued'}."
@@ -517,9 +524,11 @@ def parser() -> argparse.ArgumentParser:
     sub.add_parser("next", help="list queued items whose dependencies are done")
     sub.add_parser("add", help="create an item; stdin is the title line followed by the requester's exact words")
     for command, help_text in (("claim", "claim an item before work; stdin is the person's name"),
-                               ("finish", "mark an in-flight item done; stdin is the completion note"),
-                               ("resume", "release a hold; a claimed item returns to its owner In flight, others to queue")):
+                               ("finish", "mark an in-flight item done; stdin is the completion note")):
         sub.add_parser(command, help=help_text).add_argument("id")
+    resume = sub.add_parser("resume", help="release a hold; a claimed item returns to its owner In flight, others to queue")
+    resume.add_argument("id")
+    resume.add_argument("--answer", action="store_true", help="stdin is the decider's exact words; saved at the top of the item's current notes")
     hold = sub.add_parser("hold", help="park an item for a decision; stdin is the question")
     hold.add_argument("id"); hold.add_argument("--until", default="")
     update = sub.add_parser("set", help="set dependencies")
