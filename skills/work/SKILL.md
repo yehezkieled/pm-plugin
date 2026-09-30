@@ -1,6 +1,6 @@
 ---
 name: work
-description: "Do a task from the board: claim it, build it, mark it done. Use when the user says \"work on\", \"start\", \"implement\", or \"do\" a task or item, or \"pick the next task and do it\". Call this directly, not status first. Not for adding tasks (use plan)."
+description: "Do a task from the board: claim it, build it, mark it done. Use when the user says \"work on\", \"implement\", \"do\", or \"go ahead and do\" a task on the board, or \"pick the next task and do it\". Call this first; it finds the task itself, so do not call status first. Not for adding tasks (use plan)."
 argument-hint: "[item-id]"
 ---
 

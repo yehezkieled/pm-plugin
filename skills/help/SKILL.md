@@ -1,6 +1,6 @@
 ---
 name: help
-description: "Explain the pm plugin and list its commands. Use when the user says \"help\", \"how does pm work\", \"what commands are there\", or is new and asks how to use this. Not for project progress (use status)."
+description: "Explain the pm plugin and list its commands. Use when the user types just \"help\", or asks \"how does pm work\", \"what commands are there\", or how to use this. For a bare \"help\", call this; do not answer from memory. Not for project progress (use status)."
 ---
 
 # /pm:help
