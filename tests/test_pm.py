@@ -5,10 +5,12 @@ from pathlib import Path
 import os
 import shlex
 import json
+import re
 
 
 CLI = Path(__file__).resolve().parents[1] / "scripts" / "pm.py"
 STOP_HOOK = Path(__file__).resolve().parents[1] / "hooks" / "stop.sh"
+START_HOOK = Path(__file__).resolve().parents[1] / "hooks" / "session-start.sh"
 
 
 class ProjectBoardTests(unittest.TestCase):
@@ -191,6 +193,17 @@ class ProjectBoardTests(unittest.TestCase):
                                     capture_output=True, check=True)
             self.assertNotIn("Code changed without an item detail update", result.stdout)
 
+    def test_session_start_context_shows_board_and_routes_to_skills(self):
+        item_id = self.add("Rate limiting", "Add rate limiting to the login endpoint")
+        env = os.environ.copy()
+        env["CLAUDE_PROJECT_DIR"] = str(self.root)
+        result = subprocess.run(["bash", str(START_HOOK)], cwd=self.root, env=env, input="{}", text=True,
+                                capture_output=True, check=True)
+        self.assertIn(f"Ready next: {item_id}", result.stdout)
+        routing = result.stdout.strip().splitlines()[-1]
+        self.assertIn("pm:work skill to claim it first", routing)
+        self.assertIn("pm:plan skill", routing)
+
     def test_github_mirror_defaults_off(self):
         self.assertIn("off", self.run_cli("mirror", "show").stdout)
         self.run_cli("sync", ok=False)
@@ -340,6 +353,43 @@ esac
             done = self.cli_in(clone_a, "board").stdout.split("## Done")[1]
             self.assertIn(f"[{first}]", done)
             self.assertIn(f"[{second}]", done)
+
+class SkillDescriptionTests(unittest.TestCase):
+    """Descriptions are what a model reads to choose a skill, so keep them short and explicit."""
+    SKILLS = sorted((Path(__file__).resolve().parents[1] / "skills").glob("*/SKILL.md"))
+
+    def frontmatter(self, path):
+        lines = path.read_text().splitlines()
+        self.assertEqual(lines[0], "---", f"{path.parent.name} must start with frontmatter")
+        fields = {}
+        for line in lines[1:lines.index("---", 1)]:
+            key, sep, value = line.partition(": ")
+            self.assertTrue(sep and re.fullmatch(r"[a-z-]+", key), f"{path.parent.name}: bad line {line!r}")
+            fields[key] = value
+        return fields
+
+    def test_every_skill_says_when_to_use_it_briefly(self):
+        self.assertTrue(self.SKILLS)
+        for path in self.SKILLS:
+            name = path.parent.name
+            fields = self.frontmatter(path)
+            self.assertEqual(fields.get("name"), name)
+            raw = fields.get("description", "")
+            self.assertTrue(raw.startswith('"'), f"{name} description must be a double-quoted YAML string")
+            text = json.loads(raw)
+            self.assertIsInstance(text, str)
+            self.assertLessEqual(len(text), 300, f"{name} description is too long")
+            self.assertIn("Use when", text, f"{name} description needs a 'Use when' clause")
+            self.assertRegex(text, r'"[^"]+"', f"{name} description needs quoted trigger phrases")
+
+    def test_guide_page_is_self_contained_and_covers_every_command(self):
+        guide = (Path(__file__).resolve().parents[1] / "docs" / "guide.html").read_text()
+        self.assertNotRegex(guide, r'(?:src|href)="https?://', "guide must not load external resources")
+        for command in ("init", "plan", "work", "status", "map", "help"):
+            self.assertIn(f"/pm:{command}", guide)
+        for cli in ("add", "set", "hold", "resume", "claim", "finish", "mirror", "sync", "next", "board"):
+            self.assertIn(f"pm.py {cli}", guide)
+
 
 if __name__ == "__main__":
     unittest.main()

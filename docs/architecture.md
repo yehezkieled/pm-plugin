@@ -55,7 +55,7 @@ sequenceDiagram
 | `/pm:work` | Queued item and person's name | Claim before changes, code/doc updates, current item notes, Done or In flight status | CLI lock and project checks |
 | `/pm:status` | Project board | In flight owners, Queued, Waiting, Done, ready items | `scripts/pm.py board` |
 | `/pm:map` | Repository source, metadata, docs, tests | `docs/pm/CODEBASE.md` with component and flow diagrams | Claude Code read/write tools |
-| `SessionStart` hook | Current project directory | Rendered board in session context | `python3`; otherwise points to `docs/pm/items/` |
+| `SessionStart` hook | Current project directory | Rendered board plus a note to claim items with `/pm:work` and add work with `/pm:plan`, in session context | `python3`; otherwise points to `docs/pm/items/` |
 | `Stop` hook | Git status and item files | Reminder when code changed without an item update | `git`, bash |
 | Optional `sync` | Item Markdown and GitHub repo | GitHub Issues created/updated; new issue numbers published in item files | `gh` CLI and opt-in mirror setting |
 

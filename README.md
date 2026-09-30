@@ -10,6 +10,8 @@ docs/pm/
 
 ## Skills
 
+New here? The [step-by-step guide](docs/guide.html) walks one sample project through every command with real output. Open the file in a browser.
+
 | Skill | Use | Main result |
 | --- | --- | --- |
 | `/pm:init` | Set up the board and concise `AGENTS.md` guidance | Board and project instructions |
@@ -25,7 +27,7 @@ The item files are the only board state in git. The board is rendered on demand,
 
 GitHub Issues sync is off by default. Enabling it with `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/pm.py" mirror github` authorizes publishing each item's requester intent and current notes to this repository's GitHub Issues audience when `.../pm.py sync` runs. The command prints this disclosure when enabled, and the setting is stored in `docs/pm/config.json`. New issue numbers are saved in the item files and published to the shared default branch like other board updates, so other clones update the same issues. The local Markdown files remain the source of truth.
 
-Hooks print the board at session start and remind the agent at stop when code changed without an item detail update. They do not block ordinary coding sessions.
+Hooks print the board at session start, with a note to claim items through `/pm:work` and add work through `/pm:plan`, and remind the agent at stop when code changed without an item detail update. They do not block ordinary coding sessions.
 
 ## Install
 
