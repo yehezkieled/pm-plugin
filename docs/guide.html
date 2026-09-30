@@ -144,7 +144,7 @@ C Link expiry            (parked: "404 or 410 Gone?")</pre>
   <pre class="term"><span class="cmd">$ pm.py init</span>
 Initialized docs/pm. Add the first item with /pm:plan.
 Published to shared origin/main.</pre>
-  <p>It also adds a short <code>AGENTS.md</code> pointer (and a one-line <code>CLAUDE.md</code> that says <code>@AGENTS.md</code>) if they are missing, never overwriting yours. The board is empty at first:</p>
+  <p>It also adds a short <code>AGENTS.md</code> (including a line that says where each kind of knowledge goes, see step 11) and a one-line <code>CLAUDE.md</code> that says <code>@AGENTS.md</code>, if they are missing, never overwriting yours. The board is empty at first:</p>
   <pre class="term"><span class="cmd">$ pm.py board</span>
 # Project board
 
@@ -410,11 +410,13 @@ Ready next: redirect-a-short-link-9bbffa Redirect a short link</pre>
   <pre class="term"><span class="cmd">$ pm.py next</span>
 redirect-a-short-link-9bbffa Redirect a short link — docs/pm/items/redirect-a-short-link-9bbffa-redirect-a-short-link.md</pre>
   <h3>Answer the decision, then resume: <code>pm.py resume</code></h3>
-  <p>Dana decides expired links should return <strong>410 Gone</strong>. Resuming the hold puts C back in the queue. (Since nobody had claimed C, it returns to Queued; a claimed item would return In flight to its owner.)</p>
+  <p>Dana decides expired links should return <strong>410 Gone</strong>. Resuming the hold puts C back in the queue, and <code>--answer</code> saves Dana's exact words at the top of the item's current notes in the same commit, so the next person to pick it up sees what was decided and why. (Since nobody had claimed C, it returns to Queued; a claimed item would return In flight to its owner.)</p>
   <div class="label">You type</div>
-  <pre class="slash">/pm:plan link expiry: decided, use 410 Gone. Resume it.</pre>
+  <pre class="slash">/pm:plan link expiry: Dana says expired links should return 410 Gone. Resume it.</pre>
   <div class="label">Skill runs</div>
-  <pre class="term"><span class="cmd">$ pm.py resume link-expiry-cc352f</span>
+  <pre class="term"><span class="cmd">$ pm.py resume link-expiry-cc352f --answer &lt;&lt;&#x27;PM_END&#x27;
+Dana: expired links should return 410 Gone.
+PM_END</span>
 Returned link-expiry-cc352f to Queued.
 Published to shared origin/main.</pre>
   <pre class="term"># Project board
@@ -426,7 +428,7 @@ Published to shared origin/main.</pre>
 ## Queued
 
 - [click-counts-790dc4](docs/pm/items/click-counts-790dc4-click-counts.md) Click counts — Show me how many times each short link was opened.; blocked by redirect-a-short-link-9bbffa
-- [link-expiry-cc352f](docs/pm/items/link-expiry-cc352f-link-expiry.md) Link expiry — Links should stop working after a while, I don&#x27;t want old links living forever.
+- [link-expiry-cc352f](docs/pm/items/link-expiry-cc352f-link-expiry.md) Link expiry — Decision on &quot;When a link expires, should visitors see a 404 or a 410 Gone page?&quot;: Dana: expired links should return 410…
 - [redirect-a-short-link-9bbffa](docs/pm/items/redirect-a-short-link-9bbffa-redirect-a-short-link.md) Redirect a short link — Opening /a1b2 should send the visitor to the original URL.
 
 ## Waiting
@@ -517,7 +519,7 @@ Written to docs/pm/CODEBASE.md</pre>
   <span class="stepno">Step 11</span>
   <h2><code>/pm:help</code> and the two hooks</h2>
   <div class="grid">
-    <div class="card"><h4><code>/pm:help</code>: when to use</h4><p>You forgot the commands. It prints this card and stops. Say “how do I use pm?” or “what commands are there?”.</p></div>
+    <div class="card"><h4><code>/pm:help</code>: when to use</h4><p>You forgot the commands. It prints this card and the placement guide, then stops. Say “how do I use pm?” or “what commands are there?”.</p></div>
     <div class="card"><h4>Hooks: automatic</h4><p>Nothing to type. They are on once the plugin is installed and never block your session.</p></div>
   </div>
   <div class="label">You type</div>
@@ -528,6 +530,29 @@ Written to docs/pm/CODEBASE.md</pre>
 /pm:status           Show owners, waiting items, and what's ready
 /pm:map [area]       Write a codebase overview with diagrams
 /pm:help             Show this guide</pre>
+  <p>Below the command list it prints the placement guide, which tells any agent which file each kind of knowledge and decision goes in:</p>
+  <pre class="term"># Where knowledge goes
+
+Put each fact in the most specific place that owns it. Anything useful to every contributor lives in the repo, so it travels with the code.
+
+| Kind of knowledge | File |
+| --- | --- |
+| Lasting agent rules: build/test/lint commands, gotchas, board workflow, private or agent-only context | `AGENTS.md`. `CLAUDE.md` holds only the pointer `@AGENTS.md`. |
+| Product overview: what it is, who it is for, goals, how to run it (never private context) | `README.md`. `AGENTS.md` points to it, not copies it. |
+| Domain vocabulary, only when the project has its own terms | `CONTEXT.md` as a glossary. Not an overview: that duplicates the README and drifts. |
+| Architecture: components, data flow, entry points | `docs/pm/CODEBASE.md`, written by `/pm:map`. |
+| One task: the requester's exact words, progress, decisions, what is left | `docs/pm/items/&lt;id&gt;.md`: intent under `## Requester intent`, the rest under `## Current notes`. |
+
+## Recording decisions
+
+| Stage | What to do |
+| --- | --- |
+| Question is open | `pm.py hold ITEM_ID` with the question on stdin. The item moves to Waiting and keeps its owner. |
+| Answer arrives | Resume with the decider's exact words: `pm.py resume ITEM_ID --answer` with the answer on stdin. They are saved at the top of the item's `## Current notes`, in the same commit as the resume. Do not paraphrase them. |
+| Decision shapes future work (a convention, a constraint, a design choice) | Add it as durable guidance to `AGENTS.md`, or to `docs/pm/CODEBASE.md` if it is architectural, through the normal change for the item. |
+| Decision only explains this change | Leave it in the item's notes and in the PR description. |
+
+Before writing anywhere, check the file already covers the fact; update it instead of adding a duplicate. Mark claims you have not verified `[UNSURE]`.</pre>
   <h3>The hooks</h3>
   <ul class="tight">
     <li><strong>Session start:</strong> prints the board (the same text as step 5), so every session begins knowing what is in flight and ready. It adds one line telling the agent to claim an item with <code>/pm:work</code> before building it and to add work with <code>/pm:plan</code>, so any model follows the board rules.</li>
@@ -555,7 +580,7 @@ Written to docs/pm/CODEBASE.md</pre>
     <tr><td><code>pm.py add</code></td><td>title line, then exact words</td><td>new Queued item</td></tr>
     <tr><td><code>pm.py set ID --depends A,B</code></td><td>none</td><td>set dependencies</td></tr>
     <tr><td><code>pm.py hold ID [--until YYYY-MM-DD]</code></td><td>the question</td><td>move to Waiting</td></tr>
-    <tr><td><code>pm.py resume ID</code></td><td>none</td><td>back to Queued, or In flight for the claimer</td></tr>
+    <tr><td><code>pm.py resume ID [--answer]</code></td><td>with <code>--answer</code>: the decider's exact words</td><td>back to Queued, or In flight for the claimer; the answer is saved in the item's current notes</td></tr>
     <tr><td><code>pm.py claim ID</code></td><td>the person's name</td><td>In flight, owned</td></tr>
     <tr><td><code>pm.py finish ID</code></td><td>completion note</td><td>Done on the work branch</td></tr>
     <tr><td><code>pm.py board</code></td><td>none</td><td>render the board</td></tr>

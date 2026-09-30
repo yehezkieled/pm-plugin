@@ -5,7 +5,8 @@ The plugin keeps a team's work as one Markdown file per item under `docs/pm/item
 ```text
 docs/pm/
 ├── config.json       # Board marker and GitHub mirror setting
-└── items/            # One file per item: exact requester intent, status, owner, and current notes
+├── items/            # One file per item: exact requester intent, status, owner, and current notes
+└── CODEBASE.md       # Architecture map written by /pm:map
 ```
 
 ## Skills
@@ -14,12 +15,16 @@ New here? The [step-by-step guide](docs/guide.html) walks one sample project thr
 
 | Skill | Use | Main result |
 | --- | --- | --- |
-| `/pm:init` | Set up the board and concise `AGENTS.md` guidance | Board and project instructions |
+| `/pm:init` | Set up the board and concise `AGENTS.md` guidance, including where knowledge goes | Board and project instructions |
 | `/pm:plan` | Record a request in the requester's exact words | Queued item with a separate detail file |
 | `/pm:work` | Claim and build one item | In-flight claim, code changes, updated item notes |
 | `/pm:status` | See current work, owners, holds, and what is ready | Board and dependency-aware next items |
 | `/pm:map` | Understand the current codebase | `docs/pm/CODEBASE.md` with Mermaid diagrams |
 | `/pm:help` | See the short command guide | Skill and CLI reference |
+
+## Where knowledge goes
+
+Each fact goes in the most specific file that owns it, and knowledge useful to every contributor lives in the repo. The skills that write knowledge (`init`, `plan`, `work`, `map`) follow the one [placement guide](docs/placement.md), which `/pm:help` also prints: `AGENTS.md` for lasting agent rules, `README.md` for the product overview, `docs/pm/CODEBASE.md` for architecture, `docs/pm/items/<id>.md` for one task, and `CONTEXT.md` only as a glossary. Decisions: an open question is a hold, the answer goes into the item's notes in the decider's exact words (`pm.py resume ITEM_ID --answer`), decisions that shape future work become guidance in `AGENTS.md` or `CODEBASE.md`, and rationale for one change stays in the item and its PR.
 
 ## Collaboration and item flow
 
