@@ -1,6 +1,6 @@
 ---
 name: status
-description: "Show the board: what is in flight and who owns it, what is queued or waiting, and what to do next. Use when the user asks \"status\", \"what's next\", \"what is everyone working on\", or \"show the board\". Not for changing items."
+description: "Show the pm board: what is in flight, queued, waiting, and what to do next. Use when the user asks \"status\", \"what's next\", \"what is everyone working on\", or \"show the board\". Not for doing or adding tasks."
 ---
 
 # /pm:status

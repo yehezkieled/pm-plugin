@@ -1,6 +1,6 @@
 ---
 name: map
-description: "Write an architecture overview of the codebase with diagrams (docs/pm/CODEBASE.md). Use when the user asks \"how does this codebase work\", \"map the code\", or wants an architecture or data-flow overview. Not for tracking tasks."
+description: "Write an architecture doc of the codebase with diagrams (docs/pm/CODEBASE.md). Use when the user asks \"how does this codebase work\", \"map the code\", \"write up an architecture doc\", or how the modules fit together. Use this, not your own file search. Not for tracking tasks."
 argument-hint: "[area, optional]"
 ---
 
