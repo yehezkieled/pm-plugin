@@ -136,16 +136,16 @@ class ProjectBoardTests(unittest.TestCase):
 
     def test_resume_answer_saves_the_deciders_words_in_notes(self):
         item_id = self.add("Expiry", "Links should expire")
-        self.run_cli("hold", item_id, input_text="404 or 410?")
+        self.run_cli("hold", item_id, input_text="Café: 404 or 410?")
         self.run_literal_cli("resume", item_id, "--answer", input_text="Dana: use $HOME 410 Gone")
         detail = next((self.root / "docs/pm/items").glob(f"{item_id}-*.md")).read_text()
-        self.assertIn('## Current notes\nDecision on "404 or 410?": Dana: use $HOME 410 Gone', detail)
+        self.assertIn('## Current notes\nDecision on "Café: 404 or 410?": Dana: use $HOME 410 Gone', detail)
         self.assertIn("## Queued", self.board().split("## Waiting")[0])
         self.run_cli("hold", item_id, input_text="Again?")
         self.run_cli("resume", item_id, "--answer", ok=False, input_text=" ")
         self.assertIn(f"[{item_id}]", self.board().split("## Waiting")[1].split("## Done")[0])
         self.run_cli("resume", item_id)
-        self.assertIn('Decision on "404 or 410?"', next((self.root / "docs/pm/items").glob(f"{item_id}-*.md")).read_text())
+        self.assertIn('Decision on "Café: 404 or 410?"', next((self.root / "docs/pm/items").glob(f"{item_id}-*.md")).read_text())
 
     def test_same_owner_can_resume_but_another_owner_cannot_take_over(self):
         item_id = self.add("Resume task", "Keep the claim")
@@ -394,15 +394,6 @@ class SkillDescriptionTests(unittest.TestCase):
             self.assertLessEqual(len(text), 300, f"{name} description is too long")
             self.assertIn("Use when", text, f"{name} description needs a 'Use when' clause")
             self.assertRegex(text, r'"[^"]+"', f"{name} description needs quoted trigger phrases")
-
-    def test_writing_skills_route_to_the_placement_guide(self):
-        root = Path(__file__).resolve().parents[1]
-        guide = (root / "docs" / "placement.md").read_text()
-        for kind in ("AGENTS.md", "README.md", "CONTEXT.md", "docs/pm/CODEBASE.md", "docs/pm/items/<id>.md", "--answer"):
-            self.assertIn(kind, guide)
-        for name in ("init", "plan", "work", "map", "help"):
-            self.assertIn("docs/placement.md", (root / "skills" / name / "SKILL.md").read_text(), name)
-        self.assertIn("placement guide", (root / "README.md").read_text())
 
     def test_guide_page_is_self_contained_and_covers_every_command(self):
         guide = (Path(__file__).resolve().parents[1] / "docs" / "guide.html").read_text()

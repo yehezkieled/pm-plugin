@@ -398,7 +398,7 @@ def cmd_resume(root: Path, args) -> None:
         status = "in-flight" if item.get("owner") else "queued"
         if answer:
             old = item.get("notes", "")
-            item["notes"] = f"Decision on {json.dumps(item['hold'])}: {answer}" + (f"\n\n{old}" if old else "")
+            item["notes"] = f'Decision on "{item["hold"]}": {answer}' + (f"\n\n{old}" if old else "")
         item.update(status=status, hold="", hold_until="")
         save_item(item)
         return [item["path"]], f"Returned {item['id']} to {'In flight' if item.get('owner') else 'Queued'}."
