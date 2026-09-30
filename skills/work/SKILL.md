@@ -1,6 +1,6 @@
 ---
 name: work
-description: "Claim one queued task, then build it, update its notes, and mark it done. Use when the user says \"work on\", \"start\", \"implement\", or \"do\" a tracked item, or \"pick the next task\". Not for adding new tasks (use plan)."
+description: "Do a task from the board: claim it, build it, mark it done. Use when the user says \"work on\", \"start\", \"implement\", or \"do\" a task or item, or \"pick the next task and do it\". Call this directly, not status first. Not for adding tasks (use plan)."
 argument-hint: "[item-id]"
 ---
 

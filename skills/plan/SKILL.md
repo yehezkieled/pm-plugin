@@ -1,6 +1,6 @@
 ---
 name: plan
-description: "Add a task to the board, keeping the user's exact words, and optionally set what it depends on or park it for a decision. Use when the user says \"add\", \"track\", \"queue\", or \"remember to\" some work, or \"wait on X\". Not for doing the work (use work)."
+description: "Add a task to the pm board, keeping the user's exact words; can set what it waits on. Use when the user says \"add a task\", \"track\", \"queue\", \"remember to\", or \"wait on X\" for future work. Not for doing the work (use work)."
 argument-hint: "[short title]"
 ---
 
