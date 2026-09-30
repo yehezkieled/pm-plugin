@@ -4,7 +4,7 @@ This file is the project's committed home for project-intrinsic agent knowledge:
 
 - Add durable project-specific notes here as they are discovered through real work.
 - Product scope and installation are documented in `README.md`; component and data flow are mapped in `docs/architecture.md`.
-- Keep the skill instructions, `scripts/pm.py`, hook registrations, and those two docs aligned when changing the workflow. `docs/guide.html` is a walkthrough with output captured from real `pm.py` runs; regenerate the affected output if CLI messages change. Skill `description:` lines are what models use to choose a skill: keep them short with a "Use when" clause (enforced by tests). Run `python3 -m unittest discover -s tests -v` to check the board CLI, skill descriptions, and the guide.
+- Keep the skill instructions, `scripts/pm.py`, hook registrations, and those two docs aligned when changing the workflow. `docs/guide.html` is a walkthrough with output captured from real `pm.py` runs; regenerate the affected output if CLI messages change. Skill `description:` lines are what models use to choose a skill: keep them short with a "Use when" clause (enforced by tests); after changing one, re-run the routing evals in `evals/README.md` on several models. Run `python3 -m unittest discover -s tests -v` to check the board CLI, skill descriptions, and the guide.
 
 ## Maintaining this file
 
