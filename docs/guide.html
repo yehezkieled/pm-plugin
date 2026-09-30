@@ -1,0 +1,580 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>pm plugin guide: one sample project, every command</title>
+<meta name="description" content="A walk-through of the pm Claude Code plugin using one small sample project, with the exact command and real output for every step.">
+<style>
+:root{
+  --bg:#fbfaf7; --panel:#ffffff; --ink:#1d2320; --muted:#5b655f; --line:#dfe3dc;
+  --accent:#1f6f54; --accent-soft:#e3f1ea; --warn:#9a5b00; --warn-soft:#fbefd9;
+  --term-bg:#14201b; --term-ink:#dcebe3; --term-cmd:#8fe3b6; --code-bg:#eef1ec;
+  --inflight:#2b6cb0; --queued:#6b7280; --waiting:#b7791f; --done:#1f6f54;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#111614; --panel:#182019; --ink:#e6ede8; --muted:#9db0a5; --line:#2a3630;
+    --accent:#63c79b; --accent-soft:#1c2e26; --warn:#f0b35a; --warn-soft:#33270f;
+    --term-bg:#0a100d; --term-ink:#d6e6dd; --term-cmd:#8fe3b6; --code-bg:#1e2923;
+    --inflight:#63a4e8; --queued:#9ca3af; --waiting:#f0b35a; --done:#63c79b;
+  }
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth;scroll-padding-top:76px}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.6 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+a{color:var(--accent)}
+code{font:0.88em ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;background:var(--code-bg);padding:.1em .35em;border-radius:4px;overflow-wrap:anywhere}
+header.hero{padding:40px 0 24px;border-bottom:1px solid var(--line)}
+.wrap{max-width:980px;margin:0 auto;padding:0 16px}
+h1{font-size:clamp(1.7rem,4vw,2.4rem);line-height:1.2;margin:0 0 8px}
+h2{font-size:1.5rem;margin:0 0 4px;line-height:1.25}
+h3{font-size:1.05rem;margin:22px 0 6px}
+.lede{color:var(--muted);max-width:66ch;margin:0}
+nav.toc{position:sticky;top:0;z-index:5;background:var(--bg);border-bottom:1px solid var(--line)}
+nav.toc .wrap{display:flex;gap:6px;overflow-x:auto;padding:8px 16px;white-space:nowrap;scrollbar-width:thin}
+nav.toc a{text-decoration:none;font-size:.85rem;padding:4px 10px;border:1px solid var(--line);border-radius:999px;color:var(--ink);background:var(--panel);flex:none}
+nav.toc a:hover{border-color:var(--accent);color:var(--accent)}
+section.step{padding:36px 0;border-bottom:1px solid var(--line)}
+.stepno{display:inline-block;font-size:.75rem;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--accent);background:var(--accent-soft);padding:2px 10px;border-radius:999px;margin-bottom:8px}
+.grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:14px;margin:14px 0}
+@media (max-width:720px){.grid{grid-template-columns:minmax(0,1fr)}}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px 16px;min-width:0}
+.card h4{margin:0 0 4px;font-size:.78rem;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+.card p{margin:0}
+.note{border-left:4px solid var(--accent);background:var(--accent-soft);padding:10px 14px;border-radius:0 8px 8px 0;margin:14px 0}
+.note.warn{border-color:var(--warn);background:var(--warn-soft)}
+.note p{margin:0}.note p+p{margin-top:6px}
+pre{margin:10px 0;padding:12px 14px;border-radius:10px;overflow-x:auto;font:.84rem/1.5 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;max-width:100%}
+pre.term{background:var(--term-bg);color:var(--term-ink);white-space:pre}
+pre.term .cmd{color:var(--term-cmd);font-weight:600}
+pre.slash{background:var(--accent-soft);color:var(--ink);border:1px solid var(--line);white-space:pre-wrap;overflow-wrap:anywhere}
+pre.ascii{background:var(--panel);border:1px solid var(--line);color:var(--ink)}
+.label{font-size:.75rem;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin:16px 0 -4px}
+table{width:100%;border-collapse:collapse;font-size:.92rem;margin:10px 0}
+.tablewrap{overflow-x:auto;border:1px solid var(--line);border-radius:10px;background:var(--panel)}
+.tablewrap table{margin:0;min-width:560px}
+th,td{text-align:left;padding:8px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+th{font-size:.78rem;text-transform:uppercase;letter-spacing:.05em;color:var(--muted)}
+tr:last-child td{border-bottom:0}
+svg{max-width:100%;height:auto;display:block}
+.diagram{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px;margin:14px 0;overflow-x:auto}
+.diagram svg{min-width:520px;margin:0 auto}
+.diagram text{fill:var(--ink);font:13px system-ui,sans-serif}
+.diagram .sub{fill:var(--muted);font-size:11px}
+.diagram .box{fill:var(--panel);stroke:var(--line);stroke-width:1.5}
+.diagram .arrow{stroke:var(--muted);stroke-width:1.6;fill:none}
+.diagram .arrowhead{fill:var(--muted)}
+.diagram .s-q{stroke:var(--queued)} .diagram .s-i{stroke:var(--inflight)} .diagram .s-w{stroke:var(--waiting)} .diagram .s-d{stroke:var(--done)}
+.diagram .f-q{fill:var(--queued)} .diagram .f-i{fill:var(--inflight)} .diagram .f-w{fill:var(--waiting)} .diagram .f-d{fill:var(--done)}
+.tag{display:inline-block;font-size:.72rem;font-weight:700;padding:1px 8px;border-radius:999px;color:#fff;vertical-align:middle}
+.tag.q{background:var(--queued)}.tag.i{background:var(--inflight)}.tag.w{background:var(--waiting)}.tag.d{background:var(--done)}
+ul.tight{margin:6px 0;padding-left:20px}
+footer{padding:28px 0 60px;color:var(--muted);font-size:.9rem}
+.pill{font-size:.78rem;background:var(--code-bg);padding:2px 8px;border-radius:999px;color:var(--muted)}
+</style>
+</head>
+<body>
+<header class="hero"><div class="wrap">
+  <h1>pm plugin: one sample project, every command</h1>
+  <p class="lede">Follow Dana as they build a tiny link shortener called <strong>shortlink</strong> and track it with pm. Every command below shows when to use it, the exact invocation, and output captured from a real run in a scratch repo.</p>
+  <p class="lede" style="margin-top:10px">The work stays in plain Markdown files, one per item. The board is rendered from them, never stored. Works the same on Haiku, Sonnet or Opus, because each skill just runs a small Python helper.</p>
+</div></header>
+
+<nav class="toc" aria-label="Sections"><div class="wrap">
+  <a href="#pick">Which command?</a><a href="#setup">Sample project</a><a href="#init">1 Init</a><a href="#plan">2 Plan</a><a href="#deps">3 Dependencies</a><a href="#hold">4 Decision hold</a><a href="#status">5 Status</a><a href="#work">6 Claim &amp; work</a><a href="#finish">7 Finish &amp; PR</a><a href="#after">8 After the merge</a><a href="#mirror">9 GitHub mirror</a><a href="#map">10 Map</a><a href="#help">11 Help &amp; hooks</a><a href="#ref">Reference</a>
+</div></nav>
+
+<main class="wrap">
+
+<section class="step" id="pick">
+  <span class="stepno">Start here</span>
+  <h2>Which command do I type?</h2>
+  <p class="lede">Say what you want in your own words; Claude picks the skill from its description. You can also type the slash command directly.</p>
+  <div class="tablewrap"><table>
+    <tr><th>You want to…</th><th>Command</th><th>Do <em>not</em> use it for</th></tr>
+    <tr><td>Set up tracking in a repo (once)</td><td><code>/pm:init</code></td><td>Adding tasks</td></tr>
+    <tr><td>Add, queue or remember a task; make it wait on another; park it for a decision</td><td><code>/pm:plan &lt;request&gt;</code></td><td>Doing the task</td></tr>
+    <tr><td>Start and build a tracked task</td><td><code>/pm:work [item-id]</code></td><td>Adding new tasks</td></tr>
+    <tr><td>See who owns what and what is ready next</td><td><code>/pm:status</code></td><td>Changing items</td></tr>
+    <tr><td>Understand how the codebase fits together</td><td><code>/pm:map [area]</code></td><td>Tracking tasks</td></tr>
+    <tr><td>Remind yourself what commands exist</td><td><code>/pm:help</code></td><td>Showing progress (that is status)</td></tr>
+  </table></div>
+  <div class="note"><p><strong>Shorthand used below.</strong> Skills call a helper script; this page writes <code>pm.py</code> for <code>python3 "${CLAUDE_PLUGIN_ROOT}/scripts/pm.py"</code>. You normally never type it yourself: the skills do. The <em>Skill runs</em> blocks show exactly what they run, and the output is real.</p></div>
+</section>
+
+<section class="step" id="setup">
+  <span class="stepno">The sample project</span>
+  <h2>shortlink: a tiny URL shortener</h2>
+  <p class="lede">Dana owns a repo with a README and an <code>app.py</code> stub. There is a shared remote on <code>main</code>. Dana asks for four things:</p>
+  <div class="diagram"><svg viewBox="0 0 620 210" role="img" aria-label="Dependency graph: Create short links, then Redirect, then Click counts; Link expiry is held for a decision">
+    <defs><marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" class="arrowhead"/></marker></defs>
+    <rect class="box s-q" x="10" y="20" width="160" height="56" rx="8"/><text x="90" y="44" text-anchor="middle">A. Create short links</text><text class="sub" x="90" y="62" text-anchor="middle">no dependencies</text>
+    <rect class="box s-q" x="230" y="20" width="160" height="56" rx="8"/><text x="310" y="44" text-anchor="middle">B. Redirect a link</text><text class="sub" x="310" y="62" text-anchor="middle">needs A</text>
+    <rect class="box s-q" x="450" y="20" width="160" height="56" rx="8"/><text x="530" y="44" text-anchor="middle">D. Click counts</text><text class="sub" x="530" y="62" text-anchor="middle">needs B</text>
+    <rect class="box s-w" x="230" y="130" width="160" height="60" rx="8" stroke-dasharray="6 4"/><text x="310" y="155" text-anchor="middle">C. Link expiry</text><text class="sub" x="310" y="173" text-anchor="middle">held: 404 or 410?</text>
+    <path class="arrow" d="M170,48 H228" marker-end="url(#ah)"/><path class="arrow" d="M390,48 H448" marker-end="url(#ah)"/>
+  </svg></div>
+<pre class="ascii">A Create short links ──▶ B Redirect a short link ──▶ D Click counts
+C Link expiry            (parked: "404 or 410 Gone?")</pre>
+  <p>Items move through four states. Only files in <code>docs/pm/items/</code> hold state; the board is just a view of them.</p>
+  <div class="diagram"><svg viewBox="0 0 620 150" role="img" aria-label="Item states: Queued to In flight to Done, with Waiting reachable by hold and returned by resume">
+    <rect class="box s-q" x="10" y="20" width="130" height="46" rx="8"/><text x="75" y="48" text-anchor="middle">Queued</text>
+    <rect class="box s-i" x="230" y="20" width="130" height="46" rx="8"/><text x="295" y="48" text-anchor="middle">In flight</text>
+    <rect class="box s-d" x="450" y="20" width="130" height="46" rx="8"/><text x="515" y="48" text-anchor="middle">Done</text>
+    <rect class="box s-w" x="120" y="100" width="130" height="40" rx="8" stroke-dasharray="6 4"/><text x="185" y="125" text-anchor="middle">Waiting (held)</text>
+    <path class="arrow" d="M140,43 H228" marker-end="url(#ah)"/><text class="sub" x="184" y="36" text-anchor="middle">claim</text>
+    <path class="arrow" d="M360,43 H448" marker-end="url(#ah)"/><text class="sub" x="404" y="36" text-anchor="middle">finish</text>
+    <path class="arrow" d="M60,68 Q80,100 118,112" marker-end="url(#ah)"/><text class="sub" x="24" y="98">hold</text>
+    <path class="arrow" d="M252,108 Q285,100 292,68" marker-end="url(#ah)"/><text class="sub" x="300" y="100">resume (claimed)</text>
+    <text class="sub" x="515" y="90" text-anchor="middle">reached when the PR merges</text>
+  </svg></div>
+</section>
+
+<section class="step" id="init">
+  <span class="stepno">Step 1</span>
+  <h2><code>/pm:init</code>: set up the board</h2>
+  <div class="grid">
+    <div class="card"><h4>When to use</h4><p>Once per repo, before anything else. If a board already exists it just shows it and changes nothing.</p></div>
+    <div class="card"><h4>Say it like this</h4><p>“set up pm in this repo”, “start tracking work here”</p></div>
+  </div>
+  <div class="label">You type</div>
+  <pre class="slash">/pm:init</pre>
+  <div class="label">Skill runs</div>
+  <pre class="term"><span class="cmd">$ pm.py init</span>
+Initialized docs/pm. Add the first item with /pm:plan.
+Published to shared origin/main.</pre>
+  <p>It also adds a short <code>AGENTS.md</code> pointer (and a one-line <code>CLAUDE.md</code> that says <code>@AGENTS.md</code>) if they are missing, never overwriting yours. The board is empty at first:</p>
+  <pre class="term"><span class="cmd">$ pm.py board</span>
+# Project board
+
+## In flight
+
+- None.
+
+## Queued
+
+- None.
+
+## Waiting
+
+- None.
+
+## Done
+
+- None.
+
+Ready next: none</pre>
+  <div class="note"><p><strong>What was created:</strong> only <code>docs/pm/config.json</code>. It was committed and pushed to <code>main</code> so every clone has it.</p></div>
+<pre class="ascii">docs/pm/
+├── config.json      ← created now
+└── items/           ← one file per item, appears with the first /pm:plan</pre>
+</section>
+
+<section class="step" id="plan">
+  <span class="stepno">Step 2</span>
+  <h2><code>/pm:plan</code>: add items in the requester's own words</h2>
+  <div class="grid">
+    <div class="card"><h4>When to use</h4><p>Whenever someone asks for work. The exact words are saved, not summarised, so nobody later argues about what was asked.</p></div>
+    <div class="card"><h4>Say it like this</h4><p>“add a task: …”, “track this”, “queue …”, “remember to …”</p></div>
+  </div>
+  <div class="label">You type</div>
+  <pre class="slash">/pm:plan Create short links
+Let me paste a long URL and get back a short code like /a1b2.</pre>
+  <div class="label">Skill runs (item A; items B, C and D are added the same way)</div>
+  <pre class="term"><span class="cmd">$ pm.py add &lt;&lt;&#x27;PM_END&#x27;
+Create short links
+Let me paste a long URL and get back a short code like /a1b2.
+PM_END</span>
+Created create-short-links-b153d3: Create short links
+Detail: docs/pm/items/create-short-links-b153d3-create-short-links.md
+Published to shared origin/main.</pre>
+  <p>Dana adds the other three requests too:</p>
+  <pre class="slash">/pm:plan Redirect a short link
+Opening /a1b2 should send the visitor to the original URL.
+
+/pm:plan Link expiry
+Links should stop working after a while, I don't want old links living forever.
+
+/pm:plan Click counts
+Show me how many times each short link was opened.</pre>
+  <p>Each item is a small Markdown file. Notice the wording is exactly what Dana typed, including the “I don't want…”:</p>
+  <pre class="term">---
+id: &quot;create-short-links-b153d3&quot;
+status: &quot;queued&quot;
+owner: &quot;&quot;
+depends_on: []
+hold: &quot;&quot;
+hold_until: &quot;&quot;
+done_at: &quot;&quot;
+intent_length: 61
+github_issue: &quot;&quot;
+---
+# Create short links
+
+## Requester intent
+Let me paste a long URL and get back a short code like /a1b2.
+
+## Current notes</pre>
+  <div class="note"><p>Short title on the first line, requester's exact words after it. Nothing is added: no priority, dates or estimates. “Current notes” starts empty and is rewritten as work proceeds (a snapshot, not a diary).</p></div>
+</section>
+
+<section class="step" id="deps">
+  <span class="stepno">Step 3</span>
+  <h2>Dependencies: <code>/pm:plan</code> again</h2>
+  <div class="grid">
+    <div class="card"><h4>When to use</h4><p>Item B is useless until A exists. Say so once and <code>/pm:work</code> will never hand B out early.</p></div>
+    <div class="card"><h4>Say it like this</h4><p>“B depends on A”, “don't start redirect until short links are done”</p></div>
+  </div>
+  <div class="label">You type</div>
+  <pre class="slash">/pm:plan the redirect item depends on create short links, and click counts depends on the redirect</pre>
+  <div class="label">Skill runs</div>
+  <pre class="term"><span class="cmd">$ pm.py set redirect-a-short-link-9bbffa --depends create-short-links-b153d3</span>
+Updated redirect-a-short-link-9bbffa dependencies.
+Published to shared origin/main.</pre>
+  <pre class="term"><span class="cmd">$ pm.py set click-counts-790dc4 --depends redirect-a-short-link-9bbffa</span>
+Updated click-counts-790dc4 dependencies.
+Published to shared origin/main.</pre>
+  <p>A dependency is satisfied only when the item it points to is <span class="tag d">Done</span>. Comma-separate to depend on several: <code>--depends a-1,b-2</code>.</p>
+</section>
+
+<section class="step" id="hold">
+  <span class="stepno">Step 4</span>
+  <h2>A decision hold: <code>/pm:plan</code> parks the item</h2>
+  <div class="grid">
+    <div class="card"><h4>When to use</h4><p>The item needs a human answer before anyone can build it. The hold records the question and takes the item out of “ready”.</p></div>
+    <div class="card"><h4>Say it like this</h4><p>“wait on a decision for expiry”, “park link expiry until we decide 404 vs 410”</p></div>
+  </div>
+  <div class="label">You type</div>
+  <pre class="slash">/pm:plan park link expiry: should expired links show 404 or 410 Gone? Revisit 2026-10-15</pre>
+  <div class="label">Skill runs</div>
+  <pre class="term"><span class="cmd">$ pm.py hold link-expiry-cc352f --until 2026-10-15 &lt;&lt;&#x27;PM_END&#x27;
+When a link expires, should visitors see a 404 or a 410 Gone page?
+PM_END</span>
+Parked link-expiry-cc352f: When a link expires, should visitors see a 404 or a 410 Gone page?
+Published to shared origin/main.</pre>
+  <div class="note"><p>The date is “when to look again”, not a deadline. A hold keeps any existing claim: if someone owned the item, they still own it while it waits. <code>pm.py resume</code> (step 8) releases it.</p></div>
+</section>
+
+<section class="step" id="status">
+  <span class="stepno">Step 5</span>
+  <h2><code>/pm:status</code>: the board at a glance</h2>
+  <div class="grid">
+    <div class="card"><h4>When to use</h4><p>Any time you want to know who owns what, what is stuck, and what to do next. It only reads; it never changes anything.</p></div>
+    <div class="card"><h4>Say it like this</h4><p>“status”, “what's next?”, “what is everyone working on?”, “show the board”</p></div>
+  </div>
+  <div class="label">You type</div>
+  <pre class="slash">/pm:status</pre>
+  <div class="label">Skill runs, and shows</div>
+  <pre class="term"><span class="cmd">$ pm.py board</span>
+# Project board
+
+## In flight
+
+- None.
+
+## Queued
+
+- [click-counts-790dc4](docs/pm/items/click-counts-790dc4-click-counts.md) Click counts — Show me how many times each short link was opened.; blocked by redirect-a-short-link-9bbffa
+- [create-short-links-b153d3](docs/pm/items/create-short-links-b153d3-create-short-links.md) Create short links — Let me paste a long URL and get back a short code like /a1b2.
+- [redirect-a-short-link-9bbffa](docs/pm/items/redirect-a-short-link-9bbffa-redirect-a-short-link.md) Redirect a short link — Opening /a1b2 should send the visitor to the original URL.; blocked by create-short-links-b153d3
+
+## Waiting
+
+- [link-expiry-cc352f](docs/pm/items/link-expiry-cc352f-link-expiry.md) Link expiry — Links should stop working after a while, I don&#x27;t want old links living forever.; held: When a link expires, should visitors see a 404 or a 410 Gone page? (review after 2026-10-15)
+
+## Done
+
+- None.
+
+Ready next: create-short-links-b153d3 Create short links</pre>
+  <p>Read it top to bottom: nothing is in flight; B and D are <em>blocked by</em> their dependency; C is <span class="tag w">Waiting</span> with its question. The single <em>Ready next</em> line answers “what should I do?”. The skill then adds a one-line recommendation, for example: <em>“Start ‘Create short links’: it is the only unblocked item, and it unblocks the redirect. Link expiry needs your decision: 404 or 410?”</em></p>
+  <h3>Just the ready items: <code>pm.py next</code></h3>
+  <pre class="term"><span class="cmd">$ pm.py next</span>
+create-short-links-b153d3 Create short links — docs/pm/items/create-short-links-b153d3-create-short-links.md</pre>
+  <p>This is what <code>/pm:work</code> uses when you do not name an item. It lists queued items with no hold and every dependency done.</p>
+</section>
+
+<section class="step" id="work">
+  <span class="stepno">Step 6</span>
+  <h2><code>/pm:work</code>: claim first, then build</h2>
+  <div class="grid">
+    <div class="card"><h4>When to use</h4><p>To start a tracked item. The claim is published <em>before</em> any code is touched, so two people (or two agents) cannot grab the same item.</p></div>
+    <div class="card"><h4>Say it like this</h4><p>“work on create short links”, “start the next task”, “implement this item”</p></div>
+  </div>
+  <div class="label">You type</div>
+  <pre class="slash">/pm:work            <span style="color:var(--muted)"># takes the first ready item</span>
+/pm:work create-short-links-b153d3</pre>
+  <div class="label">Skill runs</div>
+  <pre class="term"><span class="cmd">$ pm.py claim create-short-links-b153d3 &lt;&lt;&#x27;PM_END&#x27;
+Dana
+PM_END</span>
+Claimed create-short-links-b153d3 for Dana. Claim is saved before work starts.
+Published to shared origin/main.</pre>
+  <p>The claim needs a person's name on stdin. Forget it and you get a clear error, nothing changes:</p>
+  <pre class="term"><span class="cmd">$ pm.py claim redirect-a-short-link-9bbffa</span>
+pm: A person&#x27;s name is required on stdin.</pre>
+  <p>The skill then creates a branch <code>pm/create-short-links-b153d3</code> from the claim commit, reads the item and the code, builds it, runs the project's checks, and rewrites “Current notes”. The board now shows the claim:</p>
+  <pre class="term"># Project board
+
+## In flight
+
+- [create-short-links-b153d3](docs/pm/items/create-short-links-b153d3-create-short-links.md) Create short links — Let me paste a long URL and get back a short code like /a1b2.; claimed by Dana
+
+## Queued
+
+- [click-counts-790dc4](docs/pm/items/click-counts-790dc4-click-counts.md) Click counts — Show me how many times each short link was opened.; blocked by redirect-a-short-link-9bbffa
+- [redirect-a-short-link-9bbffa](docs/pm/items/redirect-a-short-link-9bbffa-redirect-a-short-link.md) Redirect a short link — Opening /a1b2 should send the visitor to the original URL.; blocked by create-short-links-b153d3
+
+## Waiting
+
+- [link-expiry-cc352f](docs/pm/items/link-expiry-cc352f-link-expiry.md) Link expiry — Links should stop working after a while, I don&#x27;t want old links living forever.; held: When a link expires, should visitors see a 404 or a 410 Gone page? (review after 2026-10-15)
+
+## Done
+
+- None.
+
+Ready next: none</pre>
+<pre class="ascii">   main ──●── pm: Claimed …Dana ──●──────────────────▶
+                     \
+  pm/create-short-links-b153d3 ●── Add shorten() ── finish ──▶ PR</pre>
+  <div class="note warn"><p><strong>If someone else owns it,</strong> <code>/pm:work</code> stops and tells you who; it will not touch their work. If the push is rejected because someone claimed at the same moment, it re-checks and lets exactly one claim win.</p></div>
+</section>
+
+<section class="step" id="finish">
+  <span class="stepno">Step 7</span>
+  <h2>Finishing through a PR</h2>
+  <div class="grid">
+    <div class="card"><h4>When it happens</h4><p>At the end of <code>/pm:work</code>, when the requested work is complete and checks pass. If not complete, the item stays In flight, still yours.</p></div>
+    <div class="card"><h4>You do</h4><p>Push the branch and open a PR as usual. Merging the PR is what tells everyone else the item is Done.</p></div>
+  </div>
+  <div class="label">Skill runs</div>
+  <pre class="term"><span class="cmd">$ pm.py finish create-short-links-b153d3 &lt;&lt;&#x27;PM_END&#x27;
+shorten() returns a 4-character code and stores it; covered by tests/test_shorten.py.
+PM_END</span>
+Finished create-short-links-b153d3 and committed locally.</pre>
+  <p>On the work branch the board already says Done:</p>
+  <pre class="term"># Project board
+
+## In flight
+
+- None.
+
+## Queued
+
+- [click-counts-790dc4](docs/pm/items/click-counts-790dc4-click-counts.md) Click counts — Show me how many times each short link was opened.; blocked by redirect-a-short-link-9bbffa
+- [redirect-a-short-link-9bbffa](docs/pm/items/redirect-a-short-link-9bbffa-redirect-a-short-link.md) Redirect a short link — Opening /a1b2 should send the visitor to the original URL.
+
+## Waiting
+
+- [link-expiry-cc352f](docs/pm/items/link-expiry-cc352f-link-expiry.md) Link expiry — Links should stop working after a while, I don&#x27;t want old links living forever.; held: When a link expires, should visitors see a 404 or a 410 Gone page? (review after 2026-10-15)
+
+## Done
+
+- [create-short-links-b153d3](docs/pm/items/create-short-links-b153d3-create-short-links.md) Create short links — shorten() returns a 4-character code and stores it; covered by tests/test_shorten.py.
+
+Ready next: redirect-a-short-link-9bbffa Redirect a short link</pre>
+  <div class="label">You (or the skill) then run</div>
+  <pre class="slash">git push -u origin pm/create-short-links-b153d3
+gh pr create --fill</pre>
+  <div class="note"><p><strong>Why not Done everywhere immediately?</strong> <code>finish</code> commits only that item's file, and only on the work branch. Until the PR merges, other clones correctly see it <span class="tag i">In flight</span> under Dana. After the merge it is Done for everybody, with no board file to conflict on. (This sample used a local merge in place of a hosted PR; the result is the same.)</p></div>
+<pre class="ascii">work branch:  claim ─▶ code ─▶ notes ─▶ finish (Done, local)
+                                            │  PR opened
+main:                                       └─ merge ─▶ Done for everyone</pre>
+</section>
+
+<section class="step" id="after">
+  <span class="stepno">Step 8</span>
+  <h2>After the merge: what got unblocked</h2>
+  <pre class="term"># Project board
+
+## In flight
+
+- None.
+
+## Queued
+
+- [click-counts-790dc4](docs/pm/items/click-counts-790dc4-click-counts.md) Click counts — Show me how many times each short link was opened.; blocked by redirect-a-short-link-9bbffa
+- [redirect-a-short-link-9bbffa](docs/pm/items/redirect-a-short-link-9bbffa-redirect-a-short-link.md) Redirect a short link — Opening /a1b2 should send the visitor to the original URL.
+
+## Waiting
+
+- [link-expiry-cc352f](docs/pm/items/link-expiry-cc352f-link-expiry.md) Link expiry — Links should stop working after a while, I don&#x27;t want old links living forever.; held: When a link expires, should visitors see a 404 or a 410 Gone page? (review after 2026-10-15)
+
+## Done
+
+- [create-short-links-b153d3](docs/pm/items/create-short-links-b153d3-create-short-links.md) Create short links — shorten() returns a 4-character code and stores it; covered by tests/test_shorten.py.
+
+Ready next: redirect-a-short-link-9bbffa Redirect a short link</pre>
+  <p>A is Done, so B is no longer blocked. Only D still waits (on B):</p>
+  <pre class="term"><span class="cmd">$ pm.py next</span>
+redirect-a-short-link-9bbffa Redirect a short link — docs/pm/items/redirect-a-short-link-9bbffa-redirect-a-short-link.md</pre>
+  <h3>Answer the decision, then resume: <code>pm.py resume</code></h3>
+  <p>Dana decides expired links should return <strong>410 Gone</strong>. Resuming the hold puts C back in the queue. (Since nobody had claimed C, it returns to Queued; a claimed item would return In flight to its owner.)</p>
+  <div class="label">You type</div>
+  <pre class="slash">/pm:plan link expiry: decided, use 410 Gone. Resume it.</pre>
+  <div class="label">Skill runs</div>
+  <pre class="term"><span class="cmd">$ pm.py resume link-expiry-cc352f</span>
+Returned link-expiry-cc352f to Queued.
+Published to shared origin/main.</pre>
+  <pre class="term"># Project board
+
+## In flight
+
+- None.
+
+## Queued
+
+- [click-counts-790dc4](docs/pm/items/click-counts-790dc4-click-counts.md) Click counts — Show me how many times each short link was opened.; blocked by redirect-a-short-link-9bbffa
+- [link-expiry-cc352f](docs/pm/items/link-expiry-cc352f-link-expiry.md) Link expiry — Links should stop working after a while, I don&#x27;t want old links living forever.
+- [redirect-a-short-link-9bbffa](docs/pm/items/redirect-a-short-link-9bbffa-redirect-a-short-link.md) Redirect a short link — Opening /a1b2 should send the visitor to the original URL.
+
+## Waiting
+
+- None.
+
+## Done
+
+- [create-short-links-b153d3](docs/pm/items/create-short-links-b153d3-create-short-links.md) Create short links — shorten() returns a 4-character code and stores it; covered by tests/test_shorten.py.
+
+Ready next: link-expiry-cc352f Link expiry, redirect-a-short-link-9bbffa Redirect a short link</pre>
+  <p>Now <code>/pm:work</code> can pick B or C. The cycle repeats: claim, build, finish, PR, merge.</p>
+</section>
+
+<section class="step" id="mirror">
+  <span class="stepno">Step 9 · optional</span>
+  <h2>GitHub Issues mirror: <code>pm.py mirror</code> and <code>pm.py sync</code></h2>
+  <div class="grid">
+    <div class="card"><h4>When to use</h4><p>Only if teammates who never open the repo want to follow along in GitHub Issues. Off by default. The local files stay the source of truth; issues are a one-way copy.</p></div>
+    <div class="card"><h4>Say it like this</h4><p>“mirror the board to GitHub issues”, “sync the board”</p></div>
+  </div>
+  <div class="note warn"><p><strong>Publishing warning.</strong> Turning this on authorizes copying each item's requester intent and current notes to this repository's GitHub Issues audience. The command prints that disclosure. There is no slash command for it: ask Claude, or run the CLI.</p></div>
+  <div class="label">Check the setting, and see sync refuse while it is off</div>
+  <pre class="term"><span class="cmd">$ pm.py mirror show</span>
+GitHub Issues mirror: off</pre>
+  <pre class="term"><span class="cmd">$ pm.py sync</span>
+pm: GitHub Issues mirror is off. Enable it with `pm.py mirror github` first.</pre>
+  <div class="label">Enable, then sync</div>
+  <pre class="term"><span class="cmd">$ pm.py mirror github</span>
+GitHub Issues mirror enabled: syncing publishes item requester intent and current notes to this repository&#x27;s GitHub Issues audience.
+Published to shared origin/main.</pre>
+  <pre class="term"><span class="cmd">$ pm.py sync</span>
+Synced 4 items to GitHub Issues
+click-counts-790dc4 -&gt; https://github.com/dana/shortlink/issues/1
+create-short-links-b153d3 -&gt; https://github.com/dana/shortlink/issues/2
+link-expiry-cc352f -&gt; https://github.com/dana/shortlink/issues/3
+redirect-a-short-link-9bbffa -&gt; https://github.com/dana/shortlink/issues/4
+Published to shared origin/main.</pre>
+  <p>Syncing again updates the same issues (and closes an issue when its item is Done). New issue numbers are saved into the item files, so other clones reuse the same issues:</p>
+  <pre class="term"><span class="cmd">$ pm.py sync</span>
+Synced 4 items to GitHub Issues
+click-counts-790dc4 -&gt; https://github.com/dana/shortlink/issues/1
+create-short-links-b153d3 -&gt; https://github.com/dana/shortlink/issues/2
+link-expiry-cc352f -&gt; https://github.com/dana/shortlink/issues/3
+redirect-a-short-link-9bbffa -&gt; https://github.com/dana/shortlink/issues/4</pre>
+  <pre class="term">---
+id: &quot;create-short-links-b153d3&quot;
+status: &quot;done&quot;
+owner: &quot;&quot;
+depends_on: []
+hold: &quot;&quot;
+hold_until: &quot;&quot;
+done_at: &quot;2026-09-29T23:09:25.973922+00:00&quot;
+intent_length: 61
+github_issue: &quot;2&quot;
+---
+# Create short links
+
+## Requester intent
+Let me paste a long URL and get back a short code like /a1b2.
+
+## Current notes
+shorten() returns a 4-character code and stores it; covered by tests/test_shorten.py.</pre>
+  <div class="note"><p><strong>About this output:</strong> the scratch repo had no GitHub remote, so a small stand-in for the <code>gh</code> command handled <code>issue create/view/edit/close</code>. The issue URLs above are therefore examples; everything else is real. Requires the <code>gh</code> CLI, logged in. Turn it off with <code>pm.py mirror off</code>.</p></div>
+</section>
+
+<section class="step" id="map">
+  <span class="stepno">Step 10</span>
+  <h2><code>/pm:map</code>: explain the codebase with diagrams</h2>
+  <div class="grid">
+    <div class="card"><h4>When to use</h4><p>You are new to a codebase, or want an architecture and data-flow overview. It does not touch the board. Add an area to zoom in.</p></div>
+    <div class="card"><h4>Say it like this</h4><p>“how does this codebase work?”, “map the code”, “give me an architecture overview”</p></div>
+  </div>
+  <div class="label">You type</div>
+  <pre class="slash">/pm:map
+/pm:map redirects</pre>
+  <p>The skill reads entry points, config, tests and docs, then writes <code>docs/pm/CODEBASE.md</code> (Mermaid component and flow diagrams, a components table, entry points, and anything unverified marked <code>[UNSURE]</code>). In the chat it draws the same diagrams in ASCII so they read in a terminal. This one is written by the model, not the helper script, so the wording varies from run to run. For shortlink at the end of step 1, a reply looks like this:</p>
+<pre class="ascii">shortlink is a single-file Python app: app.py will turn long URLs into short codes.
+Only the shorten() stub exists so far. [UNSURE] where codes will be stored: nothing is persisted yet.
+
+ caller ──▶ shorten(url)  (app.py:2) ──▶ short code   (stub, returns nothing yet)
+
+Written to docs/pm/CODEBASE.md</pre>
+  <p>As the project grows, the diagrams grow with it: components and their dependencies, then input → logic → stored/returned output, each with source paths next to the nodes.</p>
+</section>
+
+<section class="step" id="help">
+  <span class="stepno">Step 11</span>
+  <h2><code>/pm:help</code> and the two hooks</h2>
+  <div class="grid">
+    <div class="card"><h4><code>/pm:help</code>: when to use</h4><p>You forgot the commands. It prints this card and stops. Say “how do I use pm?” or “what commands are there?”.</p></div>
+    <div class="card"><h4>Hooks: automatic</h4><p>Nothing to type. They are on once the plugin is installed and never block your session.</p></div>
+  </div>
+  <div class="label">You type</div>
+  <pre class="slash">/pm:help</pre>
+  <pre class="term">/pm:init             Set up docs/pm and concise AGENTS.md guidance
+/pm:plan &lt;request&gt;   Record a request verbatim as a queued item
+/pm:work [item-id]   Claim first, then implement and update notes
+/pm:status           Show owners, waiting items, and what's ready
+/pm:map [area]       Write a codebase overview with diagrams
+/pm:help             Show this guide</pre>
+  <h3>The hooks</h3>
+  <ul class="tight">
+    <li><strong>Session start:</strong> prints the board (the same text as step 5), so every session begins knowing what is in flight and ready. It adds one line telling the agent to claim an item with <code>/pm:work</code> before building it and to add work with <code>/pm:plan</code>, so any model follows the board rules.</li>
+    <li><strong>Stop:</strong> if you changed code but no item file, it reminds the agent once: <em>“Code changed without an item detail update. If this work is tracked, rewrite its Current notes and refresh affected project docs before finishing.”</em></li>
+  </ul>
+</section>
+
+<section class="step" id="ref">
+  <span class="stepno">Reference</span>
+  <h2>Cheat sheet</h2>
+  <h3>Slash commands</h3>
+  <div class="tablewrap"><table>
+    <tr><th>Command</th><th>Reads / writes</th><th>Result</th></tr>
+    <tr><td><code>/pm:init</code></td><td>writes <code>docs/pm/config.json</code>, <code>AGENTS.md</code></td><td>board exists</td></tr>
+    <tr><td><code>/pm:plan &lt;request&gt;</code></td><td>writes an item file</td><td>Queued item, optional dependency or hold</td></tr>
+    <tr><td><code>/pm:work [id]</code></td><td>claims, edits code, updates the item</td><td>In flight, then Done on the branch</td></tr>
+    <tr><td><code>/pm:status</code></td><td>read only</td><td>board and ready items</td></tr>
+    <tr><td><code>/pm:map [area]</code></td><td>writes <code>docs/pm/CODEBASE.md</code></td><td>diagrams and components table</td></tr>
+    <tr><td><code>/pm:help</code></td><td>none</td><td>command list</td></tr>
+  </table></div>
+  <h3>Helper script (what the skills run)</h3>
+  <div class="tablewrap"><table>
+    <tr><th>Invocation</th><th>Stdin</th><th>Effect</th></tr>
+    <tr><td><code>pm.py init</code></td><td>none</td><td>create the board</td></tr>
+    <tr><td><code>pm.py add</code></td><td>title line, then exact words</td><td>new Queued item</td></tr>
+    <tr><td><code>pm.py set ID --depends A,B</code></td><td>none</td><td>set dependencies</td></tr>
+    <tr><td><code>pm.py hold ID [--until YYYY-MM-DD]</code></td><td>the question</td><td>move to Waiting</td></tr>
+    <tr><td><code>pm.py resume ID</code></td><td>none</td><td>back to Queued, or In flight for the claimer</td></tr>
+    <tr><td><code>pm.py claim ID</code></td><td>the person's name</td><td>In flight, owned</td></tr>
+    <tr><td><code>pm.py finish ID</code></td><td>completion note</td><td>Done on the work branch</td></tr>
+    <tr><td><code>pm.py board</code></td><td>none</td><td>render the board</td></tr>
+    <tr><td><code>pm.py next</code></td><td>none</td><td>list ready items</td></tr>
+    <tr><td><code>pm.py mirror show|off|github</code></td><td>none</td><td>configure the GitHub Issues mirror</td></tr>
+    <tr><td><code>pm.py sync</code></td><td>none</td><td>copy items to GitHub Issues</td></tr>
+  </table></div>
+  <h3>When something looks wrong</h3>
+  <ul class="tight">
+    <li><strong>“A person's name is required on stdin.”</strong> The claim needs a name; <code>/pm:work</code> supplies your git user name and asks if it cannot find one.</li>
+    <li><strong>“GitHub Issues mirror is off.”</strong> Run <code>pm.py mirror github</code> first (mind the publishing warning).</li>
+    <li><strong>An item you finished still shows In flight in another clone.</strong> Expected until its PR merges.</li>
+    <li><strong>No Python?</strong> Skills fall back to editing the item files by hand, except atomic claiming and GitHub sync.</li>
+  </ul>
+  <h3>Install</h3>
+  <pre class="term"><span class="cmd">claude plugin marketplace add /path/to/pm-plugin</span>
+<span class="cmd">claude plugin install pm@pm-plugin</span></pre>
+</section>
+</main>
+<footer><div class="wrap">Output in this guide was captured by running the real <code>pm.py</code> in a scratch repository (with a shared remote), except where noted. Item IDs end in a random suffix, so yours will differ.</div></footer>
+</body>
+</html>
