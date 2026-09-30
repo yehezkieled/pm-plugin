@@ -6,7 +6,7 @@ Run (about $1-2.5 per model):
 
     claude plugin eval . --model claude-sonnet-5-5 --ablation none --trust-plugin -j 4 --no-publish
 
-Results (1 run per case, last valid run with the committed descriptions):
+Results (1 run per case, confirmed by a second full run with the committed descriptions):
 
 | Model | Passed |
 |---|---|
@@ -14,4 +14,4 @@ Results (1 run per case, last valid run with the committed descriptions):
 | Sonnet 5.5 | 37/37 (was 36/37) |
 | Opus 5.5 | 37/37 (was 36/37) |
 
-Haiku still misses help-2 ("help"), near-4-work, plan-2 ("remember to ..." goes to memory), work-1 and work-4; it sometimes reaches for built-in tools or `status` first. Results are noisy at 1 run per case.
+Haiku still misses about five cases per run. Across runs the recurring ones are help-2 (bare "help"), plan-2 ("remember to ..." goes to memory), work-4 and near-4-work, with map-3, near-5-init and work-1 flipping between runs; it sometimes reaches for built-in tools or `status` first. Results are noisy at 1 run per case.
