@@ -14,4 +14,15 @@ Results (1 run per case, confirmed by a second full run with the committed descr
 | Sonnet 5.5 | 37/37 (was 36/37) |
 | Opus 5.5 | 37/37 (was 36/37) |
 
-Haiku still misses about five cases per run. Across runs the recurring ones are help-2 (bare "help"), plan-2 ("remember to ..." goes to memory), work-4 and near-4-work, with map-3, near-5-init and work-1 flipping between runs; it sometimes reaches for built-in tools or `status` first. Results are noisy at 1 run per case.
+Haiku misses (observed across runs; 5 per run in the confirming run, 7 in a later noisy run):
+
+| Prompt | Expected | Haiku's first move |
+|---|---|---|
+| `help` | help | no skill; answers directly |
+| `remember to bump the dependency versions before release` | plan | no skill; writes to its own memory |
+| `implement the flaky login test task we queued yesterday` | work | `status` first, or built-in Glob/TaskList |
+| `go ahead and do the refactor of the parser task on the board` | work | `status` first (then `work`) |
+| `is there a board yet? if not create one` | init | `status` first (then `init`) |
+| `write up an architecture doc of how the modules fit together` | map | no skill; Glob (flips between runs) |
+
+Results are noisy at 1 run per case; a few other cases (e.g. `set up pm in this repo`, `what's next?`) also flipped once.
