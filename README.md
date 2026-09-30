@@ -50,4 +50,6 @@ The helper CLI uses Python 3's standard library. Skills can still guide a manual
 python3 -m unittest discover -s tests -v
 ```
 
+To check that real models pick the right skill for a request, run the skill-routing evals described in [`evals/README.md`](evals/README.md).
+
 For a map of the plugin's own files and runtime flow, see [`docs/architecture.md`](docs/architecture.md). `/pm:map` creates a corresponding map for the project where the plugin is installed.

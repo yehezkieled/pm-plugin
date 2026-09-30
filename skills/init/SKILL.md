@@ -1,6 +1,6 @@
 ---
 name: init
-description: "Set up the pm project board (docs/pm) in this repo, once. Use when the user says \"set up pm\", \"init the board\", or \"start tracking work\" and no board exists yet. Not for adding tasks (use plan)."
+description: "Set up the pm project board (docs/pm) in this repo. Use when the user says \"set up pm\", \"init the board\", \"start tracking work\", or \"is there a board? if not create one\". Call this first, not status; it checks for an existing board itself. Not for adding tasks (use plan)."
 ---
 
 # /pm:init
