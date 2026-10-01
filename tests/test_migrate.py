@@ -200,17 +200,24 @@ class MigrationTests(unittest.TestCase):
         self.assertIn("Migrated 0 items from pm-0x (8 already on the board", again)
         self.assertEqual(len(list((self.root / "docs/pm/items").glob("*.md"))), 8)
 
-    def test_0x_done_items_can_be_imported_with_their_dependencies(self):
-        self.repo("pm-0x")
-        plan, text = self.plan("--from", "pm-0x", "--done", "items")
-        items = self.items_by_key(plan)
-        self.assertEqual(items["T001"]["status"], "done")
-        self.assertEqual(items["T002"]["depends_on"], ["T001"])
-        self.assertEqual([h["key"] for h in plan["history"]], ["T004"], "dismissed work is never imported")
-        self.assertIn("1 done", text)
-        self.cli("migrate", "apply", str(self.scratch / "plan.json"))
-        done = self.cli("board").stdout.split("## Done")[1]
-        self.assertIn("Add login attempt counter", done)
+    def test_applying_a_retitled_plan_again_does_not_duplicate_items(self):
+        self.root.mkdir()
+        subprocess.run(["git", "init", "-q"], cwd=self.root, check=True)
+        plan = self.hand_plan()
+        self.cli("migrate", "apply", self.write_plan(plan))
+        login_id = self.board_items()["Fix login"]["id"]
+        plan["items"][0]["title"] = "Fix login on mobile"
+        plan["items"].append({"key": "bd-3", "title": "Login copy", "intent": "reword the login page",
+                              "depends_on": ["bd-1"]})
+        path = self.write_plan(plan)
+        dry = self.cli("migrate", "apply", path, "--dry-run").stdout
+        self.assertIn("Dry run: 1 items would be created from beads", dry)
+        self.assertIn(f"bd-1 -> {login_id} (already on the board)", dry)
+        out = self.cli("migrate", "apply", path).stdout
+        self.assertIn("Migrated 1 items from beads (2 already on the board", out)
+        items = self.board_items()
+        self.assertEqual(sorted(items), ["Fix login", "Fix signup", "Login copy"])
+        self.assertEqual(items["Login copy"]["depends_on"], [login_id])
 
     def test_apply_publishes_to_the_shared_default_branch(self):
         origin = Path(self.temp.name) / "origin.git"
@@ -299,6 +306,15 @@ class MigrationTests(unittest.TestCase):
             "cycle": (lambda p: p["items"][0].update(depends_on=["bd-2"]), "Dependencies form a cycle: bd-1 -> bd-2 -> bd-1"),
             "duplicate key": (lambda p: p["items"][1].update(key="bd-1"), "key is used more than once"),
             "issue url": (lambda p: p["items"][1].update(github_issue="https://x/issues/7"), "digits only"),
+            "done status": (lambda p: p["items"][0].update(status="done"), "status must be one of queued, in-flight"),
+            "null notes": (lambda p: p["items"][0].update(notes=None), "notes must be a string; leave it out instead of null"),
+            "null owner": (lambda p: p["items"][1].update(owner=None), "owner must be a string"),
+            "null issue": (lambda p: p["items"][1].update(github_issue=None), "github_issue must be a string"),
+            "null hold": (lambda p: p["items"][0].update(hold=None), "hold must be a string"),
+            "numeric hold date": (lambda p: p["items"][1].update(hold_until=20261201), "hold_until must be a string"),
+            "multi-line title": (lambda p: p["items"][0].update(title="Fix\nlogin"), "title must be a single line"),
+            "list key": (lambda p: p["items"][0].update(key=["bd-1"]), "key must be a non-empty string"),
+            "non-string dependency": (lambda p: p["items"][1].update(depends_on=[1]), "depends_on must list item keys as strings"),
             "no source": (lambda p: p.pop("source"), "source must be"),
         }
         for name, (mutate, message) in cases.items():
@@ -314,14 +330,23 @@ class MigrationTests(unittest.TestCase):
     def test_session_start_points_a_0x_board_at_init(self):
         self.repo("pm-0x")
         env = {**os.environ, "CLAUDE_PROJECT_DIR": str(self.root)}
-        out = subprocess.run(["bash", str(START_HOOK)], cwd=self.root, env=env, input="{}", text=True,
-                             capture_output=True, check=True).stdout
+
+        def start():
+            return subprocess.run(["bash", str(START_HOOK)], cwd=self.root, env=env, input="{}", text=True,
+                                  capture_output=True, check=True).stdout
+        out = start()
         self.assertIn("pm 0.x board", out)
         self.assertIn("/pm:init", out)
         self.cli("init")
-        out = subprocess.run(["bash", str(START_HOOK)], cwd=self.root, env=env, input="{}", text=True,
-                             capture_output=True, check=True).stdout
-        self.assertNotIn("0.x", out)
+        out = start()
+        self.assertIn("pm 0.x board", out, "an empty 1.x board next to unmigrated tickets still reminds")
+        self.assertIn("/pm:migrate", out)
+        self.assertIn("# Project board", out)
+        self.plan("--from", "pm-0x")
+        self.cli("migrate", "apply", str(self.scratch / "plan.json"))
+        out = start()
+        self.assertNotIn("0.x board", out)
+        self.assertIn("Rate-limit login attempts", out)
 
 
 if __name__ == "__main__":

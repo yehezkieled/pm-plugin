@@ -12,7 +12,7 @@ Converts another project-management system into `docs/pm/items/`. The full guide
    - Old pm-plugin 0.x board: `pm.py migrate plan --from pm-0x --out PLAN.json`.
    - A Markdown checklist (`- [ ]`, `- [x]`): `pm.py migrate plan --from checklist --file TODO.md --out PLAN.json`.
    - Anything else: write the plan JSON yourself in the format in the manual. Map each source field to an item field, copy the requester's words verbatim into `intent`, and keep the source's id in `key`.
-   Add `--done items` only if the owner wants finished work imported as Done items; the default leaves it in git history.
+   Finished work is not imported; it stays in git history and is counted in the plan's `history`.
 3. Show the owner what you found and the plan: the field mapping (a table for a hand-made plan), counts before and after, anything not carried over or ambiguous, the knowledge that is not a task with where it will go, and which old files would be removed afterwards. Resolve ambiguity by asking, one question at a time with a recommendation. Apply the owner's changes by editing `PLAN.json`. Ask once for a yes before writing anything.
 4. After the yes, run `pm.py migrate apply PLAN.json` (add `--dry-run` first if unsure). It creates the board if needed, writes the items, and prints the counts after. A second run adds nothing twice. If `AGENTS.md` lacks the board pointer, add it as `/pm:init` step 4 describes.
 5. Route the knowledge that is not a task, following `${CLAUDE_PLUGIN_ROOT}/docs/placement.md`: lasting rules and commands to `AGENTS.md`, product goals to `README.md`, architecture to `docs/pm/CODEBASE.md` (use `/pm:map`). Show each proposed edit to the owner before writing it; never drop anything.

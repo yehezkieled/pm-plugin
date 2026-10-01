@@ -3,11 +3,13 @@
 cat >/dev/null  # hook input is not needed
 root="${CLAUDE_PROJECT_DIR:-$PWD}"
 plugin="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
+# An old pm 0.x board is not read by this version; point at the migration until its tickets are on the board.
+if ls "$root"/docs/pm/tickets/T*.md >/dev/null 2>&1 \
+  && ! grep -rqsF --include='*.md' "Migrated from pm-plugin 0.x ticket" "$root/docs/pm/items"; then
+  if [ -f "$root/docs/pm/config.json" ]; then command="/pm:migrate"; else command="/pm:init"; fi
+  echo "This project has a pm 0.x board in docs/pm/tickets that this version does not read. Run $command to move it onto the new board; nothing is deleted without the owner's yes."
+fi
 if [ ! -f "$root/docs/pm/config.json" ]; then
-  # An old pm 0.x board is not read by this version; point at the migration instead of staying silent.
-  if ls "$root"/docs/pm/tickets/T*.md >/dev/null 2>&1; then
-    echo "This project has a pm 0.x board in docs/pm/tickets that this version does not read. Run /pm:init to move it onto the new board; nothing is deleted without the owner's yes."
-  fi
   exit 0
 fi
 if command -v python3 >/dev/null 2>&1; then

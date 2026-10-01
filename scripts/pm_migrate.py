@@ -6,10 +6,13 @@ To support a new source system, add a reader to SOURCES and a detector to `scan`
 """
 from __future__ import annotations
 
+import json
 import re
 from pathlib import Path
 
-PLAN_STATUSES = ("queued", "in-flight", "done")
+PLAN_STATUSES = ("queued", "in-flight")
+BOARD_STATUSES = ("queued", "in-flight", "waiting", "done")
+OPTIONAL_TEXT_FIELDS = ("owner", "hold", "hold_until", "notes", "github_issue")
 CHECKLIST_NAMES = {"todo", "todos", "roadmap", "backlog", "tasks", "plan"}
 CHECKLIST_SUFFIXES = {"", ".md", ".markdown", ".txt"}
 TASK_FOLDERS = {".beads": "Beads", ".taskmaster": "Task Master", "backlog": "Backlog.md-style folder",
@@ -93,7 +96,7 @@ def reference(value: str) -> str:
     return f"#{value}" if value.isdigit() else value
 
 
-def read_0x(root: Path, done: str = "history", **_: object) -> dict:
+def read_0x(root: Path, **_: object) -> dict:
     """Read a pm-plugin 0.x board: docs/pm/tickets/T*.md, epics/, roadmap.md, decisions.md, CONTEXT.md."""
     pm = root / "docs" / "pm"
     tickets = []
@@ -121,11 +124,11 @@ def read_0x(root: Path, done: str = "history", **_: object) -> dict:
     by_id = {t["id"]: t for t in tickets}
     warnings: list[str] = []
     items, history = [], []
-    imported = {t["id"] for t in tickets if t["status"] != "dismissed" and (t["status"] != "done" or done == "items")}
+    imported = {t["id"] for t in tickets if t["status"] not in ("dismissed", "done")}
     dropped_done = 0
     for t in tickets:
         status = t["status"]
-        if status == "dismissed" or (status == "done" and done != "items"):
+        if status in ("dismissed", "done"):
             history.append({"key": t["id"], "title": t["title"], "status": status,
                             "why": "closed without being done" if status == "dismissed" else "done work stays in git history"})
             continue
@@ -136,8 +139,6 @@ def read_0x(root: Path, done: str = "history", **_: object) -> dict:
                 mapped = "queued"
                 warnings.append(f"{t['id']} is {status} with no owner; imported as queued so someone can claim it.")
             extra.append("In review (0.x status review)." if status == "review" else "")
-        elif status == "done":
-            mapped, owner = "done", ""
         else:
             mapped = "queued"
             if status != "todo":
@@ -184,7 +185,7 @@ def read_0x(root: Path, done: str = "history", **_: object) -> dict:
         intent = "".join(intent_parts).strip("\n") or t["title"]
         items.append({"key": t["id"], "title": t["title"], "intent": intent, "status": mapped, "owner": owner,
                       "hold": hold, "hold_until": "", "depends_on": deps, "github_issue": number,
-                      "notes": "\n\n".join([*note_parts, "\n".join(notes)]), "done_at": ""})
+                      "notes": "\n\n".join([*note_parts, "\n".join(notes)])})
     if dropped_done:
         warnings.append(f"{dropped_done} dependency link(s) on finished tickets dropped, since they are already satisfied.")
 
@@ -204,7 +205,7 @@ def read_0x(root: Path, done: str = "history", **_: object) -> dict:
     for number, line in enumerate(backlog_lines, 1):
         items.append({"key": f"backlog-{number}-{slugify(line)[:40]}", "title": short_title(line), "intent": line,
                       "status": "queued", "owner": "", "hold": "", "hold_until": "", "depends_on": [],
-                      "github_issue": "", "done_at": "",
+                      "github_issue": "",
                       "notes": "Migrated from the pm-plugin 0.x roadmap Backlog (no epic or milestone)."})
     if epics:
         knowledge.append({"from": "docs/pm/epics/",
@@ -285,7 +286,7 @@ def parse_checklist(text: str) -> tuple[list[dict], int]:
     return entries, prose
 
 
-def read_checklist(root: Path, file: str | None = None, done: str = "history", **_: object) -> dict:
+def read_checklist(root: Path, file: str | None = None, **_: object) -> dict:
     """Read `- [ ]` / `- [x]` lines from one Markdown file. Other bullet styles need a hand-made plan."""
     if not file:
         raise ValueError("The checklist source needs --file PATH, for example --file TODO.md.")
@@ -302,13 +303,13 @@ def read_checklist(root: Path, file: str | None = None, done: str = "history", *
         seen[slug] = seen.get(slug, 0) + 1
         key = f"{rel}:{slug}" + (f"-{seen[slug]}" if seen[slug] > 1 else "")
         title = short_title(first)
-        if entry["done"] and done != "items":
+        if entry["done"]:
             history.append({"key": key, "title": title, "status": "done", "why": "done work stays in git history"})
             continue
         where = f', under "{entry["heading"]}"' if entry["heading"] else ""
         items.append({"key": key, "title": title, "intent": "\n".join(entry["lines"]),
-                      "status": "done" if entry["done"] else "queued", "owner": "", "hold": "", "hold_until": "",
-                      "depends_on": [], "github_issue": "", "done_at": "",
+                      "status": "queued", "owner": "", "hold": "", "hold_until": "",
+                      "depends_on": [], "github_issue": "",
                       "notes": f"Migrated from {rel}{where}."})
     knowledge, warnings, retire = [], [], []
     if prose:
@@ -382,13 +383,13 @@ def scan(root: Path, remote_url: str = "") -> list[dict]:
 
 def plan_status(item: dict) -> str:
     """The 1.x board status an item will get: a hold on unfinished work means waiting."""
-    return "waiting" if item.get("hold") and item.get("status") != "done" else item.get("status", "queued")
+    return "waiting" if item.get("hold") else item.get("status", "queued")
 
 
-def plan_counts(plan: dict) -> dict[str, int]:
-    counts = {"queued": 0, "in-flight": 0, "waiting": 0, "done": 0}
-    for item in plan.get("items", []):
-        counts[plan_status(item)] += 1
+def status_counts(statuses) -> dict[str, int]:
+    counts = dict.fromkeys(BOARD_STATUSES, 0)
+    for status in statuses:
+        counts[status] += 1
     return counts
 
 
@@ -415,28 +416,34 @@ def validate_plan(plan: object) -> list[str]:
         for field in ("key", "title", "intent"):
             if not isinstance(item.get(field), str) or not item[field].strip():
                 errors.append(f"{name}: {field} must be a non-empty string (intent is the requester's original words).")
+        if isinstance(item.get("title"), str) and len(item["title"].strip().splitlines()) > 1:
+            errors.append(f"{name}: title must be a single line; put the rest in intent.")
+        for field in OPTIONAL_TEXT_FIELDS:
+            if field in item and not isinstance(item[field], str):
+                errors.append(f"{name}: {field} must be a string; leave it out instead of {json.dumps(item[field])}.")
         if keys.count(item.get("key")) > 1:
             errors.append(f"{name}: key is used more than once.")
         status = item.get("status", "queued")
         if status not in PLAN_STATUSES:
             errors.append(f"{name}: status must be one of {', '.join(PLAN_STATUSES)}, not {status!r}.")
-        if status == "in-flight" and not str(item.get("owner", "")).strip():
+        if status == "in-flight" and not (isinstance(item.get("owner"), str) and item["owner"].strip()):
             errors.append(f"{name}: an in-flight item needs an owner.")
-        if status == "done" and item.get("hold"):
-            errors.append(f"{name}: a done item cannot have a hold.")
-        if item.get("github_issue", "") and not str(item["github_issue"]).isdigit():
+        if isinstance(item.get("github_issue"), str) and item["github_issue"] and not item["github_issue"].isdigit():
             errors.append(f"{name}: github_issue must be the issue number, digits only.")
         deps = item.get("depends_on", [])
         if not isinstance(deps, list):
             errors.append(f"{name}: depends_on must be a list of item keys.")
             continue
         for dep in deps:
-            if dep not in keys:
+            if not isinstance(dep, str):
+                errors.append(f"{name}: depends_on must list item keys as strings, not {json.dumps(dep)}.")
+            elif dep not in keys:
                 errors.append(f"{name}: depends on {dep!r}, which is not an item in the plan.")
             elif dep == item.get("key"):
                 errors.append(f"{name}: cannot depend on itself.")
-    graph = {i.get("key"): [d for d in i.get("depends_on", []) if d in keys]
-             for i in items if isinstance(i, dict) and isinstance(i.get("depends_on", []), list)}
+    if errors:
+        return errors
+    graph = {i["key"]: i.get("depends_on", []) for i in items}
     visiting, finished = set(), set()
 
     def cycle(key: str, trail: list[str]) -> list[str] | None:
@@ -469,7 +476,7 @@ def render_plan(plan: dict) -> str:
     if before:
         detail = ", ".join(f"{n} {status}" for status, n in before.get("by_status", {}).items())
         lines.append(f"Before: {before.get('total', 0)} entries in the old system ({detail})")
-    lines.append(f"After:  {len(items)} items on the board ({format_counts(plan_counts(plan))})")
+    lines.append(f"After:  {len(items)} items on the board ({format_counts(status_counts(map(plan_status, items)))})")
     if history:
         by_reason: dict[str, int] = {}
         for entry in history:

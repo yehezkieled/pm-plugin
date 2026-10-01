@@ -46,11 +46,11 @@ What is guaranteed, whatever the source:
 | Nothing changes before you say yes | `scan` and `plan` only read; the plan is saved outside the repository |
 | Your words are not rewritten | The original text of each task is copied verbatim into `## Requester intent` |
 | Open work becomes items | Queued, in flight (with its owner), or waiting on a decision (a hold); dependencies and issue numbers are kept |
-| Finished work does not clutter the board | It stays in git history by default (`--done items` imports it as Done items); the counts say how much |
+| Finished work does not clutter the board | It stays in git history and is not imported; the counts say how much |
 | Knowledge that is not a task is not dropped | Roadmaps, epics, decisions, and settings are listed with the file they should go to, per [placement.md](placement.md); the agent proposes each edit and you approve it |
 | The old system is never deleted without your yes | The CLI never deletes; after you confirm, the agent runs `git rm` on exactly the paths the plan lists, so history keeps them |
 | Counts add up | The plan and the apply output show entries before, items imported, entries left in history, and the board now |
-| Re-running is safe | Item ids derive from the old key, so a second `apply` skips what is already there |
+| Re-running is safe | Each item id ends in a hash of the source and the old key, so a second `apply` skips what is already there, even after a title was edited |
 
 Steps the agent follows (`skills/migrate/SKILL.md`):
 
@@ -64,7 +64,7 @@ Steps the agent follows (`skills/migrate/SKILL.md`):
 
 ### Rolling out to several projects
 
-Do the plugin install or update once, then per project: open Claude Code there and run `/pm:init`, review the plan, say yes, approve the knowledge edits, decide on removal. Each project is independent. Once the plugin is updated, a project still on an old pm-plugin 0.x board prints a one-line reminder at session start until it is migrated, so a project that was missed shows itself.
+Do the plugin install or update once, then per project: open Claude Code there and run `/pm:init`, review the plan, say yes, approve the knowledge edits, decide on removal. Each project is independent. Once the plugin is updated, a project still on an old pm-plugin 0.x board prints a one-line reminder at session start until its tickets are on the board, whether or not `/pm:init` already ran there, so a project that was missed shows itself. Once migrated, keeping the old `docs/pm/tickets` folder does not bring the reminder back.
 
 ## 4. Source systems
 
@@ -85,7 +85,7 @@ Do the plugin install or update once, then per project: open Claude Code there a
 | --- | --- |
 | `status: todo` | Queued. A `ready: no` ticket (not yet clarified) gets a hold saying so, so it shows under Waiting |
 | `status: in progress` or `review` | In flight, with its `owner`. With no owner it becomes Queued and a warning says so, because 1.x needs an owner to be in flight |
-| `status: done` | Left in git history (or Done with `--done items`) |
+| `status: done` | Left in git history |
 | `status: dismissed` | Left in git history; it was closed without being done, so it is never imported |
 | An unknown status | Queued, with a warning |
 | `owner` on a todo ticket | Kept as the item's owner, which reserves it the way a claim does |
@@ -106,7 +106,7 @@ Retire list: `docs/pm/tickets`, `docs/pm/epics`, `docs/pm/roadmap.md`, `docs/pm/
 
 ### 4.2 Markdown checklist
 
-Each top-level checkbox line, with everything indented under it (including nested checkboxes), becomes one item. The text is the requester's words exactly; the title is its first line, shortened to about 80 characters. `- [ ]` is Queued; `- [x]` goes to git history (or Done with `--done items`). The nearest heading is recorded in the notes. Text that is not a checklist item is counted and listed as knowledge to route, and then the file is not offered for removal: delete the migrated lines by hand.
+Each top-level checkbox line, with everything indented under it (including nested checkboxes), becomes one item. The text is the requester's words exactly; the title is its first line, shortened to about 80 characters. `- [ ]` is Queued; `- [x]` goes to git history. The nearest heading is recorded in the notes. Text that is not a checklist item is counted and listed as knowledge to route, and then the file is not offered for removal: delete the migrated lines by hand.
 
 Owners, dates, labels, and `#123` references stay inside the intent text. If you want them mapped (an assignee as `owner`, an issue number as `github_issue`), the agent edits the plan.
 
@@ -123,7 +123,7 @@ The agent reads the source, proposes a mapping, you confirm it, and the agent wr
 | In progress / started / assigned | `status: "in-flight"` with an `owner` (required), or `queued` if nobody holds it |
 | Blocked on a question or decision | `hold` with the question, optionally `hold_until` |
 | Blocked on another task | `depends_on` with that task's key |
-| Closed / done | Leave out of `items` and list in `history`, unless the owner wants it on the board: then `status: "done"` |
+| Closed / done | Leave out of `items` and list in `history` |
 | Cancelled / won't do | `history` |
 | Issue number in GitHub | `github_issue`, digits only |
 | Labels, priority, estimate, parent, sprint | The `notes`: one short line each, since 1.x has no such fields |
@@ -164,21 +164,21 @@ For a large source, the agent reads it in pieces and builds the plan file increm
 | --- | --- |
 | `source` (required) | Names the old system; with each item's `key` it makes the item id, so the same plan never creates an item twice |
 | `items[].key`, `title`, `intent` (required) | The old identifier, a short name, and the requester's exact words |
-| `items[].status` | `queued` (default), `in-flight` (needs `owner`), or `done` |
+| `items[].status` | `queued` (default) or `in-flight` (needs `owner`); finished work goes in `history`, not `items` |
 | `items[].hold`, `hold_until` | A question that parks the item under Waiting; a date to revisit it |
 | `items[].depends_on` | Keys of other items in the plan, with no cycles |
-| `items[].github_issue`, `owner`, `notes`, `done_at` | Optional; the issue number as digits, the person, a short current-state note, a UTC timestamp |
+| `items[].github_issue`, `owner`, `notes` | Optional strings; the issue number as digits, the person, a short current-state note |
 | `before` | Entries in the old system by status; used to check the counts add up |
 | `history` | Old entries not imported, each with a reason; counted in "accounted for" |
 | `knowledge`, `warnings`, `retire` | Shown to the owner. `retire` lists the paths removed after confirmation, and `apply` never touches them |
 
-`pm.py migrate apply` refuses a plan with an unknown status, an in-flight item without an owner, a missing intent, a duplicate key, a dependency that is not in the plan, a dependency cycle, or an issue that is not a number. Nothing is written when a plan is refused.
+`pm.py migrate apply` refuses a plan with an unknown status (including `done`), an in-flight item without an owner, a missing intent, a title longer than one line, an optional field that is not a string (leave it out rather than writing `null`), a duplicate key, a dependency that is not in the plan, a dependency cycle, or an issue that is not a number. Nothing is written when a plan is refused.
 
 ## 6. Adding a new source system
 
 Do this when a source is common enough that a hand-made plan each time is wasteful.
 
-1. Write a reader in `scripts/pm_migrate.py`: a function `read_<name>(root, file=None, done="history", **_) -> dict` that only reads and returns a plan (section 5). Fill `before` and `history` so the counts add up, put everything the board has no field for in `notes`, and list every non-task file in `knowledge` with its destination from [placement.md](placement.md). Raise `ValueError` with a plain message for input it cannot read.
+1. Write a reader in `scripts/pm_migrate.py`: a function `read_<name>(root, file=None, **_) -> dict` that only reads and returns a plan (section 5). Fill `before` and `history` so the counts add up, put everything the board has no field for in `notes`, and list every non-task file in `knowledge` with its destination from [placement.md](placement.md). Raise `ValueError` with a plain message for input it cannot read.
 2. Register it in `SOURCES` (this makes `--from <name>` available) and add a detector for it in `scan`, with the command to run.
 3. Add a fixture under `tests/fixtures/<name>/` that covers every status, a dependency, a missing or odd value, and non-task files. In `tests/test_migrate.py` assert the plan, then apply it and assert the board, that the intent matches the source's text character for character, that nothing in the old system was changed, and that a second apply adds nothing.
 4. Document the mapping as a table in section 4, add the source to the detection table there, and re-run the routing evals if a skill description changed (`evals/README.md`).

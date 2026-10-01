@@ -292,7 +292,7 @@ def cmd_init(root: Path, args) -> None:
 
 def item_slugs(title: str) -> tuple[str, str]:
     """File-name slug and the shorter slug used inside the item ID."""
-    slug = re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-")[:50] or "item"
+    slug = pm_migrate.slugify(title)[:50] or "item"
     return slug, slug[:32].rstrip("-") or "item"
 
 
@@ -523,15 +523,9 @@ def sync_issue(root: Path, item: dict, created: dict[str, str]) -> str:
     return f"{item['id']} -> {issue_url}"
 
 
-def status_counts(items: list[dict]) -> dict[str, int]:
-    counts = {"queued": 0, "in-flight": 0, "waiting": 0, "done": 0}
-    for item in items:
-        counts[item.get("status", "queued")] += 1
-    return counts
-
-
 def count_line(items: list[dict]) -> str:
-    return f"{len(items)} items ({pm_migrate.format_counts(status_counts(items))})"
+    counts = pm_migrate.status_counts(item.get("status", "queued") for item in items)
+    return f"{len(items)} items ({pm_migrate.format_counts(counts)})"
 
 
 def cmd_migrate(root: Path, args) -> None:
@@ -551,7 +545,7 @@ def cmd_migrate(root: Path, args) -> None:
         return
     if args.action == "plan":
         reader = pm_migrate.SOURCES[args.source]
-        plan = reader(root, file=args.file, done=args.done)
+        plan = reader(root, file=args.file)
         problems = pm_migrate.validate_plan(plan)
         if problems:
             raise ValueError("The generated plan is invalid:\n" + "\n".join(f"  - {p}" for p in problems))
@@ -571,12 +565,17 @@ def cmd_migrate(root: Path, args) -> None:
     for entry in plan["items"]:
         slug, id_slug = item_slugs(entry["title"])
         digest = hashlib.sha256(f"{source}:{entry['key']}".encode()).hexdigest()[:6]
-        planned.append((entry, f"{id_slug}-{digest}", slug))
-    ids = {entry["key"]: item_id for entry, item_id, _ in planned}
+        planned.append((entry, digest, f"{id_slug}-{digest}", slug))
+
+    def board_ids(board: Path) -> tuple[dict[str, str], dict[str, str]]:
+        existing = {item["id"].rsplit("-", 1)[-1].casefold(): item["id"] for item in read_items(board)}
+        return {entry["key"]: existing.get(digest, item_id) for entry, digest, item_id, _ in planned}, existing
+
     if args.dry_run:
-        print(f"Dry run: {len(planned)} items would be created from {source}; nothing written.")
-        for entry, item_id, _ in planned:
-            print(f"  {entry['key']} -> {item_id} ({pm_migrate.plan_status(entry)})")
+        ids, existing = board_ids(root)
+        print(f"Dry run: {sum(digest not in existing for _, digest, _, _ in planned)} items would be created from {source}; nothing written.")
+        for entry, digest, _, _ in planned:
+            print(f"  {entry['key']} -> {ids[entry['key']]} ({'already on the board' if digest in existing else pm_migrate.plan_status(entry)})")
         return
 
     def change(board: Path):
@@ -585,20 +584,18 @@ def cmd_migrate(root: Path, args) -> None:
             config_path(board).parent.mkdir(parents=True, exist_ok=True)
             config_path(board).write_text(json.dumps({"mirror": "off"}) + "\n", encoding="utf-8")
             paths.append(config_path(board))
-        existing = {item["id"].casefold() for item in read_items(board)}
+        ids, existing = board_ids(board)
         created = skipped = 0
-        for entry, item_id, slug in planned:
-            if item_id.casefold() in existing:
+        for entry, digest, item_id, slug in planned:
+            if digest in existing:
                 skipped += 1
                 continue
-            hold = entry.get("hold", "")
-            status = entry.get("status", "queued")
-            item = {"id": item_id, "title": entry["title"].strip(), "owner": entry.get("owner", "") if status != "done" else "",
-                    "status": "waiting" if hold and status != "done" else status,
-                    "depends_on": [ids[dep] for dep in entry.get("depends_on", [])], "hold": hold if status != "done" else "",
-                    "hold_until": entry.get("hold_until", ""), "github_issue": str(entry.get("github_issue", "")),
+            item = {"id": item_id, "title": entry["title"].strip(), "owner": entry.get("owner", ""),
+                    "status": pm_migrate.plan_status(entry),
+                    "depends_on": [ids[dep] for dep in entry.get("depends_on", [])], "hold": entry.get("hold", ""),
+                    "hold_until": entry.get("hold_until", ""), "github_issue": entry.get("github_issue", ""),
                     "intent": entry["intent"], "intent_length": len(entry["intent"]), "notes": entry.get("notes", ""),
-                    "done_at": entry.get("done_at", ""), "path": item_dir(board) / f"{item_id}-{slug}.md"}
+                    "done_at": "", "path": item_dir(board) / f"{item_id}-{slug}.md"}
             save_item(item)
             paths.append(item["path"])
             created += 1
@@ -640,8 +637,6 @@ def parser() -> argparse.ArgumentParser:
     plan = actions.add_parser("plan", help="read the old system and save a migration plan (read-only)")
     plan.add_argument("--from", dest="source", required=True, choices=sorted(pm_migrate.SOURCES))
     plan.add_argument("--file", help="the file to read, for --from checklist")
-    plan.add_argument("--done", choices=("history", "items"), default="history",
-                      help="leave finished work in git history (default) or import it as Done items")
     plan.add_argument("--out", required=True, help="where to save the plan JSON, outside the repository")
     apply = actions.add_parser("apply", help="create the items a confirmed plan describes")
     apply.add_argument("plan", help="plan JSON from `migrate plan`, or one written by hand")
