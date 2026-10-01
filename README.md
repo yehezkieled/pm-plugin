@@ -4,7 +4,7 @@ The plugin keeps a team's work as one Markdown file per item under `docs/pm/item
 
 ```text
 docs/pm/
-├── config.json       # Board marker and GitHub mirror setting
+├── config.json       # Board marker, GitHub mirror setting, migration record
 ├── items/            # One file per item: exact requester intent, status, owner, and current notes
 └── CODEBASE.md       # Architecture map written by /pm:map
 ```

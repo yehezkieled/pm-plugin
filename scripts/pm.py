@@ -580,9 +580,14 @@ def cmd_migrate(root: Path, args) -> None:
 
     def change(board: Path):
         paths = []
-        if not config_path(board).exists():
+        config = json.loads(config_path(board).read_text(encoding="utf-8")) if config_path(board).exists() else {"mirror": "off"}
+        record = config.setdefault("migrated_from", {})
+        accounted = sorted({entry["key"] for entry in plan["items"]} | {entry["key"] for entry in plan.get("history", [])}
+                           | set(record.get(source, [])))
+        if record.get(source) != accounted:
+            record[source] = accounted
             config_path(board).parent.mkdir(parents=True, exist_ok=True)
-            config_path(board).write_text(json.dumps({"mirror": "off"}) + "\n", encoding="utf-8")
+            config_path(board).write_text(json.dumps(config) + "\n", encoding="utf-8")
             paths.append(config_path(board))
         ids, existing = board_ids(board)
         created = skipped = 0

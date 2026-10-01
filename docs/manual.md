@@ -57,14 +57,14 @@ Steps the agent follows (`skills/migrate/SKILL.md`):
 1. **Scan**: `pm.py migrate scan` lists each system it recognises, with counts and the importer to use. GitHub Issues and tracker exports are checked with `gh` or by reading the export.
 2. **Plan**: `pm.py migrate plan --from pm-0x --out PLAN.json` (or `--from checklist --file TODO.md`). For any other system the agent writes the plan itself (section 4.3).
 3. **Review with you**: counts before and after, the field mapping, items that need a decision, what is not carried over, where non-task knowledge goes. You answer questions and the agent edits `PLAN.json`.
-4. **Apply**: `pm.py migrate apply PLAN.json` creates `docs/pm/config.json` if needed and the items, committing and pushing them to the default branch the same way `/pm:plan` does. `--dry-run` shows the items without writing.
+4. **Apply**: `pm.py migrate apply PLAN.json` creates `docs/pm/config.json` if needed and the items, records every old key the plan accounted for (imported or left in history) under `migrated_from` in that file, keeping its other settings, committing and pushing them to the default branch the same way `/pm:plan` does. `--dry-run` shows the items without writing.
 5. **Route other knowledge**: with your approval, lasting rules and the test command go to `AGENTS.md`, product goals to `README.md`, architecture to `docs/pm/CODEBASE.md` (`/pm:map`).
 6. **Verify**: `pm.py board` and the counts.
 7. **Retire**: you decide whether the old files go. On a yes, they are removed with `git rm`.
 
 ### Rolling out to several projects
 
-Do the plugin install or update once, then per project: open Claude Code there and run `/pm:init`, review the plan, say yes, approve the knowledge edits, decide on removal. Each project is independent. Once the plugin is updated, a project still on an old pm-plugin 0.x board prints a one-line reminder at session start until its tickets are on the board, whether or not `/pm:init` already ran there, so a project that was missed shows itself. Once migrated, keeping the old `docs/pm/tickets` folder does not bring the reminder back.
+Do the plugin install or update once, then per project: open Claude Code there and run `/pm:init`, review the plan, say yes, approve the knowledge edits, decide on removal. Each project is independent. Once the plugin is updated, a project still on an old pm-plugin 0.x board prints a one-line reminder at session start while any of its tickets is missing from the `migrated_from` record in `docs/pm/config.json`, whether or not `/pm:init` already ran there, so a project that was missed shows itself. Once applied, keeping the old `docs/pm/tickets` folder or finishing the migrated items does not bring the reminder back; a ticket added to the old folder later does.
 
 ## 4. Source systems
 
@@ -169,7 +169,7 @@ For a large source, the agent reads it in pieces and builds the plan file increm
 | `items[].depends_on` | Keys of other items in the plan, with no cycles |
 | `items[].github_issue`, `owner`, `notes` | Optional strings; the issue number as digits, the person, a short current-state note |
 | `before` | Entries in the old system by status; used to check the counts add up |
-| `history` | Old entries not imported, each with a reason; counted in "accounted for" |
+| `history` | Old entries not imported, each with a `key` and a reason; counted in "accounted for" and recorded with the item keys under `migrated_from` in `docs/pm/config.json` |
 | `knowledge`, `warnings`, `retire` | Shown to the owner. `retire` lists the paths removed after confirmation, and `apply` never touches them |
 
 `pm.py migrate apply` refuses a plan with an unknown status (including `done`), an in-flight item without an owner, a missing intent, a title longer than one line, an optional field that is not a string (leave it out rather than writing `null`), a duplicate key, a dependency that is not in the plan, a dependency cycle, or an issue that is not a number. Nothing is written when a plan is refused.

@@ -96,15 +96,33 @@ def reference(value: str) -> str:
     return f"#{value}" if value.isdigit() else value
 
 
+def ticket_files(root: Path) -> list[tuple[str, dict, str, Path]]:
+    """Each 0.x ticket as (id, frontmatter, body, path); the id is the plan key `apply` records."""
+    tickets = []
+    for path in sorted((root / "docs" / "pm" / "tickets").glob("T*.md")):
+        meta, body = parse_frontmatter(read_text(path))
+        tickets.append((str(meta.get("id") or path.stem.split("-")[0]), meta, body, path))
+    return tickets
+
+
+def unmigrated_tickets(root: Path) -> list[str]:
+    """0.x ticket ids that no `migrate apply` from pm-0x has accounted for, per docs/pm/config.json."""
+    try:
+        record = json.loads((root / "docs" / "pm" / "config.json").read_text(encoding="utf-8"))
+    except OSError:
+        record = {}
+    done = set(record.get("migrated_from", {}).get("pm-0x", []))
+    return [ticket_id for ticket_id, *_ in ticket_files(root) if ticket_id not in done]
+
+
 def read_0x(root: Path, **_: object) -> dict:
     """Read a pm-plugin 0.x board: docs/pm/tickets/T*.md, epics/, roadmap.md, decisions.md, CONTEXT.md."""
     pm = root / "docs" / "pm"
     tickets = []
-    for path in sorted((pm / "tickets").glob("T*.md")):
-        meta, body = parse_frontmatter(read_text(path))
+    for ticket_id, meta, body, path in ticket_files(root):
         title_line = re.search(r"^# (.+)$", body, re.M)
         tickets.append({
-            "id": str(meta.get("id") or path.stem.split("-")[0]),
+            "id": ticket_id,
             "title": str(meta.get("title") or (title_line.group(1) if title_line else path.stem)),
             "epic": str(meta.get("epic", "")), "milestone": str(meta.get("milestone", "")),
             "status": str(meta.get("status", "todo")).lower() or "todo",
@@ -404,6 +422,10 @@ def validate_plan(plan: object) -> list[str]:
     errors = []
     if not isinstance(plan.get("source"), str) or not plan["source"].strip():
         errors.append("source must be a non-empty string naming the old system, for example \"beads\".")
+    history = plan.get("history", [])
+    if not isinstance(history, list) or not all(
+            isinstance(entry, dict) and isinstance(entry.get("key"), str) and entry["key"].strip() for entry in history):
+        errors.append("history must be a list of objects, each with a non-empty string key.")
     items = plan.get("items")
     if not isinstance(items, list):
         return errors + ["items must be a list."]

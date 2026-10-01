@@ -11,7 +11,7 @@ flowchart LR
   C --> M[scripts/pm_migrate.py<br/>source readers, plan checks]
   OLD[Old system<br/>0.x tickets, TODO.md, tasks, issues] -. read only .-> M
   C --> I[docs/pm/items/slug-random.md<br/>intent, status, owner, notes]
-  C --> K[docs/pm/config.json<br/>board marker and mirror setting]
+  C --> K[docs/pm/config.json<br/>board marker, mirror setting,<br/>migration record]
   S -. read .-> PG[docs/placement.md<br/>where knowledge and decisions go]
   I --> B[Rendered board<br/>pm.py board output]
   H[Claude Code hooks<br/>hooks/hooks.json] --> SH[hooks/session-start.sh<br/>hooks/stop.sh]
@@ -69,7 +69,7 @@ flowchart LR
   R -->|yes| GR[git rm the plan's retire paths]
 ```
 
-`scan` and `plan` only read. A reader in `scripts/pm_migrate.py` (registered in `SOURCES`: `pm-0x` and `checklist`) returns a plan: items with the requester's words verbatim, a status of queued or in-flight, an optional hold, dependencies as old keys, and an optional issue number, plus the entries left in git history, knowledge to route, warnings, and the paths to retire. Sources without a reader get a hand-made plan of the same shape. `validate_plan` rejects an unknown status (finished work belongs in history), an in-flight item without an owner, a missing intent, a multi-line title, a non-string optional field, a duplicate key, an unknown dependency, a cycle, and a non-numeric issue before anything is written. `apply` ends each item id with a hash of the plan's `source` and the item's `key`, so a repeat run skips items whose id ends with that hash even if the title changed, writes through the same `publish` transaction as `add`, and prints the board's counts afterwards. No command deletes the old system; removal is a separate step the agent takes with `git rm` after the owner's yes. The `SessionStart` hook prints a one-line pointer to `/pm:init` (or `/pm:migrate` when `docs/pm/config.json` exists) while `docs/pm/tickets/T*.md` exist and no item under `docs/pm/items/` says it was migrated from a 0.x ticket.
+`scan` and `plan` only read. A reader in `scripts/pm_migrate.py` (registered in `SOURCES`: `pm-0x` and `checklist`) returns a plan: items with the requester's words verbatim, a status of queued or in-flight, an optional hold, dependencies as old keys, and an optional issue number, plus the entries left in git history, knowledge to route, warnings, and the paths to retire. Sources without a reader get a hand-made plan of the same shape. `validate_plan` rejects an unknown status (finished work belongs in history), an in-flight item without an owner, a missing intent, a multi-line title, a non-string optional field, a duplicate key, an unknown dependency, a cycle, and a non-numeric issue before anything is written. `apply` ends each item id with a hash of the plan's `source` and the item's `key`, so a repeat run skips items whose id ends with that hash even if the title changed, writes through the same `publish` transaction as `add`, records every key the plan accounted for (items and history) under `migrated_from.<source>` in `docs/pm/config.json`, merged into the existing settings, and prints the board's counts afterwards. No command deletes the old system; removal is a separate step the agent takes with `git rm` after the owner's yes. The `SessionStart` hook prints a one-line pointer to `/pm:init` (or `/pm:migrate` when `docs/pm/config.json` exists) while any `docs/pm/tickets/T*.md` ticket id is missing from `migrated_from.pm-0x`.
 
 ## Inputs, outputs, and external dependencies
 

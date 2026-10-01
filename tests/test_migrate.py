@@ -316,6 +316,7 @@ class MigrationTests(unittest.TestCase):
             "list key": (lambda p: p["items"][0].update(key=["bd-1"]), "key must be a non-empty string"),
             "non-string dependency": (lambda p: p["items"][1].update(depends_on=[1]), "depends_on must list item keys as strings"),
             "no source": (lambda p: p.pop("source"), "source must be"),
+            "history without key": (lambda p: p.update(history=[{"title": "old"}]), "history must be a list of objects"),
         }
         for name, (mutate, message) in cases.items():
             plan = self.hand_plan()
@@ -347,6 +348,34 @@ class MigrationTests(unittest.TestCase):
         out = start()
         self.assertNotIn("0.x board", out)
         self.assertIn("Rate-limit login attempts", out)
+
+    def test_migration_record_keeps_the_reminder_quiet_after_items_are_finished(self):
+        tickets = self.root / "docs/pm/tickets"
+        tickets.mkdir(parents=True)
+        (tickets / "T001-open.md").write_text("---\nid: T001\ntitle: Open work\nstatus: todo\n---\n# Open work\n\nDo it.\n")
+        (tickets / "T002-shipped.md").write_text("---\nid: T002\ntitle: Shipped\nstatus: done\n---\n# Shipped\n")
+        (self.root / "docs/pm/config.json").write_text(json.dumps({"mirror": "github"}) + "\n")
+        for args in (("init", "-q"), ("config", "user.name", "Test"), ("config", "user.email", "t@example.com"),
+                     ("add", "-A"), ("commit", "-qm", "old system")):
+            subprocess.run(["git", *args], cwd=self.root, check=True, capture_output=True)
+        env = {**os.environ, "CLAUDE_PROJECT_DIR": str(self.root)}
+
+        def start():
+            return subprocess.run(["bash", str(START_HOOK)], cwd=self.root, env=env, input="{}", text=True,
+                                  capture_output=True, check=True).stdout
+        self.assertIn("2 ticket(s)", start(), "a board from an earlier init does not hide unmigrated tickets")
+        self.plan("--from", "pm-0x")
+        self.cli("migrate", "apply", str(self.scratch / "plan.json"))
+        config = json.loads((self.root / "docs/pm/config.json").read_text())
+        self.assertEqual(config, {"mirror": "github", "migrated_from": {"pm-0x": ["T001", "T002"]}})
+        self.assertNotIn("0.x board", start(), "tickets left in git history count as migrated")
+        item_id = self.board_items()["Open work"]["id"]
+        subprocess.run(["python3", str(CLI), "claim", item_id], cwd=self.root, input="Bea", text=True, check=True, capture_output=True)
+        subprocess.run(["python3", str(CLI), "finish", item_id], cwd=self.root, input="Shipped in #3.", text=True, check=True, capture_output=True)
+        self.assertTrue((tickets / "T001-open.md").exists(), "the old tickets folder is kept")
+        self.assertNotIn("0.x board", start(), "finishing a migrated item does not bring the reminder back")
+        (tickets / "T003-new.md").write_text("---\nid: T003\ntitle: Added later\nstatus: todo\n---\n# Added later\n")
+        self.assertIn("1 ticket(s)", start())
 
 
 if __name__ == "__main__":
