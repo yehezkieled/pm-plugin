@@ -82,7 +82,7 @@ footer{padding:28px 0 60px;color:var(--muted);font-size:.9rem}
 </div></header>
 
 <nav class="toc" aria-label="Sections"><div class="wrap">
-  <a href="#pick">Which command?</a><a href="#setup">Sample project</a><a href="#init">1 Init</a><a href="#plan">2 Plan</a><a href="#deps">3 Dependencies</a><a href="#hold">4 Decision hold</a><a href="#status">5 Status</a><a href="#work">6 Claim &amp; work</a><a href="#finish">7 Finish &amp; PR</a><a href="#after">8 After the merge</a><a href="#mirror">9 GitHub mirror</a><a href="#map">10 Map</a><a href="#help">11 Help &amp; hooks</a><a href="#ref">Reference</a>
+  <a href="#pick">Which command?</a><a href="#setup">Sample project</a><a href="#init">1 Init</a><a href="#plan">2 Plan</a><a href="#deps">3 Dependencies</a><a href="#hold">4 Decision hold</a><a href="#status">5 Status</a><a href="#work">6 Claim &amp; work</a><a href="#finish">7 Finish &amp; PR</a><a href="#after">8 After the merge</a><a href="#mirror">9 GitHub mirror</a><a href="#map">10 Map</a><a href="#help">11 Help &amp; hooks</a><a href="#migrate">12 Migrate</a><a href="#ref">Reference</a>
 </div></nav>
 
 <main class="wrap">
@@ -98,6 +98,7 @@ footer{padding:28px 0 60px;color:var(--muted);font-size:.9rem}
     <tr><td>Start and build a tracked task</td><td><code>/pm:work [item-id]</code></td><td>Adding new tasks</td></tr>
     <tr><td>See who owns what and what is ready next</td><td><code>/pm:status</code></td><td>Changing items</td></tr>
     <tr><td>Understand how the codebase fits together</td><td><code>/pm:map [area]</code></td><td>Tracking tasks</td></tr>
+    <tr><td>Move work from an older system (old pm board, TODO.md, tasks folder, issues) onto the board</td><td><code>/pm:migrate</code></td><td>Adding one new task</td></tr>
     <tr><td>Remind yourself what commands exist</td><td><code>/pm:help</code></td><td>Showing progress (that is status)</td></tr>
   </table></div>
   <div class="note"><p><strong>Shorthand used below.</strong> Skills call a helper script; this page writes <code>pm.py</code> for <code>python3 "${CLAUDE_PLUGIN_ROOT}/scripts/pm.py"</code>. You normally never type it yourself: the skills do. The <em>Skill runs</em> blocks show exactly what they run, and the output is real.</p></div>
@@ -165,6 +166,7 @@ Published to shared origin/main.</pre>
 - None.
 
 Ready next: none</pre>
+  <div class="note"><p><strong>Already tracking work somewhere else?</strong> Init also looks for an older system (a pm 0.x board, a <code>TODO.md</code>, a tasks folder) and offers to move it onto the board, see <a href="#migrate">step 12</a>. This sample project has none.</p></div>
   <div class="note"><p><strong>What was created:</strong> only <code>docs/pm/config.json</code>. It was committed and pushed to <code>main</code> so every clone has it.</p></div>
 <pre class="ascii">docs/pm/
 ├── config.json      ← created now
@@ -560,6 +562,93 @@ Before writing anywhere, check the file already covers the fact; update it inste
   </ul>
 </section>
 
+<section class="step" id="migrate">
+  <span class="stepno">Step 12 · existing project</span>
+  <h2><code>/pm:migrate</code>: move an older system onto the board</h2>
+  <div class="grid">
+    <div class="card"><h4>When to use</h4><p>The project already tracks work somewhere else: an older pm board, a <code>TODO.md</code>, a tasks folder, Beads, GitHub Issues. <code>/pm:init</code> notices this and offers it; you can also call it directly.</p></div>
+    <div class="card"><h4>Say it like this</h4><p>“migrate our tasks to pm”, “import our backlog”, “switch from TODO.md to pm”</p></div>
+  </div>
+  <p>This step uses a different repo from the rest of the guide: a small login service that kept its work on a pm 0.x board (<code>docs/pm/tickets/T001…</code>, two epics, a roadmap, decisions). Version 1 of the plugin does not read that layout, so the board looks empty until it is migrated.</p>
+  <div class="label">You type</div>
+  <pre class="slash">/pm:migrate</pre>
+  <div class="label">Skill runs: look first, change nothing</div>
+  <pre class="term"><span class="cmd">$ pm.py migrate scan</span>
+Existing systems found:
+1. pm-plugin 0.x board: 8 tickets, 2 epics, roadmap.md, decisions.md
+   Importer: pm-0x. Next: pm.py migrate plan --from pm-0x --out PLAN.json
+
+<span class="cmd">$ pm.py migrate plan --from pm-0x --out PLAN.json</span>
+Migration plan from pm-0x
+Before: 10 entries in the old system (1 done, 3 todo, 1 dismissed, 2 in progress, 1 review, 2 backlog)
+After:  8 items on the board (5 queued, 2 in flight, 1 waiting, 0 done)
+Left in git history, not imported: 1 done, 1 dismissed
+
+Items (old key -&gt; status, waits on):
+  T002 -&gt; queued (issue #12): Rate-limit login attempts
+  T003 -&gt; waiting, waits on T002 (held; issue #13): Lock account after limit
+  T005 -&gt; in-flight (owner agent-a; issue #14): Session cookie flags
+  T006 -&gt; in-flight, waits on T005 (owner agent-b): Share link
+  T007 -&gt; queued, waits on T006 (owner agent-c): Revoke share
+  T008 -&gt; queued: Orphaned in progress
+  backlog-1-dark-mode -&gt; queued: Dark mode
+  backlog-2-export-to-csv -&gt; queued: Export to CSV
+
+Warnings:
+  - T003 depends on unknown ticket T099; dependency dropped.
+  - T003 depended on T004, which was dismissed; dependency dropped.
+  - T008 is in progress with no owner; imported as queued so someone can claim it.
+  […]
+
+Knowledge that is not an item, and where it goes (see docs/placement.md):
+  - docs/pm/roadmap.md: 2 milestone(s): M1 First usable version; M2 Sharing
+      -&gt; Product direction and goals go to README.md; each item's notes already name its milestone. Ask the owner before writing.
+  […]
+
+Old files to remove only after the owner confirms: docs/pm/tickets, docs/pm/roadmap.md, docs/pm/epics, docs/pm/decisions.md
+
+Plan saved to PLAN.json. Nothing was changed. Edit it if the owner asks, then run: pm.py migrate apply PLAN.json</pre>
+  <p>Claude then shows you this in plain words: what it found, what becomes what, the counts before and after, what is not carried over, and where each non-task file goes. Each task's original words become its <em>requester intent</em> exactly as written; old statuses and dependencies are mapped (a finished or dismissed ticket stays in git history, a ticket that was not yet clarified gets a decision hold). You answer questions and ask for changes, and Claude edits <code>PLAN.json</code>. Nothing has been written yet.</p>
+  <div class="label">After your yes</div>
+  <pre class="term"><span class="cmd">$ pm.py migrate apply PLAN.json</span>
+Migrated 8 items from pm-0x
+Before: 10 entries in the old system.
+Imported 8, left in git history 2; accounted for 10.
+Board now: 8 items (5 queued, 2 in flight, 1 waiting, 0 done).
+Nothing in the old system was deleted. Remove it only after the owner confirms.
+
+<span class="cmd">$ pm.py board</span>
+# Project board
+
+Rendered from `docs/pm/items/`, which holds each item's requester intent and current notes.
+
+## In flight
+
+- [session-cookie-flags-cf7d81](docs/pm/items/session-cookie-flags-cf7d81-session-cookie-flags.md) Session cookie flags — Plan (0.x): Approach: set both flags in one place. approved: yes Migrated from pm-plugin 0.x ticket T005 (epic E01 Logi…; claimed by agent-a
+- [share-link-85d2cb](docs/pm/items/share-link-85d2cb-share-link.md) Share link — Migrated from pm-plugin 0.x ticket T006 (epic E02 Sharing, milestone M2, priority P1, PR https://github.com/acme/shortl…; claimed by agent-b; blocked by session-cookie-flags-cf7d81
+
+## Queued
+
+- [dark-mode-07343f](docs/pm/items/dark-mode-07343f-dark-mode.md) Dark mode — Migrated from the pm-plugin 0.x roadmap Backlog (no epic or milestone).
+- [export-to-csv-f078b1](docs/pm/items/export-to-csv-f078b1-export-to-csv.md) Export to CSV — Migrated from the pm-plugin 0.x roadmap Backlog (no epic or milestone).
+- [orphaned-in-progress-75eca4](docs/pm/items/orphaned-in-progress-75eca4-orphaned-in-progress.md) Orphaned in progress — Migrated from pm-plugin 0.x ticket T008 (priority P2).
+- [rate-limit-login-attempts-5e41d5](docs/pm/items/rate-limit-login-attempts-5e41d5-rate-limit-login-attempts.md) Rate-limit login attempts — Notes (0.x): Check the clock source first. Migrated from pm-plugin 0.x ticket T002 (epic E01 Login, milestone M1, prior…
+- [revoke-share-409b9f](docs/pm/items/revoke-share-409b9f-revoke-share.md) Revoke share — Migrated from pm-plugin 0.x ticket T007 (epic E02 Sharing, milestone M2, priority P3). Epic goal: Lists can be shared b…; claimed by agent-c; blocked by share-link-85d2cb
+
+## Waiting
+
+- [lock-account-after-limit-29cba8](docs/pm/items/lock-account-after-limit-29cba8-lock-account-after-limit.md) Lock account after limit — Migrated from pm-plugin 0.x ticket T003 (epic E01 Login, milestone M1, priority P0). Epic goal: People can sign in safe…; blocked by rate-limit-login-attempts-5e41d5; held: Not yet clarified in pm 0.x (ready: no). Confirm what, why and acceptance before starting.
+
+## Done
+
+- None.
+
+Ready next: dark-mode-07343f Dark mode, export-to-csv-f078b1 Export to CSV, orphaned-in-progress-75eca4 Orphaned in progress, rate-limit-login-attempts-5e41d5 Rate-limit login attempts</pre>
+  <div class="note"><p><strong>Safe to repeat:</strong> a second <code>apply</code> adds nothing, because each item's ID comes from its old ticket ID.</p></div>
+  <p>Claude then proposes where the rest goes, following the placement guide: the roadmap's goals to <code>README.md</code>, the lasting decisions and the old <code>make test</code> command to <code>AGENTS.md</code>. It shows you each edit first. Finally it asks whether to remove the old tickets, epics, roadmap, and decisions files; only on a yes does it run <code>git rm</code> on exactly the listed paths, so history keeps them.</p>
+  <p>Anything without a built-in reader (Beads, a tasks folder, GitHub Issues, a Linear export) is handled the same way: Claude reads it, shows you a field mapping to confirm, and writes the plan itself. The <a href="manual.md">manual</a> has every mapping and how to add a reader for a new system.</p>
+</section>
+
 <section class="step" id="ref">
   <span class="stepno">Reference</span>
   <h2>Cheat sheet</h2>
@@ -571,6 +660,7 @@ Before writing anywhere, check the file already covers the fact; update it inste
     <tr><td><code>/pm:work [id]</code></td><td>claims, edits code, updates the item</td><td>In flight, then Done on the branch</td></tr>
     <tr><td><code>/pm:status</code></td><td>read only</td><td>board and ready items</td></tr>
     <tr><td><code>/pm:map [area]</code></td><td>writes <code>docs/pm/CODEBASE.md</code></td><td>diagrams and components table</td></tr>
+    <tr><td><code>/pm:migrate</code></td><td>reads the old system; writes items, only after your yes</td><td>items, counts before and after, other knowledge routed</td></tr>
     <tr><td><code>/pm:help</code></td><td>none</td><td>command list</td></tr>
   </table></div>
   <h3>Helper script (what the skills run)</h3>
@@ -587,6 +677,9 @@ Before writing anywhere, check the file already covers the fact; update it inste
     <tr><td><code>pm.py next</code></td><td>none</td><td>list ready items</td></tr>
     <tr><td><code>pm.py mirror show|off|github</code></td><td>none</td><td>configure the GitHub Issues mirror</td></tr>
     <tr><td><code>pm.py sync</code></td><td>none</td><td>copy items to GitHub Issues</td></tr>
+    <tr><td><code>pm.py migrate scan</code></td><td>none</td><td>list the task systems found (read only)</td></tr>
+    <tr><td><code>pm.py migrate plan --from SOURCE --out FILE</code></td><td>none</td><td>save a migration plan (read only); sources <code>pm-0x</code> and <code>checklist</code></td></tr>
+    <tr><td><code>pm.py migrate apply FILE [--dry-run]</code></td><td>none</td><td>create the items a confirmed plan describes; never deletes anything</td></tr>
   </table></div>
   <h3>When something looks wrong</h3>
   <ul class="tight">
@@ -598,6 +691,7 @@ Before writing anywhere, check the file already covers the fact; update it inste
   <h3>Install</h3>
   <pre class="term"><span class="cmd">claude plugin marketplace add /path/to/pm-plugin</span>
 <span class="cmd">claude plugin install pm@pm-plugin</span></pre>
+  <p>To update later: <code>claude plugin marketplace update pm-plugin</code>, then <code>claude plugin update pm@pm-plugin</code>, and restart Claude Code. The <a href="manual.md">manual</a> covers install, update, and migration in full.</p>
 </section>
 </main>
 <footer><div class="wrap">Output in this guide was captured by running the real <code>pm.py</code> in a scratch repository (with a shared remote), except where noted. Item IDs end in a random suffix, so yours will differ.</div></footer>

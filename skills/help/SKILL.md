@@ -11,10 +11,11 @@ description: "Explain the pm plugin and list its commands. Use when the user typ
 /pm:work [item-id]   Claim first, then implement and update notes
 /pm:status           Show owners, waiting items, and what's ready
 /pm:map [area]       Write a codebase overview with diagrams
+/pm:migrate          Move an existing task system onto the board
 /pm:help             Show this guide
 ```
 
-Each item is one file in `docs/pm/items/`, the only board state stored in git. `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/pm.py" board` renders In flight, Queued, Waiting, and the latest ten Done items from those files. `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/pm.py" next` shows queued items with completed dependencies. A hold keeps an item in Waiting, still owned by any claimer, until the decision is resolved. Where each kind of knowledge and decision goes is in the placement guide below. See the README for GitHub mirror behavior and its publication disclosure.
+Each item is one file in `docs/pm/items/`, the only board state stored in git. `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/pm.py" board` renders In flight, Queued, Waiting, and the latest ten Done items from those files. `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/pm.py" next` shows queued items with completed dependencies. A hold keeps an item in Waiting, still owned by any claimer, until the decision is resolved. Where each kind of knowledge and decision goes is in the placement guide below. `docs/manual.md` is the setup and migration manual. See the README for GitHub mirror behavior and its publication disclosure.
 
 ## Reply
 

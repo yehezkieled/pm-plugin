@@ -398,9 +398,9 @@ class SkillDescriptionTests(unittest.TestCase):
     def test_guide_page_is_self_contained_and_covers_every_command(self):
         guide = (Path(__file__).resolve().parents[1] / "docs" / "guide.html").read_text()
         self.assertNotRegex(guide, r'(?:src|href)="https?://', "guide must not load external resources")
-        for command in ("init", "plan", "work", "status", "map", "help"):
+        for command in ("init", "plan", "work", "status", "map", "migrate", "help"):
             self.assertIn(f"/pm:{command}", guide)
-        for cli in ("add", "set", "hold", "resume", "claim", "finish", "mirror", "sync", "next", "board"):
+        for cli in ("add", "set", "hold", "resume", "claim", "finish", "mirror", "sync", "next", "board", "migrate scan", "migrate plan", "migrate apply"):
             self.assertIn(f"pm.py {cli}", guide)
 
 
