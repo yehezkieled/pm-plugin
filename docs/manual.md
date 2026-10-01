@@ -172,7 +172,7 @@ For a large source, the agent reads it in pieces and builds the plan file increm
 | `history` | Old entries not imported, each with a `key` and a reason; counted in "accounted for" and recorded with the item keys under `migrated_from` in `docs/pm/config.json` |
 | `knowledge`, `warnings`, `retire` | Shown to the owner. `retire` lists the paths removed after confirmation, and `apply` never touches them |
 
-`pm.py migrate apply` refuses a plan with an unknown status (including `done`), an in-flight item without an owner, a missing intent, a title longer than one line, an optional field that is not a string (leave it out rather than writing `null`), a duplicate key, a dependency that is not in the plan, a dependency cycle, or an issue that is not a number. Nothing is written when a plan is refused.
+`pm.py migrate apply` refuses a plan with an unknown status (including `done`), an in-flight item without an owner, a missing intent, a title longer than one line, an optional field that is not a string (leave it out rather than writing `null`), a duplicate key, a `history` entry without a `key`, a dependency that is not in the plan, a dependency cycle, or an issue that is not a number. Nothing is written when a plan is refused.
 
 ## 6. Adding a new source system
 
