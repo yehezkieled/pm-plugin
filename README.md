@@ -11,7 +11,7 @@ docs/pm/
 
 ## Skills
 
-New here? The [step-by-step guide](docs/guide.html) walks one sample project through every command with real output. Open the file in a browser.
+New here? The [step-by-step guide](docs/guide.html) walks one sample project through every command with real output. Open the file in a browser. The [setup and migration manual](docs/manual.md) covers installing, updating, and moving a project that already tracks work elsewhere onto the board.
 
 | Skill | Use | Main result |
 | --- | --- | --- |
@@ -20,11 +20,16 @@ New here? The [step-by-step guide](docs/guide.html) walks one sample project thr
 | `/pm:work` | Claim and build one item | In-flight claim, code changes, updated item notes |
 | `/pm:status` | See current work, owners, holds, and what is ready | Board and dependency-aware next items |
 | `/pm:map` | Understand the current codebase | `docs/pm/CODEBASE.md` with Mermaid diagrams |
+| `/pm:migrate` | Move an existing task system onto the board | Items with the original words kept, counts before and after, other knowledge routed |
 | `/pm:help` | See the short command guide | Skill and CLI reference |
 
 ## Where knowledge goes
 
 Each fact goes in the most specific file that owns it, and knowledge useful to every contributor lives in the repo. The skills that write knowledge (`init`, `plan`, `work`, `map`) follow the one [placement guide](docs/placement.md), which `/pm:help` also prints: `AGENTS.md` for lasting agent rules, `README.md` for the product overview, `docs/pm/CODEBASE.md` for architecture, `docs/pm/items/<id>.md` for one task, and `CONTEXT.md` only as a glossary. Decisions: an open question is a hold, the answer goes into the item's notes in the decider's exact words (`pm.py resume ITEM_ID --answer`), decisions that shape future work become guidance in `AGENTS.md` or `CODEBASE.md`, and rationale for one change stays in the item and its PR.
+
+## Migrating an existing system
+
+`/pm:init` looks for a system the project already uses and hands off to `/pm:migrate`; `/pm:migrate` can also be run directly. It recognises pm-plugin 0.x boards (`docs/pm/tickets/`) and Markdown checklists (`TODO.md` and similar), and builds a plan by hand for anything else (a tasks folder, Beads, GitHub Issues, a Linear export). The agent shows what it found, how each field maps, and the counts before and after; it writes items only after your yes, keeps each task's original words as the requester intent, routes roadmaps, epics, and decisions to the file [placement.md](docs/placement.md) names, and never deletes the old system without your confirmation. Steps, per-source mappings, and how to add a new source are in the [manual](docs/manual.md).
 
 ## Collaboration and item flow
 
@@ -40,6 +45,8 @@ Hooks print the board at session start, with a note to claim items through `/pm:
 claude plugin marketplace add /path/to/pm-plugin
 claude plugin install pm@pm-plugin
 ```
+
+To update, run `claude plugin marketplace update pm-plugin` then `claude plugin update pm@pm-plugin`, and restart Claude Code. A project still on a pm 0.x board needs `/pm:init` once to migrate it.
 
 For local development:
 

@@ -14,6 +14,8 @@ from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 
+import pm_migrate
+
 try:
     import fcntl
 except ImportError:  # pragma: no cover - exercised on Windows
@@ -288,13 +290,18 @@ def cmd_init(root: Path, args) -> None:
         print(publish(root, change))
 
 
+def item_slugs(title: str) -> tuple[str, str]:
+    """File-name slug and the shorter slug used inside the item ID."""
+    slug = re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-")[:50] or "item"
+    return slug, slug[:32].rstrip("-") or "item"
+
+
 def cmd_add(root: Path, args) -> None:
     title, _, intent = read_literal_stdin().partition("\n")
     title = title.strip()
     if not title:
         raise ValueError("The first stdin line must be the item title.")
-    slug = re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-")[:50] or "item"
-    id_slug = slug[:32].rstrip("-") or "item"
+    slug, id_slug = item_slugs(title)
 
     def change(board: Path):
         require_board(board)
@@ -516,6 +523,97 @@ def sync_issue(root: Path, item: dict, created: dict[str, str]) -> str:
     return f"{item['id']} -> {issue_url}"
 
 
+def status_counts(items: list[dict]) -> dict[str, int]:
+    counts = {"queued": 0, "in-flight": 0, "waiting": 0, "done": 0}
+    for item in items:
+        counts[item.get("status", "queued")] += 1
+    return counts
+
+
+def count_line(items: list[dict]) -> str:
+    return f"{len(items)} items ({pm_migrate.format_counts(status_counts(items))})"
+
+
+def cmd_migrate(root: Path, args) -> None:
+    if args.action == "scan":
+        remote = git(root, "remote", "get-url", "origin", check=False).stdout.strip()
+        findings = pm_migrate.scan(root, remote)
+        if config_path(root).exists():
+            print(f"A 1.x board already exists here: {count_line(read_items(root))}.")
+        if not findings:
+            print("No existing project-management system found." if not config_path(root).exists() else "No other system found.")
+            return
+        print("Existing systems found:")
+        for number, found in enumerate(findings, 1):
+            print(f"{number}. {found['label']}: {found['detail']}")
+            print("   " + (f"Importer: {found['importer']}. Next: {found['command']}" if found["importer"]
+                           else "No built-in importer: map it by hand with the owner (docs/manual.md)."))
+        return
+    if args.action == "plan":
+        reader = pm_migrate.SOURCES[args.source]
+        plan = reader(root, file=args.file, done=args.done)
+        problems = pm_migrate.validate_plan(plan)
+        if problems:
+            raise ValueError("The generated plan is invalid:\n" + "\n".join(f"  - {p}" for p in problems))
+        Path(args.out).write_text(json.dumps(plan, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+        print(pm_migrate.render_plan(plan))
+        print(f"\nPlan saved to {args.out}. Nothing was changed. Edit it if the owner asks, then run: pm.py migrate apply {args.out}")
+        return
+    try:
+        plan = json.loads(Path(args.plan).read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ValueError(f"Cannot read plan {args.plan}: {exc}")
+    problems = pm_migrate.validate_plan(plan)
+    if problems:
+        raise ValueError("The plan is not safe to apply:\n" + "\n".join(f"  - {p}" for p in problems))
+    source = plan["source"].strip()
+    planned = []
+    for entry in plan["items"]:
+        slug, id_slug = item_slugs(entry["title"])
+        digest = hashlib.sha256(f"{source}:{entry['key']}".encode()).hexdigest()[:6]
+        planned.append((entry, f"{id_slug}-{digest}", slug))
+    ids = {entry["key"]: item_id for entry, item_id, _ in planned}
+    if args.dry_run:
+        print(f"Dry run: {len(planned)} items would be created from {source}; nothing written.")
+        for entry, item_id, _ in planned:
+            print(f"  {entry['key']} -> {item_id} ({pm_migrate.plan_status(entry)})")
+        return
+
+    def change(board: Path):
+        paths = []
+        if not config_path(board).exists():
+            config_path(board).parent.mkdir(parents=True, exist_ok=True)
+            config_path(board).write_text(json.dumps({"mirror": "off"}) + "\n", encoding="utf-8")
+            paths.append(config_path(board))
+        existing = {item["id"].casefold() for item in read_items(board)}
+        created = skipped = 0
+        for entry, item_id, slug in planned:
+            if item_id.casefold() in existing:
+                skipped += 1
+                continue
+            hold = entry.get("hold", "")
+            status = entry.get("status", "queued")
+            item = {"id": item_id, "title": entry["title"].strip(), "owner": entry.get("owner", "") if status != "done" else "",
+                    "status": "waiting" if hold and status != "done" else status,
+                    "depends_on": [ids[dep] for dep in entry.get("depends_on", [])], "hold": hold if status != "done" else "",
+                    "hold_until": entry.get("hold_until", ""), "github_issue": str(entry.get("github_issue", "")),
+                    "intent": entry["intent"], "intent_length": len(entry["intent"]), "notes": entry.get("notes", ""),
+                    "done_at": entry.get("done_at", ""), "path": item_dir(board) / f"{item_id}-{slug}.md"}
+            save_item(item)
+            paths.append(item["path"])
+            created += 1
+        after = read_items(board)
+        history = plan.get("history", [])
+        lines = [f"Migrated {created} items from {source}" + (f" ({skipped} already on the board, left as they were)" if skipped else ""),
+                 f"Before: {plan.get('before', {}).get('total', 'unknown')} entries in the old system.",
+                 f"Imported {len(planned)}, left in git history {len(history)}; accounted for {len(planned) + len(history)}.",
+                 f"Board now: {count_line(after)}.",
+                 "Nothing in the old system was deleted. Remove it only after the owner confirms."]
+        return paths, "\n".join(lines)
+    with write_lock(root):
+        print(publish(root, change))
+
+
 def parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description="Manage the docs/pm markdown board. Text values are read literally from stdin.")
     sub = p.add_subparsers(dest="command", required=True)
@@ -536,6 +634,18 @@ def parser() -> argparse.ArgumentParser:
     mirror = sub.add_parser("mirror", help="configure the optional GitHub Issues mirror")
     mirror.add_argument("mode", choices=("show", "off", "github"))
     sub.add_parser("sync", help="sync items to GitHub Issues when enabled")
+    migrate = sub.add_parser("migrate", help="move an existing task system onto the board; never deletes the old one")
+    actions = migrate.add_subparsers(dest="action", required=True)
+    actions.add_parser("scan", help="list the task systems found in this repository (read-only)")
+    plan = actions.add_parser("plan", help="read the old system and save a migration plan (read-only)")
+    plan.add_argument("--from", dest="source", required=True, choices=sorted(pm_migrate.SOURCES))
+    plan.add_argument("--file", help="the file to read, for --from checklist")
+    plan.add_argument("--done", choices=("history", "items"), default="history",
+                      help="leave finished work in git history (default) or import it as Done items")
+    plan.add_argument("--out", required=True, help="where to save the plan JSON, outside the repository")
+    apply = actions.add_parser("apply", help="create the items a confirmed plan describes")
+    apply.add_argument("plan", help="plan JSON from `migrate plan`, or one written by hand")
+    apply.add_argument("--dry-run", action="store_true", help="validate and list the items without writing")
     return p
 
 
@@ -545,7 +655,7 @@ def main() -> int:
     try:
         {"init": cmd_init, "board": cmd_board, "next": cmd_next, "add": cmd_add,
          "claim": cmd_claim, "finish": cmd_finish, "hold": cmd_hold, "resume": cmd_resume,
-         "set": cmd_set, "mirror": cmd_mirror, "sync": cmd_sync}[args.command](root, args)
+         "set": cmd_set, "mirror": cmd_mirror, "sync": cmd_sync, "migrate": cmd_migrate}[args.command](root, args)
     except (ValueError, OSError) as exc:
         print(f"pm: {exc}", file=sys.stderr)
         return 1
