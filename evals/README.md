@@ -29,3 +29,9 @@ Notes from this round:
 Results on 2026-10-01 (60 cases, after adding `migrate`): Haiku 4.5 45/46 tuning and 11/14 held-out (misses `held-1-help`, `held-2-plan`, `held-14-plan`, `help-3`), Sonnet 5.5 46/46 and 12/14 (`held-14-plan`, `held-6-map`; a re-run gave `held-6-map` 6/6 and `held-14-plan` 1/3), Opus 5.5 46/46 and 14/14. A "note that..." prompt with no "remember" or "add" (`held-14-plan`) is the weakest plan phrasing, and results are noisy at 1 run per case.
 
 Earlier results, before `migrate` (47 cases): Haiku 35/37 tuning and 8/10 held-out, Sonnet and Opus 37/37 and 10/10. Haiku's tuning-set gains came from a last description round that borrowed wording from prompts it had missed, so tuning-set numbers are optimistic; the held-out numbers are the honest signal.
+
+## Behavior evals
+
+`evals-behavior/` holds multi-turn cases that run a skill end to end in a scaffolded repository and grade what it did, kept apart so the routing run above stays cheap and needs no tool grants. `init-ordinary-cold-walk` runs `/pm:init` on a small Python library and checks that the reply reports both halves of the walk test, with one cold-walk answer per question, and no stage folders. Run it with:
+
+    claude plugin eval . --eval-dir evals-behavior --model claude-sonnet-5-5 --ablation none --trust-plugin --scaffold --allow-tools Bash Write Edit --no-publish

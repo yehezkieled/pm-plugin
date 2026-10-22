@@ -1,0 +1,12 @@
+schema_version: "1"
+name: init-ordinary-cold-walk
+description: /pm:init on an ordinary Python library must finish with both halves of the walk test, including the cold walk.
+tags: [behavior, cold-walk]
+runs: 1
+context:
+  scaffold_script: scaffold.sh
+execution:
+  prompt: /pm:init
+  max_turns: 60
+  timeout_seconds: 900
+  allowed_tools: [Skill, Read, Glob, Grep, Bash, Write, Edit]

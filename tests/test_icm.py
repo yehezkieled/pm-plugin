@@ -193,7 +193,7 @@ class IcmTests(unittest.TestCase):
         self.build_map()
         card = self.root / MAP / "objects/core/link.md"
         self.write(f"{MAP}/objects/core/link.md", CARD.replace("commit: abc1234\n", "").replace("- **Does not hit:** README\n", "")
-                   .replace("`src/app.py:1-2`", "`src/app.py:40`").replace("universe: live", "universe: maybe"))
+                   .replace("`src/app.py:1-2`", "`src/app.py:1-40`").replace("universe: live", "universe: maybe"))
         self.cli("index")
         out = self.walk(ok=False)
         for expected in ("universe is maybe", "needs both Hits and Does not hit", "`verified: YYYY-MM-DD` and `commit:`",

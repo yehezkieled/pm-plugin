@@ -399,7 +399,7 @@ def walk_map(root: Path, entry_text: str, add) -> None:
             if not target.is_file():
                 bad.append(f"{path} does not exist")
             elif end > len(read(target).splitlines()) or start < 1:
-                bad.append(f"{path}:{start} is past the end of the file")
+                bad.append(f"{path}:{end} is past the end of the file")
         if status == "verified":
             sections = headings(card["body"])
             missing = [s for s in CARD_SECTIONS[expected] if s.casefold() not in sections]
