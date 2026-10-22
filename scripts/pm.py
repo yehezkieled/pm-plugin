@@ -12,8 +12,9 @@ import sys
 import tempfile
 from contextlib import contextmanager
 from datetime import datetime, timezone
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
+import pm_icm
 import pm_migrate
 
 try:
@@ -85,6 +86,8 @@ def item_text(item: dict) -> str:
     keys = ("id", "status", "owner", "depends_on", "hold", "hold_until", "done_at", "intent_length", "github_issue")
     lines = ["---"]
     lines.extend(f"{key}: {json.dumps(item.get(key, [] if key == 'depends_on' else 0 if key == 'intent_length' else ''), ensure_ascii=False)}" for key in keys)
+    # Later list fields are written only when set, so older item files stay unchanged and merge cleanly.
+    lines.extend(f"{key}: {json.dumps(item[key], ensure_ascii=False)}" for key in ("touches", "corrections") if item.get(key))
     lines.extend(("---", f"# {item['title']}", "", "## Requester intent", item["intent"], "", "## Current notes", item.get("notes", ""), ""))
     return "\n".join(lines)
 
@@ -273,6 +276,36 @@ def next_items(items: list[dict]) -> list[dict]:
     return [i for i in items if ready(i, by_id)[0]]
 
 
+def repo_paths(root: Path, value: str) -> list[str]:
+    """Comma-separated repo-relative paths that must exist in the current checkout."""
+    paths = []
+    for raw in (part.strip() for part in value.split(",")):
+        if not raw:
+            continue
+        path = PurePosixPath(raw.replace("\\", "/"))
+        if path.is_absolute() or ".." in path.parts:
+            raise ValueError(f"{raw} must be a path inside this repository, relative to its root.")
+        name = path.as_posix().rstrip("/")
+        if not (root / name).exists():
+            raise ValueError(f"{name} does not exist in this checkout.")
+        if name not in paths:
+            paths.append(name)
+    return paths
+
+
+CORRECTION_REPEATS = 3
+
+
+def correction_counts(items: list[dict]) -> dict[tuple[str, str], int]:
+    """Corrections of each kind at each place since the source was last fixed for it."""
+    events = [entry for item in items for entry in item.get("corrections", []) if isinstance(entry, dict)]
+    counts: dict[tuple[str, str], int] = {}
+    for entry in sorted(events, key=lambda entry: str(entry.get("at", ""))):
+        key = (entry.get("where", ""), entry.get("kind", ""))
+        counts[key] = 0 if entry.get("fixed") else counts.get(key, 0) + 1
+    return counts
+
+
 def require_board(root: Path) -> None:
     if not config_path(root).exists():
         raise ValueError("No project board. Run /pm:init first.")
@@ -302,6 +335,7 @@ def cmd_add(root: Path, args) -> None:
     if not title:
         raise ValueError("The first stdin line must be the item title.")
     slug, id_slug = item_slugs(title)
+    touches = repo_paths(root, args.touches or "")
 
     def change(board: Path):
         require_board(board)
@@ -312,7 +346,7 @@ def cmd_add(root: Path, args) -> None:
                 break
         item = {"id": item_id, "title": title, "status": "queued", "owner": "",
                 "depends_on": [], "hold": "", "hold_until": "", "github_issue": "",
-                "intent": intent, "intent_length": len(intent), "notes": "", "done_at": "",
+                "intent": intent, "intent_length": len(intent), "notes": "", "done_at": "", "touches": touches,
                 "path": item_dir(board) / f"{item_id}-{slug}.md"}
         save_item(item)
         return [item["path"]], f"Created {item_id}: {title}\nDetail: {item['path'].relative_to(board).as_posix()}"
@@ -327,6 +361,10 @@ def cmd_board(root: Path, args) -> None:
     items = read_items(root)
     print(render_board(root, items), end="")
     print("\nReady next: " + (", ".join(f"{i['id']} {i['title']}" for i in next_items(items)) or "none"))
+    for (where, kind), count in sorted(correction_counts(items).items()):
+        if count >= CORRECTION_REPEATS:
+            print(f"Fix the source: {kind} was corrected {count} times on {where or 'the whole project'}. "
+                  "Change the source so it stops, then record it with pm.py correct --fixed.")
 
 
 def cmd_next(root: Path, args) -> None:
@@ -414,11 +452,19 @@ def cmd_resume(root: Path, args) -> None:
 
 
 def cmd_set(root: Path, args) -> None:
-    requested = [value.strip() for value in args.depends.split(",") if value.strip()]
+    if args.depends is None and args.touches is None:
+        raise ValueError("Give --depends, --touches, or both.")
+    touches = repo_paths(root, args.touches) if args.touches is not None else None
 
     def change(board: Path):
         items = read_items(board)
         item = find_item(items, args.id)
+        if touches is not None:
+            item["touches"] = touches
+        if args.depends is None:
+            save_item(item)
+            return [item["path"]], f"Updated {item['id']} touches: {', '.join(touches) or 'none'}."
+        requested = [value.strip() for value in args.depends.split(",") if value.strip()]
         known = {i["id"].casefold(): i["id"] for i in items}
         missing = [dependency for dependency in requested if dependency.casefold() not in known]
         if missing:
@@ -439,9 +485,74 @@ def cmd_set(root: Path, args) -> None:
             raise ValueError("These dependencies create a cycle.")
         item["depends_on"] = deps
         save_item(item)
-        return [item["path"]], f"Updated {item['id']} dependencies."
+        return [item["path"]], f"Updated {item['id']} dependencies" + (" and touches." if touches is not None else ".")
     with write_lock(root):
         print(publish(root, change))
+
+
+def cmd_correct(root: Path, args) -> None:
+    note = read_literal_stdin().strip()
+    if not note:
+        raise ValueError("Describe the correction on stdin (with --fixed, the source change that fixes it).")
+    kind = pm_migrate.slugify(args.kind)
+    if not kind:
+        raise ValueError("--kind needs a short name for this kind of correction, such as missing-tests.")
+    where = (repo_paths(root, args.where) or [""])[0]
+    label = f"`{where}`" if where else "the whole project"
+
+    def change(board: Path):
+        items = read_items(board)
+        item = find_item(items, args.id)
+        entry = {"at": datetime.now(timezone.utc).isoformat(timespec="microseconds"), "kind": kind, "where": where, "note": note}
+        if args.fixed:
+            entry["fixed"] = True
+        item["corrections"] = [*item.get("corrections", []), entry]
+        save_item(item)
+        if args.fixed:
+            return [item["path"]], f"Recorded the source fix for {kind} on {label}; its count starts again."
+        counts = correction_counts(items)
+        count = counts[(where, kind)]
+        fixed_before = any(c.get("fixed") and (c.get("where"), c.get("kind")) == (where, kind)
+                           for i in items for c in i.get("corrections", []) if isinstance(c, dict))
+        lines = [f"Recorded correction {kind} on {label} for {item['id']}: {count} of this kind {'there' if where else 'in the project'}"
+                 + (" since the source was last fixed for it." if fixed_before else " so far.")]
+        if count >= CORRECTION_REPEATS:
+            fixed = f"pm.py correct {item['id']} --kind {kind}" + (f" --where {where}" if where else "") + " --fixed"
+            source = (f"{label} (or AGENTS.md if it applies to every session)" if where else
+                      "the source behind it: AGENTS.md if it applies to every session, docs/placement.md if it is about "
+                      "where knowledge goes, or the contract or reference file that produced it")
+            lines.append(f"Same correction {count} times: fix the source, not the output. Propose a lasting change to {source}; "
+                         f"once it is in, record it with {fixed} and the change on stdin.")
+        else:
+            others = [f"{other} ({n})" for (place, other), n in sorted(counts.items()) if place == where and other != kind and n]
+            if others:
+                lines.append("Other kinds recorded here: " + ", ".join(others) + ". Reuse a kind's name when it is the same correction.")
+        return [item["path"]], "\n".join(lines)
+    with write_lock(root):
+        print(publish(root, change))
+
+
+def cmd_walk(root: Path, args) -> None:
+    results = pm_icm.walk(root, read_items(root))
+    print(pm_icm.render_walk(results), flush=True)
+    failed = sum(level == "FAIL" for level, _ in results)
+    if failed:
+        raise ValueError(f"walk test failed: {failed} thing{'s' if failed > 1 else ''} to fix.")
+
+
+def cmd_index(root: Path, args) -> None:
+    print(pm_icm.write_index(root))
+
+
+def cmd_refs(root: Path, args) -> None:
+    pairs = []
+    for raw in args.paths:
+        old, _, new = raw.partition("=")
+        pairs.append((old.strip().strip("/").removeprefix("./"), new.strip().strip("/").removeprefix("./")))
+    report, collisions = pm_icm.refs(root, pairs)
+    print(report, flush=True)
+    if collisions:
+        raise ValueError(f"{collisions} destination{'s are' if collisions > 1 else ' is'} already taken; pick another name first.")
 
 
 def cmd_mirror(root: Path, args) -> None:
@@ -622,7 +733,8 @@ def parser() -> argparse.ArgumentParser:
     sub.add_parser("init", help="create an empty board")
     sub.add_parser("board", help="show status at a glance")
     sub.add_parser("next", help="list queued items whose dependencies are done")
-    sub.add_parser("add", help="create an item; stdin is the title line followed by the requester's exact words")
+    add = sub.add_parser("add", help="create an item; stdin is the title line followed by the requester's exact words")
+    add.add_argument("--touches", help="comma-separated map cards or stage folders the item touches")
     for command, help_text in (("claim", "claim an item before work; stdin is the person's name"),
                                ("finish", "mark an in-flight item done; stdin is the completion note")):
         sub.add_parser(command, help=help_text).add_argument("id")
@@ -631,8 +743,16 @@ def parser() -> argparse.ArgumentParser:
     resume.add_argument("--answer", action="store_true", help="stdin is the decider's exact words; saved at the top of the item's current notes")
     hold = sub.add_parser("hold", help="park an item for a decision; stdin is the question")
     hold.add_argument("id"); hold.add_argument("--until", default="")
-    update = sub.add_parser("set", help="set dependencies")
-    update.add_argument("id"); update.add_argument("--depends", required=True)
+    update = sub.add_parser("set", help="set dependencies and the map cards or stage folders an item touches")
+    update.add_argument("id"); update.add_argument("--depends"); update.add_argument("--touches")
+    correct = sub.add_parser("correct", help="record a correction of the agent's output; stdin says what was corrected")
+    correct.add_argument("id"); correct.add_argument("--kind", required=True, help="short name, reused for the same kind")
+    correct.add_argument("--where", default="", help="the contract, card, or file the output came from")
+    correct.add_argument("--fixed", action="store_true", help="the source was changed for this kind; stdin says how")
+    sub.add_parser("walk", help="check the ICM structure: entry file, contracts, map cards, links, token budget (read-only)")
+    sub.add_parser("index", help="rebuild docs/pm/map/_index.md from the cards' frontmatter")
+    refs = sub.add_parser("refs", help="before moving files: what points at each path, and whether its destination is free (read-only)")
+    refs.add_argument("paths", nargs="+", metavar="OLD[=NEW]")
     mirror = sub.add_parser("mirror", help="configure the optional GitHub Issues mirror")
     mirror.add_argument("mode", choices=("show", "off", "github"))
     sub.add_parser("sync", help="sync items to GitHub Issues when enabled")
@@ -655,7 +775,8 @@ def main() -> int:
     try:
         {"init": cmd_init, "board": cmd_board, "next": cmd_next, "add": cmd_add,
          "claim": cmd_claim, "finish": cmd_finish, "hold": cmd_hold, "resume": cmd_resume,
-         "set": cmd_set, "mirror": cmd_mirror, "sync": cmd_sync, "migrate": cmd_migrate}[args.command](root, args)
+         "set": cmd_set, "correct": cmd_correct, "walk": cmd_walk, "index": cmd_index, "refs": cmd_refs,
+         "mirror": cmd_mirror, "sync": cmd_sync, "migrate": cmd_migrate}[args.command](root, args)
     except (ValueError, OSError) as exc:
         print(f"pm: {exc}", file=sys.stderr)
         return 1

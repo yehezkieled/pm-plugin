@@ -234,7 +234,7 @@ def read_0x(root: Path, **_: object) -> dict:
     if decisions.exists():
         entries = re.findall(r"^## (.+?)\s*$", read_text(decisions), re.M)
         knowledge.append({"from": "docs/pm/decisions.md", "what": f"{len(entries)} decision(s): " + "; ".join(entries),
-                          "route": "Decisions that shape future work become guidance in AGENTS.md (architectural ones in docs/pm/CODEBASE.md); one that only explains a past change stays in git history. Go through them with the owner."})
+                          "route": "Decisions that shape future work become guidance in AGENTS.md (architectural ones on the System map card they govern, docs/pm/map/); one that only explains a past change stays in git history. Go through them with the owner."})
         retire.append("docs/pm/decisions.md")
     context = root / "CONTEXT.md"
     if context.exists():
@@ -251,7 +251,7 @@ def read_0x(root: Path, **_: object) -> dict:
                               "route": "; ".join(routes)})
     if (pm / "tickets").exists():
         retire.insert(0, "docs/pm/tickets")
-    known = {"tickets", "epics", "roadmap.md", "decisions.md", "config.json", "items", "CODEBASE.md"}
+    known = {"tickets", "epics", "roadmap.md", "decisions.md", "config.json", "items", "CODEBASE.md", "map"}
     stray = sorted(p.name for p in pm.iterdir() if p.name not in known) if pm.exists() else []
     if stray:
         warnings.append("Other files under docs/pm were left alone and are not in the retire list: " + ", ".join(stray) + ".")
@@ -332,7 +332,7 @@ def read_checklist(root: Path, file: str | None = None, **_: object) -> dict:
     knowledge, warnings, retire = [], [], []
     if prose:
         knowledge.append({"from": rel, "what": f"{prose} line(s) of text that are not checklist items",
-                          "route": "Lasting rules go to AGENTS.md, the product description to README.md, architecture to docs/pm/CODEBASE.md; anything else stays where it is. Ask the owner."})
+                          "route": "Lasting rules go to AGENTS.md, the product description to README.md, architecture to the System map (docs/pm/map/, /pm:map); anything else stays where it is. Ask the owner."})
         warnings.append(f"{rel} also holds other text, so it is not on the retire list; remove the migrated checkboxes by hand.")
     else:
         retire.append(rel)

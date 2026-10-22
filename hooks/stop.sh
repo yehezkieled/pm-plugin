@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Stop hook: warn when code changed without a project item detail update.
-input="$(cat)"
+cat >/dev/null  # drain the hook payload; this hook does not use it
 root="${CLAUDE_PROJECT_DIR:-$PWD}"
 [ -f "$root/docs/pm/config.json" ] || exit 0
 git -C "$root" rev-parse --is-inside-work-tree >/dev/null 2>&1 || exit 0
@@ -11,5 +11,5 @@ code="$(printf '%s\n' "$changed" | grep -v -E '^(docs/pm/|.*\.(md|txt)$)' \
   | grep -v -E '\.(pyc|pyo|log|tmp)$' || true)"
 item="$(printf '%s\n' "$changed" | grep -E '^docs/pm/items/[^/]+\.md$' || true)"
 [ -n "$code" ] && [ -z "$item" ] || exit 0
-printf '{"systemMessage":"Code changed without an item detail update. If this work is tracked, rewrite its Current notes and refresh affected project docs before finishing."}\n'
+printf '{"systemMessage":"Code changed without an item detail update. If this work is tracked, rewrite its Current notes, update the map cards it touches, and refresh affected project docs before finishing."}\n'
 exit 0
