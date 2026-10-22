@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Stop hook: warn when code changed without a project item detail update.
-input="$(cat)"
+cat >/dev/null  # drain the hook payload; this hook does not use it
 root="${CLAUDE_PROJECT_DIR:-$PWD}"
 [ -f "$root/docs/pm/config.json" ] || exit 0
 git -C "$root" rev-parse --is-inside-work-tree >/dev/null 2>&1 || exit 0

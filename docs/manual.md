@@ -259,7 +259,7 @@ Do this when a source is common enough that a hand-made plan each time is wastef
 | You regret removing the old files | `git log --diff-filter=D --name-only` finds them; `git checkout <commit>^ -- <path>` restores them |
 | `pm.py walk` fails | Each FAIL line names the file and what to fix; WARN lines do not fail it. Fix and run it again; `/pm:init` and `/pm:map` do this themselves |
 | "_index.md is missing or out of date" | A card was added, renamed, or changed status. Run `pm.py index`; never edit `_index.md` by hand |
-| "Item ... touches paths that do not exist" | A card or stage folder moved. Update the item with `pm.py set ITEM_ID --touches PATH,PATH` |
+| "Item ... touches paths that do not exist" | A card or stage folder an item that is not done points at moved. Update the item with `pm.py set ITEM_ID --touches PATH,PATH` |
 | `pm.py refs` says the destination is taken | Another file has the same name apart from letter case, which breaks on macOS and Windows checkouts. Pick another name |
 | The board ends with "Fix the source" | The same correction was made three times on one source. Change that source, then record it with `pm.py correct ... --fixed` |
 | Session start mentions `docs/pm/CODEBASE.md` | The project predates the System map. Run `/pm:map` to convert it (2.4) |

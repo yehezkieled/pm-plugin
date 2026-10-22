@@ -714,7 +714,7 @@ touches: [&quot;docs/pm/map/objects/links/link.md&quot;]
 Opening /a1b2 should send the visitor to the original URL.
 
 ## Current notes</pre>
-  <p>Your words stay exactly as typed; <code>touches</code> sits beside them. A path that does not exist is refused, and the walk test fails if a card an item points at later moves:</p>
+  <p>Your words stay exactly as typed; <code>touches</code> sits beside them. A path that does not exist is refused, and the walk test fails if a card an open item points at later moves (a done item's <code>touches</code> are history and are not checked):</p>
   <pre class="term"><span class="cmd">$ pm.py set redirect-a-short-link-9bbffa --touches docs/pm/map/objects/links/redirect.md</span>
 pm: docs/pm/map/objects/links/redirect.md does not exist in this checkout.</pre>
   <h3>/pm:work loads only that, then checks before you review</h3>
