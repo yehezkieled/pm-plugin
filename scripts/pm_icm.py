@@ -93,7 +93,7 @@ def link_targets(path: Path, root: Path, text: str) -> list[tuple[int, str, Path
     found = []
     for number, line in enumerate(text.splitlines(), 1):
         targets = [m.group(1) for m in LINK.finditer(line)]
-        if re.match(r"^@\S+$", line.strip()):
+        if re.match(r"^@[^~/]\S*$", line.strip()):
             targets.append(line.strip()[1:])
         for raw in targets:
             if re.match(r"^[a-z][a-z0-9+.-]*:", raw, re.I) or raw.startswith("#") or "{" in raw:
@@ -182,7 +182,8 @@ def tokens(text: str) -> int:
 
 
 def is_pointer(text: str) -> bool:
-    return text.strip() == "@AGENTS.md"
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    return "@AGENTS.md" in lines and all(re.match(r"^@\S+$", line) for line in lines)
 
 
 def check_entry_pair(root: Path, folder: str, add) -> None:
@@ -262,6 +263,8 @@ def walk(root: Path, items: list[dict]) -> list[tuple[str, str]]:
                     f"docs/pm/CODEBASE.md is not a System map yet; /pm:map turns it into {MAP}/ and retires it.")
 
     for item in items:
+        if item.get("status") == "done":
+            continue
         missing = [path for path in item.get("touches", []) if not (root / path).exists()]
         if missing:
             add("FAIL", f"Item {item['id']} touches paths that do not exist: {', '.join(missing)}. "

@@ -155,6 +155,12 @@ class IcmTests(unittest.TestCase):
         self.write("CLAUDE.md", "@AGENTS.md\n")
         self.write("AGENTS.md", "# Project\n\nOverview: [README.md](README.md)\n")
         self.assertIn("Walk test: passed", self.walk())
+        self.write("CLAUDE.md", "@AGENTS.md\n@~/.claude/my-instructions.md\n@/etc/team/rules.md\n")
+        self.assertIn("Walk test: passed", self.walk())
+        self.write("CLAUDE.md", "@AGENTS.md\n@docs/missing.md\n")
+        self.assertIn("CLAUDE.md:2 -> docs/missing.md", self.walk(ok=False))
+        self.write("CLAUDE.md", "@AGENTS.md\nExtra rule\n")
+        self.assertIn("two hand-maintained entry files", self.walk(ok=False))
 
     def test_missing_entry_file_fails(self):
         self.assertIn("No entry file", self.walk(ok=False))
@@ -303,6 +309,10 @@ class IcmTests(unittest.TestCase):
         self.cli("index")
         self.assertIn(f"Item {item_id} touches paths that do not exist: {card}", self.walk(ok=False))
         self.assertIn("Give --depends, --touches, or both", self.cli("set", item_id, ok=False).stderr)
+        self.cli("claim", item_id, input_text="Ari")
+        self.assertIn(f"Item {item_id} touches paths that do not exist", self.walk(ok=False))
+        self.cli("finish", item_id, input_text="")
+        self.assertNotIn("touches paths that do not exist", self.walk(ok=False))
 
     def test_items_without_new_fields_keep_their_exact_format(self):
         item_id = self.add()
