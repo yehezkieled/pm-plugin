@@ -11,5 +11,5 @@ code="$(printf '%s\n' "$changed" | grep -v -E '^(docs/pm/|.*\.(md|txt)$)' \
   | grep -v -E '\.(pyc|pyo|log|tmp)$' || true)"
 item="$(printf '%s\n' "$changed" | grep -E '^docs/pm/items/[^/]+\.md$' || true)"
 [ -n "$code" ] && [ -z "$item" ] || exit 0
-printf '{"systemMessage":"Code changed without an item detail update. If this work is tracked, rewrite its Current notes and refresh affected project docs before finishing."}\n'
+printf '{"systemMessage":"Code changed without an item detail update. If this work is tracked, rewrite its Current notes, update the map cards it touches, and refresh affected project docs before finishing."}\n'
 exit 0

@@ -16,6 +16,10 @@ fi
 if [ ! -f "$root/docs/pm/config.json" ]; then
   exit 0
 fi
+# The one-file architecture map of pm 1.0 is replaced by the System map; point at the conversion once per session.
+if [ -f "$root/docs/pm/CODEBASE.md" ] && [ ! -d "$root/docs/pm/map" ]; then
+  echo "This project's architecture is in docs/pm/CODEBASE.md, which this pm version replaces with a System map of cards in docs/pm/map/. Run /pm:map to convert it; nothing is deleted without the owner's yes."
+fi
 (cd "$root" && python3 "$plugin/scripts/pm.py" board 2>/dev/null)
 echo
 echo "Before building any item on this board, use the pm:work skill to claim it first. When the user asks to add, track, or \"remember to\" do project work, use the pm:plan skill to put it on this board, not your memory."
