@@ -7,7 +7,7 @@ description: "Show the pm board: what is in flight, queued, waiting, and what to
 
 Run `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/pm.py" board` and show its output. It lists In flight, Queued, Waiting, recent Done, and Ready next. Read the detail files for any item whose reason or requester intent needs more context. If Python is unavailable, read the item files in `docs/pm/items/` directly.
 
-End with a concise recommendation for the next action. Do not infer dates, progress percentages, or priorities that the board does not record.
+If the board ends with "Fix the source" lines, the same correction keeps recurring there: name the source to change in the recommendation. End with a concise recommendation for the next action. Do not infer dates, progress percentages, or priorities that the board does not record.
 
 ## Reply
 
