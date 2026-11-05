@@ -72,7 +72,7 @@ def git_status(root: Path) -> list[tuple[str, str]]:
             continue
         if entry[0] in "RC":
             index += 1  # -z puts a rename's original path in the next entry
-        if entry[:2] == "??" and entry.endswith("/"):
+        if entry[:2] == "??" and entry[3:].startswith(".claude/worktrees/agent-") and entry.endswith("/"):
             continue
         found.append((entry[:2], entry[3:]))
     return found

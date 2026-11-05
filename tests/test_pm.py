@@ -333,6 +333,15 @@ class ProjectBoardTests(unittest.TestCase):
         stop = subprocess.run(["bash", str(STOP_HOOK)], cwd=self.root, env=env, input="{}", text=True,
                               capture_output=True, check=True)
         self.assertEqual(stop.stdout, "")
+        nested_repo = self.root / "vendor/new-project"
+        nested_repo.mkdir(parents=True)
+        subprocess.run(["git", "init", "-q"], cwd=nested_repo, check=True)
+        stray = self.run_cli("places", "--paths").stdout
+        self.assertIn("vendor/new-project/", stray)
+        stop = subprocess.run(["bash", str(STOP_HOOK)], cwd=self.root, env=env, input="{}", text=True,
+                              capture_output=True, check=True)
+        self.assertIn('"decision": "block"', stop.stdout)
+        self.assertIn("vendor/new-project/", stop.stdout)
 
     def test_stop_hook_recognizes_slug_id_item_updates(self):
         with tempfile.TemporaryDirectory() as temp:

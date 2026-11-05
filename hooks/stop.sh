@@ -16,7 +16,7 @@ if command -v python3 >/dev/null 2>&1; then
   fi
 fi
 # An untracked directory listed whole is another checkout (a worker's worktree), not a change here.
-changed="$(git -C "$root" status --porcelain --untracked-files=all 2>/dev/null | grep -v -E '^\?\? .*/$' | cut -c4-)"
+changed="$(git -C "$root" status --porcelain --untracked-files=all 2>/dev/null | grep -v -E '^\?\? \.claude/worktrees/agent-[^/]+/$' | cut -c4-)"
 [ -n "$changed" ] || exit 0
 code="$(printf '%s\n' "$changed" | grep -v -E '^(docs/pm/|.*\.(md|txt)$)' \
   | grep -v -E '(^|/)(__pycache__|node_modules|\.pytest_cache|\.mypy_cache|\.ruff_cache|dist|build|target|\.venv|venv|coverage|out)(/|$)' \
