@@ -1,0 +1,12 @@
+schema_version: "1"
+name: work-memo-places
+description: New data dropped at the root and a memo request go through the board, and every new file lands where the table says.
+tags: [behavior, places, work]
+runs: 1
+context:
+  scaffold_script: scaffold.sh
+execution:
+  prompt: "I dropped Endeavour Energy's 2025-26 price list at the root (endeavour_price_list_2025-26.csv). Add it to the project and extend the reconciliation so it covers Endeavour too. Then explore the Endeavour discrepancies (which tariff codes differ and by how much) and write up the findings as the one-page memo my manager wants for the pricing team."
+  max_turns: 80
+  timeout_seconds: 1200
+  allowed_tools: [Skill, Read, Glob, Grep, Bash, Write, Edit]

@@ -20,7 +20,11 @@ fi
 if [ -f "$root/docs/pm/CODEBASE.md" ] && [ ! -d "$root/docs/pm/map" ]; then
   echo "This project's architecture is in docs/pm/CODEBASE.md, which this pm version replaces with a System map of cards in docs/pm/map/. Run /pm:map to convert it; nothing is deleted without the owner's yes."
 fi
+# A board from before pm 1.2 has no Where things go table in AGENTS.md; point at init once per session.
+if [ -f "$root/AGENTS.md" ] && ! grep -q '^## Where things go' "$root/AGENTS.md"; then
+  echo "This project's AGENTS.md has no Where things go table, so new files have no agreed place. Run /pm:init to add one from the project's shape; it moves nothing without the owner's yes."
+fi
 (cd "$root" && python3 "$plugin/scripts/pm.py" board 2>/dev/null)
 echo
-echo "Before building any item on this board, use the pm:work skill to claim it first. When the user asks to add, track, or \"remember to\" do project work, use the pm:plan skill to put it on this board, not your memory."
+echo "Any project work (code, data, a deliverable) goes through the pm:work skill, which claims it first and adds it to this board if it is not there. When the user asks to add, track, or \"remember to\" do project work, use the pm:plan skill to put it on this board, not your memory. Every new file goes where AGENTS.md > Where things go says for its kind."
 exit 0

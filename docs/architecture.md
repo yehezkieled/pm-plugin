@@ -14,8 +14,8 @@ flowchart LR
   C --> K[docs/pm/config.json<br/>board marker, mirror setting,<br/>migration record]
   S -. read .-> PG[docs/placement.md<br/>where knowledge and decisions go]
   S -. read .-> ICM[icm/<br/>method guides, templates]
-  C --> W[scripts/pm_icm.py<br/>walk test, card index, refs]
-  W -. read only .-> R[AGENTS.md, CONTEXT.md contracts,<br/>docs/pm/map/, workflow skills]
+  C --> W[scripts/pm_icm.py<br/>walk test, card index, refs, places]
+  W -. read only .-> R[AGENTS.md and its Where things go table,<br/>CONTEXT.md contracts, docs/pm/map/, workflow skills]
   I --> B[Rendered board<br/>pm.py board output]
   H[Claude Code hooks<br/>hooks/hooks.json] --> SH[hooks/session-start.sh<br/>hooks/stop.sh]
   SH --> C
@@ -44,24 +44,28 @@ sequenceDiagram
   Remote-->>CLI: accept one update or reject a race
   CLI->>Remote: fetch and re-check after rejection
   CLI->>Item: fast-forward the local default branch when checked out
+  Skill->>Skill: commit the work on the work branch
   Skill->>CLI: finish on the work branch
-  CLI->>Item: commit only the item file; the PR merge publishes it
+  CLI->>CLI: refuse while files outside the board are uncommitted
+  CLI->>Item: commit the item file after the work's commits; the PR merge publishes it
   CLI-->>Skill: item path and rendered board
   Skill-->>Person: work result and next ready item
 ```
 
 `init`, `plan`, `work`, `map`, and `help` read the single [placement guide](placement.md) instead of restating it. For decisions, `hold` stores the question on the item and takes it to Waiting; `resume --answer` saves the decider's exact words at the top of `## Current notes` in the same commit as the resume, which matters because a notes edit made by hand on the default branch would block the CLI's fast-forward. Lasting decisions go on the card or contract they govern, or `AGENTS.md`, through the normal change.
 
-`next` selects only queued items with no hold and with all dependencies done. Claim changes a queued item to In flight while holding the same lock used by other CLI writes. Hold and resume never change the owner, so a held claim returns to In flight for the same person and no one else can claim it. Without a remote, writes change the local item files and only `finish` commits. Finishing records a UTC completion time; the rendered board shows the newest ten Done items and counts older ones. Because each change touches only its own item file, parallel work branches merge without board conflicts.
+`next` selects only queued items with no hold and with all dependencies done. Claim changes a queued item to In flight while holding the same lock used by other CLI writes. Hold and resume never change the owner, so a held claim returns to In flight for the same person and no one else can claim it. Without a remote, each board write commits only the item file it changed on the current branch; with a remote, writes publish through the shared default board flow. Finishing records a UTC completion time; the rendered board shows the newest ten Done items and counts older ones. Because each change touches only its own item file, parallel work branches merge without board conflicts.
 
 ## Structure flow (ICM)
 
-The skills apply ICM at fixed moments so the user never runs a second skill; the method, its templates, and its MIT credit live in [`icm/`](../icm/README.md). `scripts/pm_icm.py` holds the read-only checks behind the CLI's `walk`, `index`, and `refs` commands, and `pm.py` adds `--touches` on items and `correct`.
+The skills apply ICM at fixed moments so the user never runs a second skill; the method, its templates, and its MIT credit live in [`icm/`](../icm/README.md). `scripts/pm_icm.py` holds the read-only checks behind the CLI's `walk`, `index`, `refs`, and `places` commands, and `pm.py` adds `--touches` on items and `correct`.
 
 ```mermaid
 flowchart LR
-  INIT["/pm:init"] -->|ordinary project| CAT[AGENTS.md catalog<br/>CLAUDE.md = @AGENTS.md]
-  INIT -->|workflow being built| SK[.claude/skills/NAME/<br/>numbered stages, contracts]
+  INIT["/pm:init"] -->|shape from icm/shapes.md| CAT[AGENTS.md catalog + Where things go<br/>CLAUDE.md = @AGENTS.md]
+  INIT -->|skill shape| SK[.claude/skills/NAME/<br/>numbered stages, contracts]
+  CAT -->|pm.py places| PL{new file outside<br/>the places?}
+  PL -->|yes| STOP[Stop hook blocks once:<br/>move it or add a row]
   MAP["/pm:map"] --> SM[docs/pm/map/<br/>catalog, cards, effects]
   SM -->|pm.py index| IX[_index.md, generated]
   CAT --> WALK{pm.py walk<br/>+ cold walk}
@@ -75,7 +79,7 @@ flowchart LR
   CO -->|3 of one kind, one source| FIX[Fix the source<br/>on the board]
 ```
 
-`walk` reads only what Git tracks or would track (`git ls-files --cached --others --exclude-standard`), so ignored build output never counts. It fails on a missing or oversized entry file, two hand-maintained entry files in one folder, links that do not resolve, a numbered stage or map contract without its five sections, an oversized `CONTEXT.md`, a workflow skill that would not package, map cards with bad frontmatter, a map of two or more cards without its change-impact index, unfilled template lines, citations past the end of a file, a verified card without its evidence, a stale `_index.md`, a `touches` path on an item that is not done that no longer exists, and one walk (entry, catalog, largest card or contract) over about 8,000 tokens; softer findings are warnings. `index` renders `_index.md` from card frontmatter, so it is never hand-edited. `refs` lists what points at a file before a move (links, path mentions, bare-name mentions, symlinks) and refuses a destination already taken when names are compared case-folded. `correct` appends to the item's `corrections` list through the same `publish` transaction as `hold`; counts group by kind and source across all items, and a `fixed` entry resets that group. `touches` and `corrections` are written only when set, so items without them keep their exact format.
+`places` reads the `## Where things go` table of the root `AGENTS.md`: each backticked path in its Place column, cut at its first placeholder (`<`, `{`, `*`, `YYYY`), is a place, either a folder or a file such as `data/README.md`; `docs/pm/`, root dotfiles and dot-folders, and the files a tool expects at the root (`LICENSE`, the dependency and lock files) always pass. It lists the files Git reports as untracked, added, or renamed (by their new path) that fall outside every place; the Stop hook runs it with `--paths`. `finish` reads the same Git status and refuses while any path other than `docs/pm/items/` and `docs/pm/config.json` is changed or new. `walk` reads only what Git tracks or would track (`git ls-files --cached --others --exclude-standard`), so ignored build output never counts. It fails on a missing or oversized entry file, two hand-maintained entry files in one folder, links that do not resolve, a numbered stage or map contract without its five sections, an oversized `CONTEXT.md`, a workflow skill that would not package, map cards with bad frontmatter, a map of two or more cards without its change-impact index, unfilled template lines, citations past the end of a file, a verified card without its evidence, a stale `_index.md`, a `touches` path on an item that is not done that no longer exists, and one walk (entry, catalog, largest card or contract) over about 8,000 tokens; softer findings are warnings, among them an `AGENTS.md` without a Where things go table and files outside its places. `index` renders `_index.md` from card frontmatter, so it is never hand-edited. `refs` lists what points at a file before a move (links, path mentions, bare-name mentions, symlinks) and refuses a destination already taken when names are compared case-folded. `correct` appends to the item's `corrections` list through the same `publish` transaction as `hold`; counts group by kind and source across all items, and a `fixed` entry resets that group. `touches` and `corrections` are written only when set, so items without them keep their exact format.
 
 ## Migration flow
 
@@ -101,14 +105,14 @@ flowchart LR
 
 | Component | Input | Output | Depends on |
 | --- | --- | --- | --- |
-| `/pm:init` | Current project and existing instructions, the owner's choice of project kind | `docs/pm/`, a catalog `AGENTS.md` (or a workflow skill's stages), moves only after the owner's yes, a passing walk test; hands off to `/pm:migrate` when `migrate scan` finds an existing system | Claude Code file tools, `pm.py walk` and `refs`, `icm/` |
+| `/pm:init` | Current project and existing instructions, its shape from `icm/shapes.md` | `docs/pm/`, a catalog `AGENTS.md` with a Where things go table (and for the skill shape, a workflow skill's stages), files moved into their places only after the owner's yes, a passing walk test; hands off to `/pm:migrate` when `migrate scan` finds an existing system | Claude Code file tools, `pm.py walk` and `refs`, `icm/` |
 | `/pm:migrate` | The old system, its plan edited by the owner, the owner's yes | Items written from the plan, counts before and after, knowledge routed per the placement guide, old files removed only on confirmation | `scripts/pm.py migrate`, `scripts/pm_migrate.py`, `gh` for GitHub Issues |
 | `/pm:plan` | Requester's exact words, optional dependencies, touched cards or stages, decision question or answer | Queued item detail published to the shared default branch | `scripts/pm.py add`, `set`, `hold`, `resume` |
-| `/pm:work` | Queued item, its touched cards or contracts, and person's name | Claim before changes, code/doc and card updates, verify result, recorded corrections, current item notes, Done or In flight status | CLI lock, project checks, `pm.py walk`, `correct` |
+| `/pm:work` | Any project work request (added as an item first if missing), its touched cards or contracts, and person's name | Claim before changes, new files in their places, code/doc and card updates, verify result, recorded corrections, current item notes, committed work, then Done or a hold with the question | CLI lock, project checks, `pm.py walk`, `correct`, `hold` |
 | `/pm:status` | Project board | In flight owners, Queued, Waiting, Done, ready items, sources to fix | `scripts/pm.py board` |
 | `/pm:map` | Repository source, metadata, docs, tests, an old `docs/pm/CODEBASE.md` | System map in `docs/pm/map/`: catalog, cards with citations and change impact, effects index, generated `_index.md`; the old file retired on the owner's yes | Claude Code read/write tools, `pm.py index`, `walk`, `refs` |
-| `SessionStart` hook | Current project directory | Rendered board plus a note to claim items with `/pm:work` and add work with `/pm:plan`, in session context; a pointer to `/pm:init` for an unmigrated 0.x board, and to `/pm:map` for a 1.0 `CODEBASE.md` | `python3`; otherwise points to `docs/pm/items/` |
-| `Stop` hook | Git status and item files | Reminder when code changed without an item update | `git`, bash |
+| `SessionStart` hook | Current project directory | Rendered board plus a note that any project work goes through `/pm:work`, added work through `/pm:plan`, and new files where the table says, in session context; a pointer to `/pm:init` for an unmigrated 0.x board or an `AGENTS.md` without the table, and to `/pm:map` for a 1.0 `CODEBASE.md` | `python3`; otherwise points to `docs/pm/items/` |
+| `Stop` hook | Hook payload, Git status, the Where things go table, item files | Blocks the stop once (never when `stop_hook_active`) while new files sit outside the table's places; otherwise a reminder when code changed without an item update | `git`, bash, `python3` for the place check |
 | Optional `sync` | Item Markdown and GitHub repo | GitHub Issues created/updated; new issue numbers published in item files | `gh` CLI and opt-in mirror setting |
 
-The model is selected by the Claude Code session. The plugin does not name a model or launch subagents. Its persistent data is plain Markdown; the CLI uses only Python's standard library. New item IDs combine a short title slug and random suffix, with a local duplicate check. The CLI uses OS file locking (`fcntl` on Unix-like systems and `msvcrt` on Windows); its remote claim path fetches the default branch and retries ownership checks after a rejected push. See the [README](../README.md) for the user-facing collaboration and GitHub mirror contract.
+The model is selected by the Claude Code session. The plugin does not name a model or launch subagents. Its persistent data is plain Markdown; the CLI uses only Python's standard library. New item IDs combine a short title slug and random suffix, with a local duplicate check; an item's file is named after its ID (older files that repeat the slug are still read). The CLI uses OS file locking (`fcntl` on Unix-like systems and `msvcrt` on Windows); its remote claim path fetches the default branch and retries ownership checks after a rejected push. See the [README](../README.md) for the user-facing collaboration and GitHub mirror contract.

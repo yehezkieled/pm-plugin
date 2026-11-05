@@ -1,0 +1,12 @@
+schema_version: "1"
+name: init-analysis-places
+description: /pm:init on a loose data analysis picks the analysis shape, stamps a Where things go table, and moves the loose files into place.
+tags: [behavior, places]
+runs: 1
+context:
+  scaffold_script: scaffold.sh
+execution:
+  prompt: "Set up pm in this repo. You have my yes in advance for the structure, the Where things go table, and the file moves you recommend: apply them now instead of asking."
+  max_turns: 80
+  timeout_seconds: 1200
+  allowed_tools: [Skill, Read, Glob, Grep, Bash, Write, Edit]
