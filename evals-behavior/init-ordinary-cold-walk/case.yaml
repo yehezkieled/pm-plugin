@@ -1,6 +1,6 @@
 schema_version: "1"
 name: init-ordinary-cold-walk
-description: /pm:init on an ordinary Python library must finish with both halves of the walk test, including the cold walk.
+description: /pm:init on a small Python library stamps a Where things go table and finishes with both halves of the walk test, including the cold walk.
 tags: [behavior, cold-walk]
 runs: 1
 context:

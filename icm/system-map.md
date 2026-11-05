@@ -1,6 +1,6 @@
 # System map: a repository as an edit graph
 
-Adapted from icm-architect's `references/system-map.md` (MIT, © 2026 Jake Van Clief; see [LICENSE](LICENSE)). `/pm:map` follows this. It is optional for an ordinary project and useful once agents should load one part of the code at a time instead of the whole tree.
+Adapted from icm-architect's `references/system-map.md` (MIT, © 2026 Jake Van Clief; see [LICENSE](LICENSE)). `/pm:map` follows this. It is optional for any project shape and useful once agents should load one part of the code at a time instead of the whole tree.
 
 The map lets a later agent answer "what is this" and "what else moves if I change it" without reading the tree. It is a record library of nouns (object cards), a short shelf of verbs (process cards), and a change-impact index. The source stays the truth; cards cite it and never become a second spec.
 

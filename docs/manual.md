@@ -26,24 +26,30 @@ Open Claude Code in the repository and run `/pm:init`. It:
 
 1. Looks at the repository and runs the walk test (`pm.py walk`, read-only) to see where the structure stands.
 2. Creates `docs/pm/config.json` (with a Git remote it commits and pushes this to the default branch so every clone sees the board).
-3. Tells you which kind of project this is (2.1), and asks you to confirm when it looks like a workflow or the signs are mixed.
-4. Gives the repository its structure: a small catalog `AGENTS.md` and a one-line `CLAUDE.md` containing `@AGENTS.md` when absent; for a workflow, the skill folder with its stages. An existing file is never replaced or moved without your yes (2.4).
+3. Tells you the project's shape (2.1) in one line, and asks only when two shapes fit equally.
+4. Gives the repository its structure: a small catalog `AGENTS.md` with a `## Where things go` table for that shape, and a one-line `CLAUDE.md` containing `@AGENTS.md` when absent; for the skill shape, the skill folder with its stages. Files outside the table's places are moved into them after one yes, with `out/` gitignored (a generated output already in Git leaves Git as it moves there) and, for an analysis, a `data/README.md`. An existing file is never replaced or moved without your yes (2.4).
 5. Scans for an existing system (next section). On a fresh project it reports none.
 6. Runs the walk test again and fixes the structure until it passes.
 7. Shows the board and the three commands to use next: `/pm:plan` to add work, `/pm:work` to build an item, `/pm:status` to see the board.
 
 The structure follows ICM (Interpretable Context Methodology); the plugin carries the method in [`icm/`](../icm/README.md), so no other skill is needed.
 
-### 2.1 Two kinds of project
+### 2.1 Project shapes and where things go
 
-| | Ordinary project (an app, library, service, site, docs) | Workflow being built (a repeatable multi-step process Claude will run) |
+Every project gets one spine, plus the rows of its shape, picked by the repeating unit of work. `/pm:init` stamps them into the `## Where things go` table of the root `AGENTS.md` (Kind of thing | Place | Rule). The full rows and tie-breakers are in [`icm/shapes.md`](../icm/shapes.md).
+
+| | Unit of work | Places it adds to the spine |
 | --- | --- | --- |
-| Signals | Source code, a build, tests, a product | Prompts, stage notes, "first do A, then B", outputs a person reviews between steps |
-| Structure | The light parts: catalog `AGENTS.md`, one home per fact, optional System map (2.2) | ICM stages inside a skill folder (2.3) |
-| Stage folders | Never | `stages/01_<step>/` and on, each with a `CONTEXT.md` contract |
-| Ends as | The product | A Claude skill you can package and install |
+| Spine (every project) | | `docs/pm/items/` tasks, `docs/` how it works, `reports/` deliverables for people (`YYYY-MM-DD-<topic>.md`), `out/` generated (gitignored), and only `README.md`, `AGENTS.md`, `CLAUDE.md`, `.gitignore`, and the dependency file at the root |
+| analysis | a question answered from data | `data/raw/<source>/`, `data/README.md`, `data/ref/`, `src/`, `tests/`, `notebooks/` |
+| automation | a run | `src/`, `tests/`, `.github/workflows/`, `config/`, `out/runs/YYYY-MM-DD/`, `docs/runbook.md` |
+| skill | a run of the workflow | `.claude/skills/<name>/` with numbered stages (2.3), `runs/<run>/`, `evals/` |
+| app | a change to the code | `src/` (or the language's folder), `tests/`, the optional System map (2.2) |
+| research | a question or a source | `sources/`, `sources/README.md`, `notes/` |
 
-Both kinds get the same board, Verify step, and fix-the-source rule (2.5).
+A project can be two shapes; it takes both sets of rows. A folder the project already uses keeps its name and goes in the table, and a file keeps its name when it moves. When nothing fits, the agent asks you once, recommends a place, and adds the row. Every shape gets the same board, Verify step, and fix-the-source rule (2.5); only the skill shape gets stage folders.
+
+The table is checked, not just read. `pm.py places` lists new files outside its places, and the Stop hook asks the agent once, before it ends its turn, to move each one or ask you for a new row. `pm.py walk` warns about tracked files outside the places too.
 
 ### 2.2 The System map (optional)
 
@@ -62,7 +68,7 @@ docs/pm/map/
 
 A card is `stub` until its facts are checked against the source, then `verified` with the date and commit, and `stale` when it falls behind. `/pm:plan` records which cards an item touches (`--touches`), `/pm:work` loads only those and updates them in the same branch, and `pm.py index` rebuilds the index.
 
-### 2.3 A workflow being built, packaged as a skill
+### 2.3 The skill shape: a workflow packaged as a skill
 
 ```text
 .claude/skills/<name>/
@@ -76,17 +82,19 @@ runs/<run>/                       # Each run's files, outside the skill
 
 `/pm:init` asks the questions in [`icm/workflow.md`](../icm/workflow.md), proposes the tree, and scaffolds it from the templates after your yes. Run outputs stay in `runs/` so the skill folder can be copied or zipped as is; the walk test checks it would package (its name matches the folder, the description has a "Use when" clause, stages are numbered and each has a contract, and no link leaves the skill).
 
-### 2.4 An existing project, or one from pm 1.0
+### 2.4 An existing project, or one from an older pm
 
 When `AGENTS.md` carries more than a catalog (over 60 lines, architecture, long procedures, a glossary), `/pm:init` runs the restructure gate: it inventories each section, finds its home in [placement.md](placement.md), runs `pm.py refs` on every file that would move (what links to it, and whether the destination is already taken when compared case-insensitively), and shows you the target tree, the migration map, and the new `AGENTS.md` in full. Only after your yes does it move files with `git mv`, check each rename is exact, update the references, and remove what you agreed to with `git rm`.
 
-A project from pm 1.0 with `docs/pm/CODEBASE.md` sees a one-line reminder at session start until it has a map. `/pm:map` turns that file's facts into cards, points each referrer at the map, and removes the old file on your yes. A `CONTEXT.md` used as a glossary moves into the map's Names table, since a `CONTEXT.md` is now always a folder's contract.
+A project set up before pm 1.2 has no `## Where things go` table; it sees a one-line reminder at session start until `/pm:init` adds one. Running `/pm:init` again keeps the board and the catalog, adds the table for the project's shape with the paths it already uses, and proposes moves only for files outside it. A project from pm 1.0 with `docs/pm/CODEBASE.md` sees a one-line reminder at session start until it has a map. `/pm:map` turns that file's facts into cards, points each referrer at the map, and removes the old file on your yes. A `CONTEXT.md` used as a glossary moves into the map's Names table, since a `CONTEXT.md` is now always a folder's contract.
 
 ### 2.5 The walk test, Verify, and fixing the source
 
 | Practice | When | How |
 | --- | --- | --- |
 | Walk test | After `/pm:init`, `/pm:map`, and any restructure; when `/pm:work` touched a catalog, contract, map, or workflow | `pm.py walk` checks the entry file's size, links, contracts, cards, the index, workflow packaging, and the size of one walk; then the agent answers the cold-walk questions in [`icm/method.md`](../icm/method.md) from the files alone |
+| Places | Every time the agent stops; at `/pm:init` | `pm.py places` lists new files outside `AGENTS.md` › Where things go, and the Stop hook asks the agent once to move them or add a row; `pm.py walk` warns about any file outside the places |
+| Commit before Done | When `/pm:work` finishes an item | The agent commits the work on the item's branch; `pm.py finish` refuses while any file outside the board is uncommitted and lists them, so Done always means committed |
 | Verify | Before anyone reviews a change | `/pm:work` checks the change against the requester's words and each touched card's Hits and Does not hit (a stage's Outputs and Verify); a mismatch it leaves goes at the top of the item's notes |
 | Fix the source | When the same kind of correction keeps coming back | `pm.py correct ITEM_ID --kind KIND --where PATH` records each one; at the third of one kind on one source, the CLI and the board say to change that source (a contract, card, reference file, `AGENTS.md`, or placement rule); `--fixed` records the change and resets the count |
 

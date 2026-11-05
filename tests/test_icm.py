@@ -11,6 +11,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 CLI = ROOT / "scripts" / "pm.py"
 START_HOOK = ROOT / "hooks" / "session-start.sh"
+STOP_HOOK = ROOT / "hooks" / "stop.sh"
 TEMPLATES = ROOT / "icm" / "templates"
 MAP = "docs/pm/map"
 FILL = {"cluster": "core", "card": "link", "Name": "Link", "path": "src/app.py", "line": "1", "path to the owning file": "src/app.py",
@@ -57,6 +58,32 @@ Codes are prefixes, so a lookup is one slice.
 ## See
 
 - Source: `src/app.py`
+"""
+
+
+# The table /pm:init stamps for an analysis that kept its own `scripts/` folder.
+TABLE = """# Tariffs
+
+Checks published network tariffs against our billing tables. Shape: analysis.
+
+## Where things go
+
+| Kind of thing | Place | Rule |
+| --- | --- | --- |
+| Tasks | `docs/pm/items/` | never made by hand |
+| Deliverables for people | `reports/` | `YYYY-MM-DD-<topic>.md` |
+| Generated outputs | `out/` | gitignored |
+| Project files at the root | `README.md`, `AGENTS.md`, `CLAUDE.md`, `.gitignore`, the dependency file | nothing else |
+| Raw data as received | `data/raw/<source>/` | never edited |
+| Where each dataset came from | `data/README.md` | one line per file |
+| Exploration | `notebooks/YYYY-MM-DD-<question>.ipynb` | |
+| Code | `scripts/` | the project's own name, kept |
+
+## Route by task
+
+| If you are | Go to |
+| --- | --- |
+| doing any project work | `/pm:work` |
 """
 
 
@@ -285,7 +312,7 @@ class IcmTests(unittest.TestCase):
     # ---- items name what they touch
 
     def item_file(self, item_id):
-        return next((self.root / "docs/pm/items").glob(f"{item_id}-*.md"))
+        return self.root / "docs/pm/items" / f"{item_id}.md"
 
     def add(self, *args):
         out = self.cli("add", *args, input_text="Shorter links\nmake links shorter").stdout
@@ -311,6 +338,9 @@ class IcmTests(unittest.TestCase):
         self.assertIn("Give --depends, --touches, or both", self.cli("set", item_id, ok=False).stderr)
         self.cli("claim", item_id, input_text="Ari")
         self.assertIn(f"Item {item_id} touches paths that do not exist", self.walk(ok=False))
+        subprocess.run(["git", "add", "-A", "--", ":!docs/pm/items"], cwd=self.root, check=True)
+        subprocess.run(["git", "-c", "user.name=T", "-c", "user.email=t@example.com", "commit", "-qm", "work"],
+                       cwd=self.root, check=True)
         self.cli("finish", item_id, input_text="")
         self.assertNotIn("touches paths that do not exist", self.walk(ok=False))
 
@@ -369,6 +399,82 @@ class IcmTests(unittest.TestCase):
         self.assertIn("does not exist", self.cli("correct", item_id, "--kind", "x", "--where", "nope.md", ok=False,
                                                  input_text="n").stderr)
 
+    # ---- where things go: the table in AGENTS.md, pm.py places, the walk, and the Stop hook
+
+    def commit(self, message="baseline"):
+        subprocess.run(["git", "add", "-A"], cwd=self.root, check=True)
+        subprocess.run(["git", "commit", "-qm", message], cwd=self.root, check=True)
+
+    def with_table(self, table=TABLE):
+        self.write("AGENTS.md", table)
+        self.write("CLAUDE.md", "@AGENTS.md\n")
+        self.write("scripts/check.py", "print('ok')\n")
+        (self.root / "src/app.py").unlink()
+        self.commit()
+
+    def stop(self, payload="{}"):
+        env = dict(os.environ, CLAUDE_PROJECT_DIR=str(self.root))
+        return subprocess.run(["bash", str(STOP_HOOK)], cwd=self.root, env=env, input=payload, text=True,
+                              capture_output=True, check=True).stdout
+
+    def test_places_lists_new_files_outside_the_table(self):
+        self.with_table()
+        self.assertIn("Every new file is in a place", self.cli("places").stdout)
+        in_place = ("data/raw/endeavour/endeavour_price_list_2025-26.csv", "data/README.md",
+                    "reports/2026-11-05-endeavour.md", "notebooks/2026-11-05-n71.ipynb", "out/summary.csv",
+                    "scripts/load.py", "docs/pm/map/AGENTS.md", "pyproject.toml", "LICENSE", "README.md",
+                    ".github/workflows/ci.yml", ".gitattributes")
+        for name in in_place:
+            self.write(name, "x\n")
+        self.assertEqual(self.cli("places", "--paths").stdout, "")
+        for name in ("endeavour_price_list_2025-26.csv", "REPORT.md", "data/clean.csv", "notebook.ipynb"):
+            self.write(name, "x\n")
+        refused = self.cli("places", ok=False)
+        self.assertIn("4 new files outside the places", refused.stderr)
+        self.assertIn("- REPORT.md", refused.stdout)
+        self.assertIn("ask the owner once and add a row", refused.stdout)
+        self.assertEqual(self.cli("places", "--paths").stdout.split(),
+                         ["REPORT.md", "data/clean.csv", "endeavour_price_list_2025-26.csv", "notebook.ipynb"])
+        # A file renamed into its place counts by its new path; a changed tracked file is not new.
+        subprocess.run(["git", "add", "REPORT.md"], cwd=self.root, check=True)
+        subprocess.run(["git", "mv", "REPORT.md", "reports/2026-11-05-report.md"], cwd=self.root, check=True)
+        (self.root / "README.md").write_text("changed\n")
+        self.assertNotIn("REPORT.md", self.cli("places", "--paths").stdout)
+
+    def test_places_needs_the_table(self):
+        self.assertIn("no `## Where things go` table", self.cli("places", ok=False).stderr)
+        self.assertEqual(self.cli("places", "--paths").stdout, "")
+
+    def test_walk_warns_without_the_table_and_on_files_outside_it(self):
+        self.write("AGENTS.md", "# Tariffs\n\n## Route by task\n")
+        self.write("CLAUDE.md", "@AGENTS.md\n")
+        self.assertIn("WARN  AGENTS.md has no `## Where things go` table", self.walk())
+        self.write("AGENTS.md", TABLE)
+        out = self.walk()
+        self.assertIn("1 file is outside the places in AGENTS.md > Where things go: src/app.py", out)
+        self.write("AGENTS.md", TABLE.replace("| Code | `scripts/` |", "| Code | `src/` |"))
+        self.assertIn("ok    Every file is in a place AGENTS.md > Where things go names (8 rows).", self.walk())
+        self.write("AGENTS.md", TABLE.replace("`reports/`", "reports"))
+        self.assertIn("Rows in Where things go without a backticked place: Deliverables for people.", self.walk())
+
+    def test_stop_hook_blocks_once_on_a_new_file_outside_the_places(self):
+        self.with_table()
+        self.write("data/README.md", "- endeavour_price_list_2025-26.csv: Endeavour, received 2026-11-05\n")
+        self.write("data/raw/endeavour/endeavour_price_list_2025-26.csv", "x\n")
+        self.assertNotIn("decision", self.stop())  # data/README.md is named by the table, so it is a place
+        self.write("REPORT.md", "memo\n")
+        blocked = json.loads(self.stop())
+        self.assertEqual(blocked["decision"], "block")
+        self.assertIn("outside the places in AGENTS.md > Where things go: REPORT.md.", blocked["reason"])
+        self.assertNotIn("data/README.md", blocked["reason"])
+        self.assertNotIn("decision", self.stop('{"stop_hook_active": true}'))
+        (self.root / "reports").mkdir()
+        (self.root / "REPORT.md").rename(self.root / "reports/2026-11-05-memo.md")
+        self.assertNotIn("decision", self.stop())
+        self.write("REPORT.md", "memo\n")
+        self.write("AGENTS.md", "# Tariffs\n")
+        self.assertNotIn("decision", self.stop())  # no table: nothing to hold new files to
+
     # ---- session start points an old architecture file at the System map
 
     def test_session_start_points_codebase_md_at_the_system_map(self):
@@ -378,7 +484,7 @@ class IcmTests(unittest.TestCase):
         self.assertNotIn("CODEBASE.md", hook())
         self.write("docs/pm/CODEBASE.md", "# Architecture\n")
         self.assertIn("Run /pm:map to convert it", hook())
-        self.assertIn("pm:work skill to claim it first", hook().strip().splitlines()[-1])
+        self.assertIn("pm:work skill, which claims it first", hook().strip().splitlines()[-1])
         self.build_map()
         self.assertNotIn("CODEBASE.md", hook())
 
@@ -412,7 +518,7 @@ class IcmDocsTests(unittest.TestCase):
 
     def test_docs_cover_the_new_commands(self):
         texts = {name: (ROOT / name).read_text() for name in ("skills/help/SKILL.md", "README.md", "docs/manual.md", "docs/guide.html")}
-        for command in ("walk", "index", "refs", "correct"):
+        for command in ("walk", "index", "refs", "correct", "places"):
             for name, text in texts.items():
                 self.assertTrue(f"pm.py {command}" in text, f"{name} should mention pm.py {command}")
         for name in ("README.md", "docs/manual.md", "docs/guide.html"):

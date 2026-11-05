@@ -1,6 +1,6 @@
 # Building a workflow as a skill
 
-For the second kind of project in [method.md](method.md): the repository exists to build a repeatable, multi-step process that Claude runs, and the result should package as a Claude skill. It is ICM's Pipeline form (adapted from icm-architect's Build mode and `forms.md`, MIT, © 2026 Jake Van Clief; see [LICENSE](LICENSE)) with one change: the factory is a skill folder, so it can be copied into `~/.claude/skills/` or a plugin's `skills/` as is.
+For the skill shape in [shapes.md](shapes.md): the repository exists to build a repeatable, multi-step process that Claude runs, and the result should package as a Claude skill. It is ICM's Pipeline form (adapted from icm-architect's Build mode and `forms.md`, MIT, © 2026 Jake Van Clief; see [LICENSE](LICENSE)) with one change: the factory is a skill folder, so it can be copied into `~/.claude/skills/` or a plugin's `skills/` as is.
 
 ## 1. Find the structure in how the owner describes the work
 

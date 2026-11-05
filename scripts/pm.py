@@ -196,7 +196,8 @@ def git(root: Path, *args: str, check: bool = True) -> subprocess.CompletedProce
 
 
 def remote_default(root: Path) -> tuple[str, str] | None:
-    remotes = git(root, "remote").stdout.splitlines()
+    listed = git(root, "remote", check=False)  # fails outside a Git repository, which has no remote either
+    remotes = listed.stdout.splitlines() if listed.returncode == 0 else []
     if not remotes:
         return None
     remote = "origin" if "origin" in remotes else sorted(remotes)[0]
@@ -323,10 +324,9 @@ def cmd_init(root: Path, args) -> None:
         print(publish(root, change))
 
 
-def item_slugs(title: str) -> tuple[str, str]:
-    """File-name slug and the shorter slug used inside the item ID."""
-    slug = pm_migrate.slugify(title)[:50] or "item"
-    return slug, slug[:32].rstrip("-") or "item"
+def item_slug(title: str) -> str:
+    """The title slug used inside the item ID; the item's file is named after the ID alone."""
+    return pm_migrate.slugify(title)[:32].rstrip("-") or "item"
 
 
 def cmd_add(root: Path, args) -> None:
@@ -334,7 +334,7 @@ def cmd_add(root: Path, args) -> None:
     title = title.strip()
     if not title:
         raise ValueError("The first stdin line must be the item title.")
-    slug, id_slug = item_slugs(title)
+    id_slug = item_slug(title)
     touches = repo_paths(root, args.touches or "")
 
     def change(board: Path):
@@ -347,7 +347,7 @@ def cmd_add(root: Path, args) -> None:
         item = {"id": item_id, "title": title, "status": "queued", "owner": "",
                 "depends_on": [], "hold": "", "hold_until": "", "github_issue": "",
                 "intent": intent, "intent_length": len(intent), "notes": "", "done_at": "", "touches": touches,
-                "path": item_dir(board) / f"{item_id}-{slug}.md"}
+                "path": item_dir(board) / f"{item_id}.md"}
         save_item(item)
         return [item["path"]], f"Created {item_id}: {title}\nDetail: {item['path'].relative_to(board).as_posix()}"
     with write_lock(root):
@@ -397,12 +397,25 @@ def cmd_claim(root: Path, args) -> None:
         print(publish(root, change, require_default_branch=True))
 
 
+def uncommitted_work(root: Path) -> list[str]:
+    """Changed or new files other than the board's own state (item files and config.json, which the CLI writes).
+    Map cards count: they change with the work."""
+    return [path for _, path in pm_icm.git_status(root)
+            if not (path.startswith("docs/pm/items/") or path == "docs/pm/config.json")]
+
+
 def cmd_finish(root: Path, args) -> None:
     note = read_literal_stdin()
     with write_lock(root):
         item = find_item(read_items(root), args.id)
         if item.get("status") != "in-flight":
             raise ValueError(f"{item['id']} is not in flight.")
+        dirty = uncommitted_work(root)
+        if dirty:
+            shown = ", ".join(dirty[:10]) + (f", and {len(dirty) - 10} more" if len(dirty) > 10 else "")
+            raise ValueError(f"{item['id']} is not finished: {len(dirty)} file{'s' if len(dirty) != 1 else ''} "
+                             f"uncommitted ({shown}). Commit the work on this branch first (or remove what does not "
+                             "belong to it), then run finish again; the board says Done only for committed work.")
         item.update(status="done", owner="", notes=note or item.get("notes", ""),
                     done_at=datetime.now(timezone.utc).isoformat(timespec="microseconds"))
         save_item(item)
@@ -540,6 +553,24 @@ def cmd_walk(root: Path, args) -> None:
         raise ValueError(f"walk test failed: {failed} thing{'s' if failed > 1 else ''} to fix.")
 
 
+def cmd_places(root: Path, args) -> None:
+    found = pm_icm.strays(root)
+    if args.paths:
+        if found:
+            print("\n".join(found))
+        return
+    if found is None:
+        raise ValueError(f"AGENTS.md has no `## {pm_icm.WHERE}` table; /pm:init stamps one from the project's shape.")
+    if not found:
+        print(f"Every new file is in a place AGENTS.md > {pm_icm.WHERE} names.")
+        return
+    print(f"New files outside the places in AGENTS.md > {pm_icm.WHERE}:")
+    print("\n".join(f"- {path}" for path in found))
+    print("Move each to the place for its kind (git mv, then update anything that reads or writes it), or, for a new "
+          "kind of thing, ask the owner once and add a row.", flush=True)
+    raise ValueError(f"{len(found)} new file{'s' if len(found) != 1 else ''} outside the places.")
+
+
 def cmd_index(root: Path, args) -> None:
     print(pm_icm.write_index(root))
 
@@ -674,18 +705,17 @@ def cmd_migrate(root: Path, args) -> None:
     source = plan["source"].strip()
     planned = []
     for entry in plan["items"]:
-        slug, id_slug = item_slugs(entry["title"])
         digest = hashlib.sha256(f"{source}:{entry['key']}".encode()).hexdigest()[:6]
-        planned.append((entry, digest, f"{id_slug}-{digest}", slug))
+        planned.append((entry, digest, f"{item_slug(entry['title'])}-{digest}"))
 
     def board_ids(board: Path) -> tuple[dict[str, str], dict[str, str]]:
         existing = {item["id"].rsplit("-", 1)[-1].casefold(): item["id"] for item in read_items(board)}
-        return {entry["key"]: existing.get(digest, item_id) for entry, digest, item_id, _ in planned}, existing
+        return {entry["key"]: existing.get(digest, item_id) for entry, digest, item_id in planned}, existing
 
     if args.dry_run:
         ids, existing = board_ids(root)
-        print(f"Dry run: {sum(digest not in existing for _, digest, _, _ in planned)} items would be created from {source}; nothing written.")
-        for entry, digest, _, _ in planned:
+        print(f"Dry run: {sum(digest not in existing for _, digest, _ in planned)} items would be created from {source}; nothing written.")
+        for entry, digest, _ in planned:
             print(f"  {entry['key']} -> {ids[entry['key']]} ({'already on the board' if digest in existing else pm_migrate.plan_status(entry)})")
         return
 
@@ -702,7 +732,7 @@ def cmd_migrate(root: Path, args) -> None:
             paths.append(config_path(board))
         ids, existing = board_ids(board)
         created = skipped = 0
-        for entry, digest, item_id, slug in planned:
+        for entry, digest, item_id in planned:
             if digest in existing:
                 skipped += 1
                 continue
@@ -711,7 +741,7 @@ def cmd_migrate(root: Path, args) -> None:
                     "depends_on": [ids[dep] for dep in entry.get("depends_on", [])], "hold": entry.get("hold", ""),
                     "hold_until": entry.get("hold_until", ""), "github_issue": entry.get("github_issue", ""),
                     "intent": entry["intent"], "intent_length": len(entry["intent"]), "notes": entry.get("notes", ""),
-                    "done_at": "", "path": item_dir(board) / f"{item_id}-{slug}.md"}
+                    "done_at": "", "path": item_dir(board) / f"{item_id}.md"}
             save_item(item)
             paths.append(item["path"])
             created += 1
@@ -751,6 +781,8 @@ def parser() -> argparse.ArgumentParser:
     correct.add_argument("--fixed", action="store_true", help="the source was changed for this kind; stdin says how")
     sub.add_parser("walk", help="check the ICM structure: entry file, contracts, map cards, links, token budget (read-only)")
     sub.add_parser("index", help="rebuild docs/pm/map/_index.md from the cards' frontmatter")
+    places = sub.add_parser("places", help="list new files outside the places in AGENTS.md > Where things go (read-only)")
+    places.add_argument("--paths", action="store_true", help="print only the paths, one per line, and always exit 0")
     refs = sub.add_parser("refs", help="before moving files: what points at each path, and whether its destination is free (read-only)")
     refs.add_argument("paths", nargs="+", metavar="OLD[=NEW]")
     mirror = sub.add_parser("mirror", help="configure the optional GitHub Issues mirror")
@@ -775,8 +807,8 @@ def main() -> int:
     try:
         {"init": cmd_init, "board": cmd_board, "next": cmd_next, "add": cmd_add,
          "claim": cmd_claim, "finish": cmd_finish, "hold": cmd_hold, "resume": cmd_resume,
-         "set": cmd_set, "correct": cmd_correct, "walk": cmd_walk, "index": cmd_index, "refs": cmd_refs,
-         "mirror": cmd_mirror, "sync": cmd_sync, "migrate": cmd_migrate}[args.command](root, args)
+         "set": cmd_set, "correct": cmd_correct, "walk": cmd_walk, "index": cmd_index, "places": cmd_places,
+         "refs": cmd_refs, "mirror": cmd_mirror, "sync": cmd_sync, "migrate": cmd_migrate}[args.command](root, args)
     except (ValueError, OSError) as exc:
         print(f"pm: {exc}", file=sys.stderr)
         return 1

@@ -1,6 +1,6 @@
 # The Six Forms
 
-Vendored from icm-architect's `references/forms.md` (MIT, © 2026 Jake Van Clief; see [LICENSE](LICENSE)). pm uses two of these directly: **Pipeline**, packaged as a skill, for a workflow being built ([workflow.md](workflow.md)), and **System map** for an ordinary project ([system-map.md](system-map.md)). The others are here for a workflow whose unit is not a run. Where a skeleton below shows `output/` inside a stage, a pm workflow writes `runs/<run>/` instead, so the skill packages without its outputs.
+Vendored from icm-architect's `references/forms.md` (MIT, © 2026 Jake Van Clief; see [LICENSE](LICENSE)). pm uses two of these directly: **Pipeline**, packaged as a skill, for the skill shape ([workflow.md](workflow.md)), and **System map** for code that agents change part by part ([system-map.md](system-map.md)); [shapes.md](shapes.md) maps each project shape to its folders. The others are here for a workflow whose unit is not a run. Where a skeleton below shows `output/` inside a stage, a pm workflow writes `runs/<run>/` instead, so the skill packages without its outputs.
 
 One skeleton, six jobs. Every form obeys the ten invariants; what changes is what the repeating unit is and what the structure optimizes for. All six are drawn from production workspaces, not theory.
 

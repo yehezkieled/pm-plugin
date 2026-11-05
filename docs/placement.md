@@ -2,16 +2,19 @@
 
 Put each fact in the most specific place that owns it, once, and link to it from anywhere else. Anything useful to every contributor lives in the repo, so it travels with the code. The layout follows ICM ([icm/](../icm/README.md)): small routing files point at the files that hold the facts, and an agent loads only what its task needs.
 
+Files that are not knowledge (code, data, notebooks, outputs, deliverables) go where the `## Where things go` table in the root `AGENTS.md` says, by kind; the shapes and tie-breakers behind that table are in [icm/shapes.md](../icm/shapes.md). Findings written for people are deliverables in `reports/`, not item notes and not `docs/`.
+
 | Kind of knowledge | File |
 | --- | --- |
-| Where things live, where to go for a task, and the few rules every session needs (build and test commands, claim before coding) | `AGENTS.md`, the catalog: under 60 lines; it routes rather than explains. `CLAUDE.md` holds only `@AGENTS.md`. |
+| Where things go, where to go for a task, and the few rules every session needs (build and test commands, claim before coding) | `AGENTS.md`, the catalog: under 60 lines; it routes rather than explains. `CLAUDE.md` holds only `@AGENTS.md`. |
 | Product overview: what it is, who it is for, goals, how to run it (never private context) | `README.md`. The catalog links to it. |
 | What one part of the code is, why it has that shape, what a change to it hits, its gotchas | That part's card in `docs/pm/map/` (`objects/` for things, `processes/` for movements), written by `/pm:map`. Without a map, the doc that already owns that area, linked from the catalog. |
 | Which cards to open before a change | `docs/pm/map/effects/CONTEXT.md` |
 | Domain vocabulary; product words versus code names | The Names table in `docs/pm/map/AGENTS.md` |
 | How a working folder's job is done: inputs, process, outputs, verify, human check | That folder's `CONTEXT.md`. A `CONTEXT.md` is always a folder's contract or router, never a glossary or overview. |
-| A workflow being built | Its skill folder, `.claude/skills/<name>/`: `SKILL.md` routes, `stages/NN_<step>/CONTEXT.md` are the contracts, `_shared/` and `references/` the stable material. Each run's files go in `runs/<run>/`, outside the skill. |
+| A workflow being built (the skill shape) | Its skill folder, `.claude/skills/<name>/`: `SKILL.md` routes, `stages/NN_<step>/CONTEXT.md` are the contracts, `_shared/` and `references/` the stable material. Each run's files go in `runs/<run>/`, outside the skill. |
 | One task: the requester's exact words, the cards or stages it touches, progress, decisions, corrections | `docs/pm/items/<id>.md`: intent under `## Requester intent`, `touches` and `corrections` in its frontmatter, the rest under `## Current notes`. |
+| Where a dataset or source came from, when it arrived, what reads it | `data/README.md` (or `sources/README.md`), one line each |
 | Generated lists: the board, the map's card index | Rebuilt by `pm.py board` and `pm.py index`; never edited by hand. |
 
 ## Recording decisions
@@ -35,7 +38,7 @@ When a person corrects an agent's output, record it with `pm.py correct ITEM_ID 
 | What `CONTEXT.md` is | A folder's contract or router, as in ICM. pm's old glossary use moves to the Names table. |
 | Where architecture goes | The System map's cards, replacing `docs/pm/CODEBASE.md`; `/pm:map` absorbs and retires that file. |
 | Where lasting rules go | The card or contract of the part they govern; `AGENTS.md` keeps only what every session needs. |
-| Stages | Only for a workflow being built, inside its skill folder. An ordinary project never gets stage folders. |
+| Stages | Only for the skill shape, inside its skill folder. Other shapes never get stage folders. |
 | The unit of work | A board item. It names the cards or stages it touches; its contract is the requester's words plus those files. |
 | Templates | Ship with the plugin in `icm/templates/`; a map keeps copies in `_templates/` so a new card is a copy. |
 | Removing files | `git rm` after the owner's yes; git history replaces ICM's `_archive/` folder. |

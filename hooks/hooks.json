@@ -1,5 +1,5 @@
 {
-  "description": "Show project status at session start and remind agents to update item notes after code changes.",
+  "description": "Show project status at session start; at stop, keep new files in the places AGENTS.md names and remind agents to update item notes after code changes.",
   "hooks": {
     "SessionStart": [
       {
