@@ -425,19 +425,52 @@ def uncommitted_work(root: Path, item_path: Path) -> list[str]:
             if path not in {item, "docs/pm/config.json"}]
 
 
+def cmd_validated(root: Path, args) -> None:
+    summary = " ".join(read_literal_stdin().split())
+    if not summary:
+        raise ValueError("A validator summary is required on stdin.")
+    with write_lock(root):
+        item = find_item(read_items(root), args.id)
+        if item.get("status") != "in-flight":
+            raise ValueError(f"{item['id']} is not in flight.")
+        dirty = [path for _, path in pm_icm.git_status(root) if not path.startswith("docs/pm/")]
+        if dirty:
+            shown = ", ".join(dirty[:10]) + (f", and {len(dirty) - 10} more" if len(dirty) > 10 else "")
+            raise ValueError(f"Cannot record validation while non-board files are uncommitted ({shown}). Commit the work first.")
+        head = git(root, "rev-parse", "HEAD").stdout.strip()
+        validation = f"Validation: {args.verdict} at {head}: {summary}"
+        notes = [line for line in item.get("notes", "").splitlines() if not line.startswith("Validation:")]
+        item["notes"] = "\n".join(notes + [validation]).strip()
+        save_item(item)
+        path = item["path"].relative_to(root).as_posix()
+        git(root, "add", "--", path)
+        git(root, "commit", "--only", "-m", f"pm: validation {item['id']}", "--", path)
+    print(f"Recorded {args.verdict} validation for {item['id']} at {head}.")
+
+
 def cmd_finish(root: Path, args) -> None:
     note = read_literal_stdin()
     with write_lock(root):
         item = find_item(read_items(root), args.id)
         if item.get("status") != "in-flight":
             raise ValueError(f"{item['id']} is not in flight.")
+        verdict = re.search(r"^Validation: (pass|findings) at ([0-9a-f]{40}|[0-9a-f]{64}): .+$", item.get("notes", ""), re.M)
+        if not verdict:
+            raise ValueError(f"{item['id']} has no recorded validation. Run the pm:validator agent, then record its verdict with `pm.py validated {item['id']} --verdict pass|findings`.")
+        if verdict.group(1) != "pass":
+            raise ValueError(f"{item['id']} has validation findings. Fix them, commit, and validate again, or after 2 fix rounds hold it with `pm.py hold {item['id']}`.")
+        stale = git(root, "diff", "--quiet", verdict.group(2), "HEAD", "--", ".", ":(exclude)docs/pm", check=False)
+        if stale.returncode:
+            raise ValueError(f"{item['id']} changed since validation at {verdict.group(2)[:7]}; validate again.")
         dirty = uncommitted_work(root, item["path"])
         if dirty:
             shown = ", ".join(dirty[:10]) + (f", and {len(dirty) - 10} more" if len(dirty) > 10 else "")
             raise ValueError(f"{item['id']} is not finished: {len(dirty)} file{'s' if len(dirty) != 1 else ''} "
                              f"uncommitted ({shown}). Commit the work on this branch first (or remove what does not "
                              "belong to it), then run finish again; the board says Done only for committed work.")
-        item.update(status="done", owner="", notes=note or item.get("notes", ""),
+        validation_line = verdict.group(0)
+        completion = note.strip() or "Work complete."
+        item.update(status="done", owner="", notes=f"{completion}\n{validation_line}",
                     done_at=datetime.now(timezone.utc).isoformat(timespec="microseconds"))
         save_item(item)
         path = item["path"].relative_to(root).as_posix()
@@ -795,6 +828,9 @@ def parser() -> argparse.ArgumentParser:
     claim.add_argument("id")
     claim.add_argument("--resume", action="store_true", help="continue your own in-flight claim (after a hold or a new session)")
     sub.add_parser("finish", help="mark an in-flight item done; stdin is the completion note").add_argument("id")
+    validated = sub.add_parser("validated", help="record a pm:validator verdict for committed work; stdin is its summary")
+    validated.add_argument("id")
+    validated.add_argument("--verdict", choices=("pass", "findings"), required=True)
     resume = sub.add_parser("resume", help="release a hold; a claimed item returns to its owner In flight, others to queue")
     resume.add_argument("id")
     resume.add_argument("--answer", action="store_true", help="stdin is the decider's exact words; saved at the top of the item's current notes")
@@ -842,7 +878,7 @@ def main() -> int:
                         f"branch {here} shows it only after syncing with {there}.")
             root = shared
         {"init": cmd_init, "board": cmd_board, "next": cmd_next, "add": cmd_add,
-         "claim": cmd_claim, "finish": cmd_finish, "hold": cmd_hold, "resume": cmd_resume,
+         "claim": cmd_claim, "finish": cmd_finish, "validated": cmd_validated, "hold": cmd_hold, "resume": cmd_resume,
          "set": cmd_set, "correct": cmd_correct, "walk": cmd_walk, "index": cmd_index, "places": cmd_places,
          "refs": cmd_refs, "mirror": cmd_mirror, "sync": cmd_sync, "migrate": cmd_migrate}[args.command](root, args)
         if note:

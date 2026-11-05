@@ -447,11 +447,11 @@ Ready next: none</pre>
     <div class="card"><h4>You do</h4><p>Push the branch and open a PR as usual. Merging the PR is what tells everyone else the item is Done.</p></div>
   </div>
   <div class="label">Worker runs: commit the work, have it validated, then finish</div>
-  <p><code>finish</code> marks Done only committed work. Run before the commit, it refuses and lists what is left:</p>
+  <p><code>finish</code> marks Done only after a passing verdict for the current work. Without a recorded verdict it refuses:</p>
   <pre class="term soft"><span class="cmd">$ pm.py finish create-short-links-b153d3 &lt;&lt;&#x27;PM_END&#x27;
 shorten() returns a 4-character code and stores it; covered by tests/test_shorten.py.
 PM_END</span>
-pm: create-short-links-b153d3 is not finished: 1 file uncommitted (tests/test_shorten.py). Commit the work on this branch first (or remove what does not belong to it), then run finish again; the board says Done only for committed work.</pre>
+pm: create-short-links-b153d3 has no recorded validation. Run the pm:validator agent, then record its verdict with `pm.py validated create-short-links-b153d3 --verdict pass|findings`.</pre>
   <pre class="term"><span class="cmd">$ git add tests/test_shorten.py &amp;&amp; git commit -m &quot;Add shorten() tests (create-short-links-b153d3)&quot;</span></pre>
   <p>The worker then starts the validator and waits for its verdict. The validator reads the repository, not the worker's account, and edits nothing. Its verdict has this shape:</p>
   <pre class="term soft">VERDICT: pass
@@ -463,10 +463,14 @@ Checked:
 - committed: git status clean
 Findings: none</pre>
   <p>On <code>VERDICT: findings</code> each finding names a file and line, what is wrong, the rule it breaks, and the fix; in the plugin's own eval, a <code>word_count</code> that split on single spaces came back with its 2 failing tests and a stray notes file at the root. The worker fixes them, commits, and asks a fresh validator, at most two fix rounds. If it still fails, the item waits on you with the findings (<code>Validation still fails after 2 fix rounds: …</code>) instead of going Done.</p>
-  <p>The verdict goes into the item as the last line of the completion note:</p>
+  <p>After each verdict, record the validator's summary against the current commit. The command commits only the item's notes on the work branch:</p>
+  <pre class="term"><span class="cmd">$ pm.py validated create-short-links-b153d3 --verdict pass &lt;&lt;&#x27;PM_END&#x27;
+python3 -m unittest -&gt; 3 tests OK; new files in their places.
+PM_END</span>
+Recorded pass validation for create-short-links-b153d3 at f53638671c499bcfe6e9566d2ff4e0a1e15b1739.</pre>
+  <p>Then finish with the completion summary. The CLI keeps the validation record in the final notes. Any later non-board commit makes that pass stale, so fix and validate again before finishing.</p>
   <pre class="term"><span class="cmd">$ pm.py finish create-short-links-b153d3 &lt;&lt;&#x27;PM_END&#x27;
 shorten() returns a 4-character code and stores it; covered by tests/test_shorten.py.
-Validation: pass after 1 round by pm:validator: python3 -m unittest -> 3 tests OK; new files in their places; nothing uncommitted.
 PM_END</span>
 Finished create-short-links-b153d3 and committed locally.</pre>
   <p>On the work branch the board already says Done:</p>
@@ -489,7 +493,7 @@ Rendered from `docs/pm/items/`, which holds each item's requester intent and cur
 
 ## Done
 
-- [create-short-links-b153d3](docs/pm/items/create-short-links-b153d3.md) Create short links — shorten() returns a 4-character code and stores it; covered by tests/test_shorten.py. Validation: pass after 1 round by…
+- [create-short-links-b153d3](docs/pm/items/create-short-links-b153d3.md) Guide item — shorten() returns a 4-character code and stores it; covered by tests/test_shorten.py. Validation: pass at f53638671c499…
 
 Ready next: redirect-a-short-link-9bbffa Redirect a short link</pre>
   <div class="label">You (or the session) then run</div>
@@ -992,7 +996,8 @@ Ready next: dark-mode-07343f Dark mode, export-to-csv-f078b1 Export to CSV, orph
     <tr><td><code>pm.py hold ID [--until YYYY-MM-DD]</code></td><td>the question</td><td>move to Waiting</td></tr>
     <tr><td><code>pm.py resume ID [--answer]</code></td><td>with <code>--answer</code>: the decider's exact words</td><td>back to Queued, or In flight for the claimer; the answer is saved in the item's current notes</td></tr>
     <tr><td><code>pm.py claim ID [--resume]</code></td><td>the person's name</td><td>In flight, owned; refuses an item already in flight unless <code>--resume</code> continues your own claim</td></tr>
-    <tr><td><code>pm.py finish ID</code></td><td>completion note</td><td>Done on the work branch; refuses while files outside the board are uncommitted</td></tr>
+    <tr><td><code>pm.py validated ID --verdict pass|findings</code></td><td>validator summary</td><td>record the verdict against committed work on the work branch</td></tr>
+    <tr><td><code>pm.py finish ID</code></td><td>completion note</td><td>Done on the work branch only with a current pass and no uncommitted work</td></tr>
     <tr><td><code>pm.py board</code></td><td>none</td><td>render the board</td></tr>
     <tr><td><code>pm.py next</code></td><td>none</td><td>list ready items</td></tr>
     <tr><td><code>pm.py mirror show|off|github</code></td><td>none</td><td>configure the GitHub Issues mirror</td></tr>
@@ -1013,6 +1018,7 @@ Ready next: dark-mode-07343f Dark mode, export-to-csv-f078b1 Export to CSV, orph
     <li><strong>“GitHub Issues mirror is off.”</strong> Run <code>pm.py mirror github</code> first (mind the publishing warning).</li>
     <li><strong>An item you finished still shows In flight in another clone.</strong> Expected until its PR merges.</li>
     <li><strong>“is not finished: N files uncommitted”.</strong> Commit the work on the branch (or remove what does not belong to it), then finish again.</li>
+    <li><strong>“has no recorded validation”, “has validation findings”, or “changed since validation”.</strong> Have a fresh validator check the committed work, record its verdict with <code>pm.py validated ID --verdict pass|findings</code>, and run finish again. After a fix, commit and validate again.</li>
     <li><strong>“outside the places in AGENTS.md &gt; Where things go”.</strong> Move the file to the place for its kind, or add a row for a new kind of thing.</li>
     <li><strong>“walk test failed”.</strong> Each FAIL line names the file and the fix; WARN lines do not fail it. <code>/pm:init</code> and <code>/pm:map</code> fix these themselves.</li>
     <li><strong>“_index.md is missing or out of date”.</strong> A card was added or changed status: run <code>pm.py index</code>.</li>
