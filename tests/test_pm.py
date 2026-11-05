@@ -339,8 +339,6 @@ class ProjectBoardTests(unittest.TestCase):
         git(seed, "config", "user.email", "fixture@example.com")
         subprocess.run(["python3", str(CLI), "init"], cwd=seed, check=True, capture_output=True, text=True)
         item_id = self.add("Shared task", "Build the shared task", cwd=seed)
-        git(seed, "add", "docs/pm")
-        git(seed, "commit", "-qm", "seed board")
         git(space, "init", "-q", "--bare", "--initial-branch=main", str(origin))
         git(seed, "remote", "add", "origin", str(origin))
         git(seed, "push", "-qu", "origin", "main")
