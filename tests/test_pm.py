@@ -46,10 +46,17 @@ class ProjectBoardTests(unittest.TestCase):
     def board(self):
         return self.run_cli("board").stdout
 
+    def item_file(self, item_id):
+        return self.root / "docs/pm/items" / f"{item_id}.md"
+
+    def commit_all(self, message="work"):
+        subprocess.run(["git", "add", "-A"], cwd=self.root, check=True)
+        subprocess.run(["git", "commit", "-qm", message], cwd=self.root, check=True)
+
     def test_keeps_requester_words_and_board_points_to_detail(self):
         exact = '$HOME $(touch should-not-exist)\n## Current notes\nThis heading remains part of requester intent.'
         item_id = self.add("Shared view", exact)
-        detail = next((self.root / "docs/pm/items").glob(f"{item_id}-*.md")).read_text()
+        detail = self.item_file(item_id).read_text()
         board = self.board()
         self.assertIn(exact, detail)
         self.assertIn(f"[{item_id}](docs/pm/items/", board)
@@ -67,7 +74,7 @@ class ProjectBoardTests(unittest.TestCase):
         intent = 'Preserve $HOME, "quotes", and $(touch injected-intent).'
         created = self.run_literal_cli("add", input_text=f"{title}\n{intent}")
         item_id = created.stdout.split(":", 1)[0].split()[-1]
-        detail_path = next((self.root / "docs/pm/items").glob(f"{item_id}-*.md"))
+        detail_path = self.item_file(item_id)
         detail = detail_path.read_text()
         self.assertIn(f"# {title}", detail)
         raw = detail.split("---\n", 2)[2]
@@ -101,7 +108,9 @@ class ProjectBoardTests(unittest.TestCase):
         self.assertRegex(first, r"^shared-task-[0-9a-f]{6}$")
         self.assertRegex(second, r"^shared-task-[0-9a-f]{6}$")
         self.assertNotEqual(first, second)
-        self.assertEqual(len(list((self.root / "docs/pm/items").glob("*.md"))), 2)
+        # The file is named after the ID alone; the title slug appears once, not twice.
+        self.assertEqual(sorted(p.name for p in (self.root / "docs/pm/items").glob("*.md")),
+                         sorted([f"{first}.md", f"{second}.md"]))
 
         with tempfile.TemporaryDirectory() as temp:
             other = Path(temp)
@@ -138,14 +147,14 @@ class ProjectBoardTests(unittest.TestCase):
         item_id = self.add("Expiry", "Links should expire")
         self.run_cli("hold", item_id, input_text="Café: 404 or 410?")
         self.run_literal_cli("resume", item_id, "--answer", input_text="Dana: use $HOME 410 Gone")
-        detail = next((self.root / "docs/pm/items").glob(f"{item_id}-*.md")).read_text()
+        detail = self.item_file(item_id).read_text()
         self.assertIn('## Current notes\nDecision on "Café: 404 or 410?": Dana: use $HOME 410 Gone', detail)
         self.assertIn("## Queued", self.board().split("## Waiting")[0])
         self.run_cli("hold", item_id, input_text="Again?")
         self.run_cli("resume", item_id, "--answer", ok=False, input_text=" ")
         self.assertIn(f"[{item_id}]", self.board().split("## Waiting")[1].split("## Done")[0])
         self.run_cli("resume", item_id)
-        self.assertIn('Decision on "Café: 404 or 410?"', next((self.root / "docs/pm/items").glob(f"{item_id}-*.md")).read_text())
+        self.assertIn('Decision on "Café: 404 or 410?"', self.item_file(item_id).read_text())
 
     def test_same_owner_can_resume_but_another_owner_cannot_take_over(self):
         item_id = self.add("Resume task", "Keep the claim")
@@ -155,7 +164,7 @@ class ProjectBoardTests(unittest.TestCase):
         refused = self.run_cli("claim", item_id, ok=False, input_text="Bea")
         self.assertIn("already claimed by Ari", refused.stderr)
 
-    def test_done_board_is_capped_and_finish_commits_only_the_item(self):
+    def test_done_board_is_capped_and_finish_commits_the_item_after_the_work(self):
         code = self.root / "app.py"
         code.write_text("original\n")
         subprocess.run(["git", "add", "app.py"], cwd=self.root, check=True)
@@ -166,7 +175,7 @@ class ProjectBoardTests(unittest.TestCase):
             ids.append(item_id)
             self.run_cli("claim", item_id, input_text="Ari")
             code.write_text(f"changed {number}\n")
-            subprocess.run(["git", "add", "app.py"], cwd=self.root, check=True)
+            self.commit_all(f"work on {item_id}")
             self.run_cli("finish", item_id, input_text=f"Done {number}")
         board = self.board()
         self.assertNotIn(f"[{ids[0]}]", board)
@@ -175,15 +184,99 @@ class ProjectBoardTests(unittest.TestCase):
         self.assertEqual(sorted(path.name for path in (self.root / "docs/pm").iterdir()), ["config.json", "items"])
         self.assertEqual(
             subprocess.check_output(["git", "show", "--name-only", "--format=", "HEAD"], cwd=self.root, text=True).split(),
-            ["docs/pm/items/" + next((self.root / "docs/pm/items").glob(f"{ids[-1]}-*.md")).name])
+            ["docs/pm/items/" + self.item_file(ids[-1]).name])
         self.assertEqual(subprocess.check_output(["git", "log", "-1", "--format=%s"], cwd=self.root, text=True).strip(),
                          f"pm: finish {ids[-1]}")
         committed = subprocess.check_output(["git", "show", "HEAD:docs/pm/items/" +
-                                               next((self.root / "docs/pm/items").glob(f"{ids[-1]}-*.md")).name],
+                                               self.item_file(ids[-1]).name],
                                             cwd=self.root, text=True)
         self.assertIn('status: "done"', committed)
-        self.assertIn("app.py", subprocess.check_output(["git", "diff", "--cached", "--name-only"],
-                                                        cwd=self.root, text=True))
+        self.assertEqual(subprocess.check_output(["git", "log", "-1", "--format=%s", "HEAD~1"], cwd=self.root,
+                                                 text=True).strip(), f"work on {ids[-1]}")
+
+    def test_finish_refuses_while_the_work_is_uncommitted(self):
+        (self.root / "app.py").write_text("original\n")
+        (self.root / "docs/pm/map/objects").mkdir(parents=True)
+        (self.root / "docs/pm/map/objects/link.md").write_text("card\n")
+        self.commit_all("baseline")
+        item_id = self.add("Memo", "Write the memo")
+        self.run_cli("claim", item_id, input_text="Ari")
+        (self.root / "app.py").write_text("changed\n")
+        (self.root / "reports").mkdir()
+        (self.root / "reports/2026-11-05-memo.md").write_text("memo\n")
+        (self.root / "docs/pm/map/objects/link.md").write_text("card, updated with the change\n")
+        (self.root / "staged.py").write_text("staged\n")
+        subprocess.run(["git", "add", "staged.py"], cwd=self.root, check=True)
+        refused = self.run_cli("finish", item_id, ok=False, input_text="Done")
+        for path in ("app.py", "reports/2026-11-05-memo.md", "docs/pm/map/objects/link.md", "staged.py"):
+            self.assertIn(path, refused.stderr)
+        self.assertIn("4 files uncommitted", refused.stderr)
+        self.assertIn("Commit the work", refused.stderr)
+        self.assertNotIn("docs/pm/items", refused.stderr)
+        self.assertIn(f"[{item_id}]", self.board().split("## Queued")[0])
+        self.assertIn('status: "in-flight"', self.item_file(item_id).read_text())
+
+        subprocess.run(["git", "rm", "-q", "--cached", "staged.py"], cwd=self.root, check=True)
+        (self.root / "staged.py").unlink()
+        self.commit_all("the memo")
+        other = self.add("Unrelated", "Board files written by the CLI do not block finish")
+        self.assertEqual(subprocess.check_output(["git", "status", "--porcelain"], cwd=self.root, text=True), "")
+        self.run_cli("finish", item_id, input_text="Memo in reports/")
+        self.assertIn(f"[{item_id}]", self.board().split("## Done")[1])
+        self.assertTrue(self.item_file(other).exists())
+
+    def test_finish_refuses_for_another_dirty_item_then_succeeds_after_commit(self):
+        first = self.add("First task", "Finish this task")
+        second = self.add("Second task", "Keep this change committed")
+        self.run_cli("claim", first, input_text="Ari")
+
+        self.item_file(second).write_text(self.item_file(second).read_text().replace(
+            "Keep this change committed", "Updated second task"))
+        refused = self.run_cli("finish", first, ok=False, input_text="Done")
+        self.assertIn(f"docs/pm/items/{second}.md", refused.stderr)
+        self.assertIn('status: "in-flight"', self.item_file(first).read_text())
+
+        self.commit_all("update second task")
+        self.run_cli("finish", first, input_text="Done")
+        self.assertIn('status: "done"', self.item_file(first).read_text())
+
+    def test_finish_outside_git_needs_no_commit(self):
+        with tempfile.TemporaryDirectory() as temp:
+            plain = Path(temp)
+            self.assertEqual(subprocess.run(["python3", str(CLI), "init"], cwd=plain, capture_output=True).returncode, 0)
+            item_id = self.add("Plain", "No git here", cwd=plain)
+            (plain / "notes.txt").write_text("work\n")
+            subprocess.run(["python3", str(CLI), "claim", item_id], cwd=plain, input="Ari", text=True, check=True,
+                           capture_output=True)
+            done = subprocess.run(["python3", str(CLI), "finish", item_id], cwd=plain, input="", text=True,
+                                  capture_output=True)
+            self.assertEqual(done.returncode, 0, done.stderr)
+            self.assertIn(f"Finished {item_id}.", done.stdout)
+
+    def test_no_remote_board_writes_commit_items_so_other_work_can_finish(self):
+        first = self.add("First task", "Finish this task")
+        second = self.add("Second task", "Wait for a decision")
+        self.run_cli("hold", second, input_text="Which source should we use?")
+        self.run_cli("claim", first, input_text="Ari")
+
+        self.assertIn(f"pm: Claimed {first}", subprocess.check_output(
+            ["git", "log", "-1", "--format=%s"], cwd=self.root, text=True))
+        committed_paths = subprocess.check_output(
+            ["git", "show", "--format=", "--name-only", "HEAD"], cwd=self.root, text=True).split()
+        self.assertEqual(committed_paths, [f"docs/pm/items/{first}.md"])
+
+        (self.root / "work.py").write_text("work is complete\n")
+        subprocess.run(["git", "add", "work.py"], cwd=self.root, check=True)
+        subprocess.run(["git", "commit", "-qm", "complete first task"], cwd=self.root, check=True)
+        self.run_cli("finish", first, input_text="Done")
+
+        self.assertEqual(subprocess.check_output(
+            ["git", "show", "--format=", "--name-only", "HEAD~1"], cwd=self.root, text=True).split(),
+            ["work.py"])
+        self.assertEqual(subprocess.check_output(
+            ["git", "show", "--format=", "--name-only", "HEAD~2"], cwd=self.root, text=True).split(),
+            [f"docs/pm/items/{first}.md"])
+        self.assertIn("held: Which source should we use?", self.board())
 
     def test_stop_hook_recognizes_slug_id_item_updates(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -214,8 +307,20 @@ class ProjectBoardTests(unittest.TestCase):
                                 capture_output=True, check=True)
         self.assertIn(f"Ready next: {item_id}", result.stdout)
         routing = result.stdout.strip().splitlines()[-1]
-        self.assertIn("pm:work skill to claim it first", routing)
+        self.assertIn("Any project work (code, data, a deliverable) goes through the pm:work skill", routing)
+        self.assertIn("claims it first and adds it to this board", routing)
         self.assertIn("pm:plan skill", routing)
+        self.assertIn("Where things go", routing)
+        self.assertNotIn("Where things go table", result.stdout)  # no AGENTS.md: nothing to upgrade
+        (self.root / "AGENTS.md").write_text("# Project\n\n## Route by task\n")
+        before = subprocess.run(["bash", str(START_HOOK)], cwd=self.root, env=env, input="{}", text=True,
+                                capture_output=True, check=True).stdout.split("# Project board")[0]
+        self.assertIn("AGENTS.md has no Where things go table", before)
+        self.assertIn("/pm:init", before)
+        (self.root / "AGENTS.md").write_text("# Project\n\n## Where things go\n")
+        after = subprocess.run(["bash", str(START_HOOK)], cwd=self.root, env=env, input="{}", text=True,
+                               capture_output=True, check=True).stdout
+        self.assertNotIn("has no Where things go table", after)
 
     def test_github_mirror_defaults_off(self):
         self.assertIn("off", self.run_cli("mirror", "show").stdout)
@@ -234,8 +339,6 @@ class ProjectBoardTests(unittest.TestCase):
         git(seed, "config", "user.email", "fixture@example.com")
         subprocess.run(["python3", str(CLI), "init"], cwd=seed, check=True, capture_output=True, text=True)
         item_id = self.add("Shared task", "Build the shared task", cwd=seed)
-        git(seed, "add", "docs/pm")
-        git(seed, "commit", "-qm", "seed board")
         git(space, "init", "-q", "--bare", "--initial-branch=main", str(origin))
         git(seed, "remote", "add", "origin", str(origin))
         git(seed, "push", "-qu", "origin", "main")
@@ -260,7 +363,7 @@ class ProjectBoardTests(unittest.TestCase):
             self.assertIn("shared origin/main", claimed.stdout)
             refused = self.cli_in(clone_b, "claim", item_id, input_text="Bea", ok=False)
             self.assertIn("already claimed by Ari", refused.stderr)
-            item_path = next((clone_b / "docs/pm/items").glob(f"{item_id}-*.md"))
+            item_path = (clone_b / "docs/pm/items" / f"{item_id}.md")
             owner = subprocess.check_output(["git", "-C", str(clone_b), "show", f"origin/main:{item_path.relative_to(clone_b)}"], text=True)
             self.assertIn('owner: "Ari"', owner)
 
@@ -342,7 +445,7 @@ esac
             merged = subprocess.run(["git", "merge", "--no-edit", f"pm/{item_id}"], cwd=clone_a,
                                     text=True, capture_output=True)
             self.assertEqual(merged.returncode, 0, merged.stdout + merged.stderr)
-            item_path = next((clone_a / "docs/pm/items").glob(f"{item_id}-*.md")).read_text()
+            item_path = (clone_a / "docs/pm/items" / f"{item_id}.md").read_text()
             self.assertIn('github_issue: "7"', item_path)
             self.assertIn('status: "done"', item_path)
 

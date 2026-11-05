@@ -17,20 +17,13 @@ Think of the repository as a library. The routing files are the catalog: small, 
 9. **The filesystem is the state.** Status is what exists. Generated indexes are rebuilt by script (`pm.py index`, `pm.py board`), never edited by hand.
 10. **Instantiate by copying** a template, not a blank page ([templates/](templates/)).
 
-## Two kinds of project
+## Project shapes
 
-pm serves two uses, and the structure differs. `/pm:init` detects which one this is and confirms it with the owner in one question.
-
-| Kind | Signals | Structure |
-| --- | --- | --- |
-| **Ordinary project**: an app, library, service, site, or docs | Package metadata (`package.json`, `pyproject.toml`, `go.mod`, `Cargo.toml`), `src/`, tests | The light parts only: the small catalog `AGENTS.md`, one home per fact ([placement](../docs/placement.md)), an optional System map from `/pm:map` ([system-map.md](system-map.md)), Verify, and fixing the source. **Never stage folders.** |
-| **Workflow being built**: a repeatable multi-step process Claude will run, to be packaged as a skill | Mostly prompts and Markdown, step-by-step notes, "workflow", "pipeline", or "skill" in the README, an existing `SKILL.md` or `stages/` | An ICM Pipeline inside a skill folder, with each run's files kept outside it ([workflow.md](workflow.md)) |
-
-When the signals disagree (a code repo whose product is a workflow), ask. Do not climb the ladder early: a thing done twice is a saved prompt or a single `SKILL.md`, not a staged workflow.
+Every project gets one spine and the rows of its shape: analysis, automation, skill, app, or research, or two of them. `/pm:init` picks the shape by the repeating unit of work and stamps the rows into the `## Where things go` table of the root `AGENTS.md`, one row per kind of thing, so an agent knows where a file goes before it writes it ([shapes.md](shapes.md)). Facts go where [placement](../docs/placement.md) says; the System map ([system-map.md](system-map.md)) is optional for any shape. Only the skill shape gets stage folders ([workflow.md](workflow.md)).
 
 ## Restructure gate
 
-Use it whenever existing files would move: an entry file carrying payload, a docs folder that grew without a skeleton, an old architecture file. Nothing moves before the owner's yes.
+Use it whenever existing files would move: files outside the places in `## Where things go`, an entry file carrying payload, a docs folder that grew without a skeleton, an old architecture file. Nothing moves before the owner's yes.
 
 1. **Inventory, read-only.** List the tree (`git ls-files`), and for each area note what it is, when it was last touched (`git log -1 --format=%cs -- PATH`), and what refers to it. Run `pm.py walk` to see where the structure fails today.
 2. **Classify every instruction and doc file** as Catalog (routing), Contract (how a step works), Factory (stable reference), Product (what one run or task produced), or Dead (stale, duplicated, superseded).

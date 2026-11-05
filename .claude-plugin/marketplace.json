@@ -8,7 +8,7 @@
     {
       "name": "pm",
       "source": "./",
-      "description": "Shared Markdown project board with atomic claims, dependencies, decision holds, an optional GitHub Issues mirror, and ICM structure for agents."
+      "description": "Shared Markdown project board with atomic claims, dependencies, decision holds, an optional GitHub Issues mirror, and ICM structure for agents that says where every kind of file goes."
     }
   ]
 }

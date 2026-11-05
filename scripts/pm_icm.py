@@ -1,10 +1,11 @@
-"""ICM structure checks behind `pm.py walk`, `pm.py index`, and `pm.py refs`.
+"""ICM structure checks behind `pm.py walk`, `pm.py index`, `pm.py refs`, and `pm.py places`.
 
 The rules are adapted from icm-architect (MIT, (c) 2026 Jake Van Clief); see icm/LICENSE and icm/method.md.
 Everything here only reads the repository, except write_index, which rewrites the generated card index.
 """
 from __future__ import annotations
 
+import fnmatch
 import os
 import re
 import subprocess
@@ -28,6 +29,13 @@ LINK = re.compile(r"\[[^\]\n]*\]\(([^)\s]+)(?:\s+\"[^\"]*\")?\)")
 CITATION = re.compile(r"`((?:[^`\s:]+/)+[^`\s:]+|[^`\s:/]+\.[A-Za-z]\w*):(\d+)(?:-(\d+))?`")
 STAGE_DIR = re.compile(r"^\d{2}[_-]")
 SKILL_ROOTS = (".claude/skills", "skills")
+WHERE = "Where things go"
+# Files a tool expects at the repository root. Dotfiles and dot-folders (.gitignore, .github/) are allowed too.
+ROOT_FILES = {"AGENTS.md", "CLAUDE.md", "Makefile", "justfile", "Dockerfile", "pyproject.toml", "setup.py", "setup.cfg",
+              "uv.lock", "poetry.lock", "Pipfile", "Pipfile.lock", "environment.yml", "package.json",
+              "package-lock.json", "pnpm-lock.yaml", "yarn.lock", "bun.lockb", "tsconfig.json", "go.mod", "go.sum",
+              "Cargo.toml", "Cargo.lock", "Gemfile", "Gemfile.lock", "pom.xml", "build.gradle", "settings.gradle"}
+ROOT_PATTERNS = ("README*", "LICENSE*", "COPYING*", "NOTICE*", "CHANGELOG*", "CONTRIBUTING*", "requirements*.txt")
 
 
 def read(path: Path) -> str:
@@ -46,6 +54,76 @@ def repo_files(root: Path) -> list[str]:
         dirs[:] = [d for d in dirs if d not in SKIP_DIRS]
         found.extend((Path(folder) / name).relative_to(root).as_posix() for name in files)
     return sorted(found)
+
+
+def git_status(root: Path) -> list[tuple[str, str]]:
+    """(XY status, path) for each changed or untracked file, renames by their new path; empty outside Git."""
+    result = subprocess.run(["git", "-C", str(root), "status", "--porcelain=v1", "-z", "--untracked-files=all"],
+                            capture_output=True)
+    if result.returncode:
+        return []
+    entries = result.stdout.decode("utf-8", "replace").split("\0")
+    found, index = [], 0
+    while index < len(entries):
+        entry = entries[index]
+        index += 1
+        if len(entry) < 4:
+            continue
+        if entry[0] in "RC":
+            index += 1  # -z puts a rename's original path in the next entry
+        found.append((entry[:2], entry[3:]))
+    return found
+
+
+def where_things_go(root: Path) -> list[tuple[str, list[str]]] | None:
+    """Rows of the `## Where things go` table in the root AGENTS.md as (kind, places); None without the table.
+    A place is each backticked path in the Place column, cut at its first placeholder (`<`, `{`, `*`, `YYYY`)."""
+    entry = root / "AGENTS.md"
+    text = read(entry) if entry.is_file() else ""
+    match = re.search(rf"^## {WHERE}[ \t]*\n(.*?)(?=^## |\Z)", text, re.S | re.M)
+    if not match:
+        return None
+    rows = []
+    for line in match.group(1).splitlines():
+        if not line.lstrip().startswith("|"):
+            continue
+        cells = [cell.strip() for cell in line.strip().strip("|").split("|")]
+        if len(cells) < 2 or set(cells[1]) <= set("-: ") or cells[1] == "Place":
+            continue
+        places = []
+        for token in re.findall(r"`([^`]+)`", cells[1]):
+            token = re.split(r"[<{*]|YYYY", token)[0].strip()
+            token = token[2:] if token.startswith("./") else token
+            if token and not token.startswith("/") and " " not in token:
+                places.append(token)
+        rows.append((cells[0], places))
+    return rows
+
+
+def in_place(path: str, places: set[str]) -> bool:
+    """A path is in place when a place names it, or a folder holding it. Tool files at the root always are."""
+    for place in places:
+        folder = place if place.endswith("/") else place + "/"
+        if path == place.rstrip("/") or path.startswith(folder):
+            return True
+    first = PurePosixPath(path).parts[0]
+    if first.startswith("."):
+        return True
+    return "/" not in path and (path in ROOT_FILES or any(fnmatch.fnmatchcase(path, p) for p in ROOT_PATTERNS))
+
+
+def table_places(rows: list[tuple[str, list[str]]]) -> set[str]:
+    return {place for _, places in rows for place in places} | {"docs/pm/"}
+
+
+def strays(root: Path) -> list[str] | None:
+    """New files (untracked, added, or renamed into place) outside every place the table names; None without it."""
+    rows = where_things_go(root)
+    if rows is None:
+        return None
+    places = table_places(rows)
+    new = [path for status, path in git_status(root) if "?" in status or "A" in status or status[0] in "RC"]
+    return sorted(path for path in new if not in_place(path, places))
 
 
 def frontmatter(text: str) -> tuple[dict[str, str], str]:
@@ -252,6 +330,9 @@ def walk(root: Path, items: list[dict]) -> list[tuple[str, str]]:
             add("WARN", f"{name} points at nothing. A CONTEXT.md is a folder's contract or router, never a glossary "
                         f"or overview; move vocabulary to the Names table in {MAP}/AGENTS.md (docs/placement.md).")
 
+    if entry and entry.name == "AGENTS.md":
+        walk_places(root, files, add)
+
     workflows = workflow_skills(root, files)
     for skill in workflows:
         walk_workflow(root, skill, add)
@@ -290,6 +371,26 @@ def walk(root: Path, items: list[dict]) -> list[tuple[str, str]]:
     else:
         add("ok", f"{detail}: about {total:,} tokens (under {TOKEN_BUDGET:,}).")
     return results
+
+
+def walk_places(root: Path, files: list[str], add) -> None:
+    rows = where_things_go(root)
+    if rows is None:
+        add("WARN", f"AGENTS.md has no `## {WHERE}` table, so agents guess where new files go. /pm:init stamps one "
+                    "from the project's shape (icm/shapes.md).")
+        return
+    empty = [kind for kind, places in rows if not places]
+    if empty:
+        add("WARN", f"Rows in {WHERE} without a backticked place: " + "; ".join(empty) + ".")
+    places = table_places(rows)
+    outside = [name for name in files if not in_place(name, places)]
+    if outside:
+        add("WARN", f"{len(outside)} file{'s are' if len(outside) != 1 else ' is'} outside the places in AGENTS.md > "
+                    f"{WHERE}: " + ", ".join(outside[:12]) + (f", and {len(outside) - 12} more" if len(outside) > 12 else "")
+                    + ". Move each to the place for its kind (pm.py refs first, then git mv after the owner's yes), "
+                    "or add a row for a kind the table lacks.")
+    else:
+        add("ok", f"Every file is in a place AGENTS.md > {WHERE} names ({len(rows)} rows).")
 
 
 def workflow_skills(root: Path, files: list[str]) -> list[str]:

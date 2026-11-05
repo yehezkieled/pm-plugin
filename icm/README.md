@@ -4,15 +4,16 @@ ICM (Interpretable Context Methodology) treats a repository's folders as the age
 
 | File | What it holds | Read by |
 | --- | --- | --- |
-| [method.md](method.md) | The invariants, the two kinds of project, the restructure gate, the walk test, Verify, fixing the source | `/pm:init`, `/pm:map` |
-| [workflow.md](workflow.md) | Building a workflow as ICM stages that package as a Claude skill | `/pm:init` for a workflow project |
+| [shapes.md](shapes.md) | The spine and the shape rows (analysis, automation, skill, app, research) behind `AGENTS.md` › Where things go, and the tie-breakers | `/pm:init`, `/pm:work` |
+| [method.md](method.md) | The invariants, project shapes, the restructure gate, the walk test, Verify, fixing the source | `/pm:init`, `/pm:map` |
+| [workflow.md](workflow.md) | Building a workflow as ICM stages that package as a Claude skill | `/pm:init` for the skill shape |
 | [system-map.md](system-map.md) | The System map in `docs/pm/map/`: slices, cards, change impact | `/pm:map` |
 | [reference-integrity.md](reference-integrity.md) | Moving files safely: referrers, case-folded collisions, parity | any skill that moves files |
 | [core.md](core.md) | Principles, the five context layers, contract format, naming, token budget | when a structural call is contested |
 | [forms.md](forms.md) | The six ICM forms, for a workflow whose unit is not a run | `/pm:init`, rarely |
 | [templates/](templates/) | Copyable starters for catalogs, contracts, and cards | the skills, when they write those files |
 
-`scripts/pm_icm.py` runs the mechanical half of the walk test (`pm.py walk`), rebuilds the map's card index (`pm.py index`), and checks references before a move (`pm.py refs`).
+`scripts/pm_icm.py` runs the mechanical half of the walk test (`pm.py walk`), rebuilds the map's card index (`pm.py index`), checks references before a move (`pm.py refs`), and lists new files outside the places in `AGENTS.md` › Where things go (`pm.py places`).
 
 ## Credit
 

@@ -3,4 +3,4 @@ type: llm
 weight: 1
 ---
 
-The reply treats the repository as an ordinary project (a Python library), not a workflow being built, and does not create stage folders.
+The reply treats the repository as the app shape (a Python library), not the skill shape, and does not create stage folders.

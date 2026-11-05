@@ -48,6 +48,7 @@ section.step{padding:36px 0;border-bottom:1px solid var(--line)}
 pre{margin:10px 0;padding:12px 14px;border-radius:10px;overflow-x:auto;font:.84rem/1.5 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;max-width:100%}
 pre.term{background:var(--term-bg);color:var(--term-ink);white-space:pre}
 pre.term .cmd{color:var(--term-cmd);font-weight:600}
+pre.term.soft{white-space:pre-wrap;overflow-wrap:anywhere}
 pre.slash{background:var(--accent-soft);color:var(--ink);border:1px solid var(--line);white-space:pre-wrap;overflow-wrap:anywhere}
 pre.ascii{background:var(--panel);border:1px solid var(--line);color:var(--ink)}
 .label{font-size:.75rem;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin:16px 0 -4px}
@@ -96,7 +97,7 @@ footer{padding:28px 0 60px;color:var(--muted);font-size:.9rem}
     <tr><th>You want to…</th><th>Command</th><th>Do <em>not</em> use it for</th></tr>
     <tr><td>Set up tracking in a repo (once), and a structure agents can walk</td><td><code>/pm:init</code></td><td>Adding tasks</td></tr>
     <tr><td>Add, queue or remember a task; make it wait on another; park it for a decision</td><td><code>/pm:plan &lt;request&gt;</code></td><td>Doing the task</td></tr>
-    <tr><td>Start and build a tracked task</td><td><code>/pm:work [item-id]</code></td><td>Adding new tasks</td></tr>
+    <tr><td>Do any project work: build, fix, analyse, write up (it adds the task first if it is not on the board)</td><td><code>/pm:work [item-id]</code></td><td>Only recording a task for later</td></tr>
     <tr><td>See who owns what and what is ready next</td><td><code>/pm:status</code></td><td>Changing items</td></tr>
     <tr><td>Understand how the codebase fits together, or what a change would break</td><td><code>/pm:map [area]</code></td><td>Tracking tasks</td></tr>
     <tr><td>Move work from an older system (old pm board, TODO.md, tasks folder, issues) onto the board</td><td><code>/pm:migrate</code></td><td>Adding one new task</td></tr>
@@ -152,50 +153,60 @@ pm: walk test failed: 1 thing to fix.</pre>
   <pre class="term"><span class="cmd">$ pm.py init</span>
 Initialized docs/pm. Add the first item with /pm:plan.
 Published to shared origin/main.</pre>
-  <h3>Which kind of project is this?</h3>
-  <p>Init says what it sees. When it looks like a workflow, or the signs are mixed, it asks once before building anything; a clear ordinary project goes straight on. The kind decides the structure:</p>
+  <h3>Which shape is this project?</h3>
+  <p>Init picks the project's shape by its repeating unit of work, says which in one line, and asks only when two fit equally. Every shape gets the same spine; the shape adds its own rows. The full rows are in the plugin's <code>icm/shapes.md</code>.</p>
   <div class="tablewrap"><table>
-    <tr><th></th><th>Ordinary project</th><th>Workflow being built</th></tr>
-    <tr><td>What it is</td><td>An app, library, service, site, or docs</td><td>A repeatable multi-step process Claude will run</td></tr>
-    <tr><td>Structure</td><td>A small catalog <code>AGENTS.md</code>; optional System map (<a href="#map">step 10</a>)</td><td>Numbered stages inside a skill folder, each with a contract</td></tr>
-    <tr><td>Stage folders</td><td>Never</td><td><code>stages/01_…</code>, <code>02_…</code></td></tr>
-    <tr><td>Ends as</td><td>The product</td><td>A Claude skill you can package and install</td></tr>
+    <tr><th>Shape</th><th>Unit of work</th><th>Adds to the spine</th></tr>
+    <tr><td>every project (the spine)</td><td></td><td><code>docs/pm/items/</code> tasks, <code>docs/</code>, <code>reports/</code> for deliverables, <code>out/</code> for generated files, a clean root</td></tr>
+    <tr><td>analysis</td><td>a question answered from data</td><td><code>data/raw/&lt;source&gt;/</code>, <code>data/README.md</code>, <code>src/</code>, <code>notebooks/</code></td></tr>
+    <tr><td>automation</td><td>a run</td><td><code>src/</code>, <code>config/</code>, <code>.github/workflows/</code>, <code>out/runs/</code>, a runbook</td></tr>
+    <tr><td>skill</td><td>a run of a workflow</td><td><code>.claude/skills/&lt;name&gt;/</code> with numbered stages, <code>runs/&lt;run&gt;/</code></td></tr>
+    <tr><td>app</td><td>a change to the code</td><td>the source folder, <code>tests/</code>, an optional System map (<a href="#map">step 10</a>)</td></tr>
+    <tr><td>research</td><td>a question or a source</td><td><code>sources/</code>, <code>notes/</code></td></tr>
   </table></div>
-  <pre class="slash">This is an ordinary project (an app with a README and source), so it gets a small catalog and no stage folders.</pre>
-  <p>shortlink has no <code>AGENTS.md</code>, so init writes one from the plugin's template, filled only with facts it checked, plus a one-line <code>CLAUDE.md</code> that says <code>@AGENTS.md</code>. It never overwrites yours. The catalog points; it does not explain:</p>
+  <pre class="slash">Shape: app. shortlink is one Python file and its tests, so it gets the spine plus Source and Tests rows; app.py keeps its name.</pre>
+  <p>shortlink has no <code>AGENTS.md</code>, so init writes one from the plugin's template, filled only with facts it checked, plus a one-line <code>CLAUDE.md</code> that says <code>@AGENTS.md</code>. It never overwrites yours. The catalog points; it does not explain. Its <em>Where things go</em> table is where an agent looks before it creates any file:</p>
   <pre class="term"># shortlink
 
-A tiny URL shortener: a long URL goes in, a short code comes out. Product overview: [README.md](README.md).
+A tiny URL shortener: a long URL goes in, a short code comes out. Shape: app. Product overview: [README.md](README.md).
 
 This file routes; the facts live in the files it points at. Where each kind of knowledge goes: `/pm:help`.
 
-## Where things live
+## Where things go
 
-| Path | What it holds |
-| --- | --- |
-| `docs/pm/items/` | The board: one file per task, with the requester&#x27;s exact words |
-| `app.py` | The whole app: `shorten()` |
+Before creating any file, find its kind here and put it in that place. No row fits: ask once, recommend a place, and add the row in the same change. Nothing else goes at the root.
+
+| Kind of thing | Place | Rule |
+| --- | --- | --- |
+| Tasks: what is being done and what is next | `docs/pm/items/` | `/pm:plan` adds them and `/pm:work` claims them; never made by hand |
+| How it works, decisions, gotchas | `docs/` | one file per topic; update it, don&#x27;t duplicate it |
+| Deliverables for people: memos, reports, findings | `reports/` | `YYYY-MM-DD-&lt;topic&gt;.md`; cite the data and the command behind each number |
+| Generated outputs | `out/` | written only by code; never hand-edited; gitignored |
+| Project files at the root | `README.md`, `AGENTS.md`, `CLAUDE.md`, `.gitignore` | nothing else at the root |
+| Source | `app.py` | the whole app, `shorten()`; it keeps its name until it outgrows one file, then moves to `src/` |
+| Tests | `tests/` | `test_&lt;part&gt;.py`, run by `python3 -m unittest` |
 
 ## Route by task
 
 | If you are | Go to |
 | --- | --- |
 | adding or tracking work | `/pm:plan` |
-| building a task from the board | `/pm:work`: it claims the item first |
+| doing any project work (code, data, a deliverable) | `/pm:work`: it claims the item first, adding it with `/pm:plan` if it is not on the board |
 | asking what is in flight or next | `/pm:status` |
 
 ## Every session
 
 - Test: `python3 -m unittest`.
-- Claim an item before changing code; keep the requester&#x27;s words verbatim in the item.</pre>
+- Claim an item before changing code or data; keep the requester&#x27;s words verbatim in the item.</pre>
   <div class="label">Skill runs: walk test again</div>
   <pre class="term"><span class="cmd">$ pm.py walk</span>
-Walk test: passed (3 ok, 0 warnings).
-ok    AGENTS.md is a small catalog (25 lines).
+Walk test: passed (4 ok, 0 warnings).
+ok    AGENTS.md is a small catalog (32 lines).
 ok    Every link in the 2 routing files and cards resolves.
-ok    entry: about 195 tokens (under 8,000).
+ok    Every file is in a place AGENTS.md &gt; Where things go names (7 rows).
+ok    entry: about 425 tokens (under 8,000).
 These are the mechanical checks. Then walk it cold with the questions in the pm plugin&#x27;s icm/method.md.</pre>
-  <p>Then the cold half: the agent answers a few questions from the files alone, such as “from <code>AGENTS.md</code> plus two reads, where do I go to run the tests?”. The board is empty at first:</p>
+  <p>Then the cold half: the agent answers a few questions from the files alone, such as “from <code>AGENTS.md</code> plus two reads, where do I go to run the tests?” and “where does a new CSV of click data go?”. The board is empty at first:</p>
   <pre class="term"><span class="cmd">$ pm.py board</span>
 # Project board
 
@@ -217,14 +228,15 @@ These are the mechanical checks. Then walk it cold with the questions in the pm 
 
 Ready next: none</pre>
   <div class="note"><p><strong>Already tracking work somewhere else?</strong> Init also looks for an older system (a pm 0.x board, a <code>TODO.md</code>, a tasks folder) and offers to move it onto the board, see <a href="#migrate">step 13</a>. This sample project has none.</p>
+  <p><strong>Files in the wrong place</strong> (data at the root, a report next to the code) are listed by <code>pm.py walk</code>. Init proposes a move for each, or a new row when it is a kind the table lacks, and moves them with <code>git mv</code> after one yes. A folder the project already uses keeps its name.</p>
   <p><strong>An <code>AGENTS.md</code> that already holds a lot</strong> (over 60 lines, architecture, long how-tos) is not rewritten in place. Init lists each section and where it belongs, checks what links to each file that would move (<code>pm.py refs</code>, <a href="#map">step 10</a>), shows you the new tree and the new <code>AGENTS.md</code> in full, and moves files only after your yes.</p></div>
-  <div class="note"><p><strong>What was created:</strong> <code>docs/pm/config.json</code>, committed and pushed to <code>main</code> so every clone has it, plus <code>AGENTS.md</code> and <code>CLAUDE.md</code> for you to review and commit.</p></div>
-<pre class="ascii">AGENTS.md            ← the catalog (CLAUDE.md is just @AGENTS.md)
+  <div class="note"><p><strong>What was created:</strong> <code>docs/pm/config.json</code>, committed and pushed to <code>main</code> so every clone has it, plus <code>AGENTS.md</code>, <code>CLAUDE.md</code>, and a <code>.gitignore</code> with <code>out/</code>. After you approve the structure and both halves of the walk pass, init commits those setup files, moves, and path edits together on a separate setup branch; open a PR for that commit.</p></div>
+<pre class="ascii">AGENTS.md            ← the catalog and its Where things go table (CLAUDE.md is just @AGENTS.md)
 docs/pm/
 ├── config.json      ← created now
 └── items/           ← one file per item, appears with the first /pm:plan</pre>
-  <h3>If it were a workflow</h3>
-  <p>For a workflow, init asks a few questions (what goes in, the steps, what a person checks between them), then sets up a skill folder. Each run's files go in <code>runs/</code>, outside the skill, so the skill can be packaged as is. The walk test also checks it would package. Captured from a sample <em>weekly-brief</em> workflow:</p>
+  <h3>If it were a workflow: the skill shape</h3>
+  <p>For the skill shape, init asks a few questions (what goes in, the steps, what a person checks between them), then sets up a skill folder. Each run's files go in <code>runs/</code>, outside the skill, so the skill can be packaged as is. The walk test also checks it would package. Captured from a sample <em>weekly-brief</em> workflow:</p>
 <pre class="ascii">.claude/skills/weekly-brief/
 ├── SKILL.md                     ← name, "Use when…", the stage table
 ├── stages/01_gather/CONTEXT.md  ← Inputs · Process · Outputs · Verify · Human check
@@ -233,11 +245,12 @@ docs/pm/
 └── setup/questionnaire.md
 runs/&lt;run&gt;/                      ← each run's files, never shipped</pre>
   <pre class="term"><span class="cmd">$ pm.py walk</span>
-Walk test: passed (4 ok, 0 warnings).
-ok    AGENTS.md is a small catalog (5 lines).
+Walk test: passed (5 ok, 0 warnings).
+ok    AGENTS.md is a small catalog (12 lines).
 ok    Every link in the 4 routing files and cards resolves.
+ok    Every file is in a place AGENTS.md &gt; Where things go names (4 rows).
 ok    Workflow .claude/skills/weekly-brief/ has 2 numbered stages and is packageable as a skill.
-ok    entry + workflow SKILL.md + largest card or contract: about 403 tokens (under 8,000).
+ok    entry + workflow SKILL.md + largest card or contract: about 663 tokens (under 8,000).
 These are the mechanical checks. Then walk it cold with the questions in the pm plugin&#x27;s icm/method.md.</pre>
 </section>
 
@@ -257,7 +270,7 @@ Create short links
 Let me paste a long URL and get back a short code like /a1b2.
 PM_END</span>
 Created create-short-links-b153d3: Create short links
-Detail: docs/pm/items/create-short-links-b153d3-create-short-links.md
+Detail: docs/pm/items/create-short-links-b153d3.md
 Published to shared origin/main.</pre>
   <p>Dana adds the other three requests too:</p>
   <pre class="slash">/pm:plan Redirect a short link
@@ -345,13 +358,13 @@ Published to shared origin/main.</pre>
 
 ## Queued
 
-- [click-counts-790dc4](docs/pm/items/click-counts-790dc4-click-counts.md) Click counts — Show me how many times each short link was opened.; blocked by redirect-a-short-link-9bbffa
-- [create-short-links-b153d3](docs/pm/items/create-short-links-b153d3-create-short-links.md) Create short links — Let me paste a long URL and get back a short code like /a1b2.
-- [redirect-a-short-link-9bbffa](docs/pm/items/redirect-a-short-link-9bbffa-redirect-a-short-link.md) Redirect a short link — Opening /a1b2 should send the visitor to the original URL.; blocked by create-short-links-b153d3
+- [click-counts-790dc4](docs/pm/items/click-counts-790dc4.md) Click counts — Show me how many times each short link was opened.; blocked by redirect-a-short-link-9bbffa
+- [create-short-links-b153d3](docs/pm/items/create-short-links-b153d3.md) Create short links — Let me paste a long URL and get back a short code like /a1b2.
+- [redirect-a-short-link-9bbffa](docs/pm/items/redirect-a-short-link-9bbffa.md) Redirect a short link — Opening /a1b2 should send the visitor to the original URL.; blocked by create-short-links-b153d3
 
 ## Waiting
 
-- [link-expiry-cc352f](docs/pm/items/link-expiry-cc352f-link-expiry.md) Link expiry — Links should stop working after a while, I don&#x27;t want old links living forever.; held: When a link expires, should visitors see a 404 or a 410 Gone page? (review after 2026-10-15)
+- [link-expiry-cc352f](docs/pm/items/link-expiry-cc352f.md) Link expiry — Links should stop working after a while, I don&#x27;t want old links living forever.; held: When a link expires, should visitors see a 404 or a 410 Gone page? (review after 2026-10-15)
 
 ## Done
 
@@ -361,7 +374,7 @@ Ready next: create-short-links-b153d3 Create short links</pre>
   <p>Read it top to bottom: nothing is in flight; B and D are <em>blocked by</em> their dependency; C is <span class="tag w">Waiting</span> with its question. The single <em>Ready next</em> line answers “what should I do?”. The skill then adds a one-line recommendation, for example: <em>“Start ‘Create short links’: it is the only unblocked item, and it unblocks the redirect. Link expiry needs your decision: 404 or 410?”</em></p>
   <h3>Just the ready items: <code>pm.py next</code></h3>
   <pre class="term"><span class="cmd">$ pm.py next</span>
-create-short-links-b153d3 Create short links — docs/pm/items/create-short-links-b153d3-create-short-links.md</pre>
+create-short-links-b153d3 Create short links — docs/pm/items/create-short-links-b153d3.md</pre>
   <p>This is what <code>/pm:work</code> uses when you do not name an item. It lists queued items with no hold and every dependency done.</p>
 </section>
 
@@ -369,8 +382,8 @@ create-short-links-b153d3 Create short links — docs/pm/items/create-short-link
   <span class="stepno">Step 6</span>
   <h2><code>/pm:work</code>: claim first, then build</h2>
   <div class="grid">
-    <div class="card"><h4>When to use</h4><p>To start a tracked item. The claim is published <em>before</em> any code is touched, so two people (or two agents) cannot grab the same item.</p></div>
-    <div class="card"><h4>Say it like this</h4><p>“work on create short links”, “start the next task”, “implement this item”</p></div>
+    <div class="card"><h4>When to use</h4><p>For any project work, tracked or not yet: a request that is not on the board is added first with your exact words. The claim is published <em>before</em> any code is touched, so two people (or two agents) cannot grab the same item.</p></div>
+    <div class="card"><h4>Say it like this</h4><p>“work on create short links”, “start the next task”, “analyse last week&#x27;s clicks and write it up”</p></div>
   </div>
   <div class="label">You type</div>
   <pre class="slash">/pm:work            <span style="color:var(--muted)"># takes the first ready item</span>
@@ -384,21 +397,21 @@ Published to shared origin/main.</pre>
   <p>The claim needs a person's name on stdin. Forget it and you get a clear error, nothing changes:</p>
   <pre class="term"><span class="cmd">$ pm.py claim redirect-a-short-link-9bbffa</span>
 pm: A person&#x27;s name is required on stdin.</pre>
-  <p>The skill then creates a branch <code>pm/create-short-links-b153d3</code> from the claim commit, reads the item and the code it needs (once the repo has a map, only the cards the item touches, <a href="#touches">step 11</a>), builds it, runs the project's checks, and rewrites “Current notes”. Before you review, it checks the change against your exact words and lists anything that does not match at the top of the notes. The board now shows the claim:</p>
+  <p>The skill then creates a branch <code>pm/create-short-links-b153d3</code> from the claim commit, reads the item and the code it needs (once the repo has a map, only the cards the item touches, <a href="#touches">step 11</a>), builds it, putting every new file where <code>AGENTS.md</code> says for its kind, runs the project's checks, and rewrites “Current notes”. Before you review, it checks the change against your exact words and lists anything that does not match at the top of the notes. The board now shows the claim:</p>
   <pre class="term"># Project board
 
 ## In flight
 
-- [create-short-links-b153d3](docs/pm/items/create-short-links-b153d3-create-short-links.md) Create short links — Let me paste a long URL and get back a short code like /a1b2.; claimed by Dana
+- [create-short-links-b153d3](docs/pm/items/create-short-links-b153d3.md) Create short links — Let me paste a long URL and get back a short code like /a1b2.; claimed by Dana
 
 ## Queued
 
-- [click-counts-790dc4](docs/pm/items/click-counts-790dc4-click-counts.md) Click counts — Show me how many times each short link was opened.; blocked by redirect-a-short-link-9bbffa
-- [redirect-a-short-link-9bbffa](docs/pm/items/redirect-a-short-link-9bbffa-redirect-a-short-link.md) Redirect a short link — Opening /a1b2 should send the visitor to the original URL.; blocked by create-short-links-b153d3
+- [click-counts-790dc4](docs/pm/items/click-counts-790dc4.md) Click counts — Show me how many times each short link was opened.; blocked by redirect-a-short-link-9bbffa
+- [redirect-a-short-link-9bbffa](docs/pm/items/redirect-a-short-link-9bbffa.md) Redirect a short link — Opening /a1b2 should send the visitor to the original URL.; blocked by create-short-links-b153d3
 
 ## Waiting
 
-- [link-expiry-cc352f](docs/pm/items/link-expiry-cc352f-link-expiry.md) Link expiry — Links should stop working after a while, I don&#x27;t want old links living forever.; held: When a link expires, should visitors see a 404 or a 410 Gone page? (review after 2026-10-15)
+- [link-expiry-cc352f](docs/pm/items/link-expiry-cc352f.md) Link expiry — Links should stop working after a while, I don&#x27;t want old links living forever.; held: When a link expires, should visitors see a 404 or a 410 Gone page? (review after 2026-10-15)
 
 ## Done
 
@@ -415,11 +428,17 @@ Ready next: none</pre>
   <span class="stepno">Step 7</span>
   <h2>Finishing through a PR</h2>
   <div class="grid">
-    <div class="card"><h4>When it happens</h4><p>At the end of <code>/pm:work</code>, when the requested work is complete and checks pass. If not complete, the item stays In flight, still yours.</p></div>
+    <div class="card"><h4>When it happens</h4><p>At the end of <code>/pm:work</code>, when the requested work is complete, checks pass, and the work is committed on the branch. If not complete, the item stays In flight, still yours; if it waits on you, it is held with the question.</p></div>
     <div class="card"><h4>You do</h4><p>Push the branch and open a PR as usual. Merging the PR is what tells everyone else the item is Done.</p></div>
   </div>
-  <div class="label">Skill runs</div>
-  <pre class="term"><span class="cmd">$ pm.py finish create-short-links-b153d3 &lt;&lt;&#x27;PM_END&#x27;
+  <div class="label">Skill runs: commit the work, then finish</div>
+  <p><code>finish</code> marks Done only committed work. Run before the commit, it refuses and lists what is left:</p>
+  <pre class="term soft"><span class="cmd">$ pm.py finish create-short-links-b153d3 &lt;&lt;&#x27;PM_END&#x27;
+shorten() returns a 4-character code and stores it; covered by tests/test_shorten.py.
+PM_END</span>
+pm: create-short-links-b153d3 is not finished: 1 file uncommitted (tests/test_shorten.py). Commit the work on this branch first (or remove what does not belong to it), then run finish again; the board says Done only for committed work.</pre>
+  <pre class="term"><span class="cmd">$ git add tests/test_shorten.py &amp;&amp; git commit -m &quot;Add shorten() tests (create-short-links-b153d3)&quot;</span>
+<span class="cmd">$ pm.py finish create-short-links-b153d3 &lt;&lt;&#x27;PM_END&#x27;
 shorten() returns a 4-character code and stores it; covered by tests/test_shorten.py.
 PM_END</span>
 Finished create-short-links-b153d3 and committed locally.</pre>
@@ -432,25 +451,25 @@ Finished create-short-links-b153d3 and committed locally.</pre>
 
 ## Queued
 
-- [click-counts-790dc4](docs/pm/items/click-counts-790dc4-click-counts.md) Click counts — Show me how many times each short link was opened.; blocked by redirect-a-short-link-9bbffa
-- [redirect-a-short-link-9bbffa](docs/pm/items/redirect-a-short-link-9bbffa-redirect-a-short-link.md) Redirect a short link — Opening /a1b2 should send the visitor to the original URL.
+- [click-counts-790dc4](docs/pm/items/click-counts-790dc4.md) Click counts — Show me how many times each short link was opened.; blocked by redirect-a-short-link-9bbffa
+- [redirect-a-short-link-9bbffa](docs/pm/items/redirect-a-short-link-9bbffa.md) Redirect a short link — Opening /a1b2 should send the visitor to the original URL.
 
 ## Waiting
 
-- [link-expiry-cc352f](docs/pm/items/link-expiry-cc352f-link-expiry.md) Link expiry — Links should stop working after a while, I don&#x27;t want old links living forever.; held: When a link expires, should visitors see a 404 or a 410 Gone page? (review after 2026-10-15)
+- [link-expiry-cc352f](docs/pm/items/link-expiry-cc352f.md) Link expiry — Links should stop working after a while, I don&#x27;t want old links living forever.; held: When a link expires, should visitors see a 404 or a 410 Gone page? (review after 2026-10-15)
 
 ## Done
 
-- [create-short-links-b153d3](docs/pm/items/create-short-links-b153d3-create-short-links.md) Create short links — shorten() returns a 4-character code and stores it; covered by tests/test_shorten.py.
+- [create-short-links-b153d3](docs/pm/items/create-short-links-b153d3.md) Create short links — shorten() returns a 4-character code and stores it; covered by tests/test_shorten.py.
 
 Ready next: redirect-a-short-link-9bbffa Redirect a short link</pre>
   <div class="label">You (or the skill) then run</div>
   <pre class="slash">git push -u origin pm/create-short-links-b153d3
 gh pr create --fill</pre>
-  <div class="note"><p><strong>Why not Done everywhere immediately?</strong> <code>finish</code> commits only that item's file, and only on the work branch. Until the PR merges, other clones correctly see it <span class="tag i">In flight</span> under Dana. After the merge it is Done for everybody, with no board file to conflict on. (This sample used a local merge in place of a hosted PR; the result is the same.)</p></div>
-<pre class="ascii">work branch:  claim ─▶ code ─▶ notes ─▶ finish (Done, local)
-                                            │  PR opened
-main:                                       └─ merge ─▶ Done for everyone</pre>
+  <div class="note"><p><strong>Why not Done everywhere immediately?</strong> <code>finish</code> commits that item's file after the work's own commits, and only on the work branch. Until the PR merges, other clones correctly see it <span class="tag i">In flight</span> under Dana. After the merge it is Done for everybody, with no board file to conflict on. (This sample used a local merge in place of a hosted PR; the result is the same.)</p></div>
+<pre class="ascii">work branch:  claim ─▶ code ─▶ notes ─▶ commit ─▶ finish (Done, local)
+                                                       │  PR opened
+main:                                                  └─ merge ─▶ Done for everyone</pre>
 </section>
 
 <section class="step" id="after">
@@ -464,21 +483,21 @@ main:                                       └─ merge ─▶ Done for everyon
 
 ## Queued
 
-- [click-counts-790dc4](docs/pm/items/click-counts-790dc4-click-counts.md) Click counts — Show me how many times each short link was opened.; blocked by redirect-a-short-link-9bbffa
-- [redirect-a-short-link-9bbffa](docs/pm/items/redirect-a-short-link-9bbffa-redirect-a-short-link.md) Redirect a short link — Opening /a1b2 should send the visitor to the original URL.
+- [click-counts-790dc4](docs/pm/items/click-counts-790dc4.md) Click counts — Show me how many times each short link was opened.; blocked by redirect-a-short-link-9bbffa
+- [redirect-a-short-link-9bbffa](docs/pm/items/redirect-a-short-link-9bbffa.md) Redirect a short link — Opening /a1b2 should send the visitor to the original URL.
 
 ## Waiting
 
-- [link-expiry-cc352f](docs/pm/items/link-expiry-cc352f-link-expiry.md) Link expiry — Links should stop working after a while, I don&#x27;t want old links living forever.; held: When a link expires, should visitors see a 404 or a 410 Gone page? (review after 2026-10-15)
+- [link-expiry-cc352f](docs/pm/items/link-expiry-cc352f.md) Link expiry — Links should stop working after a while, I don&#x27;t want old links living forever.; held: When a link expires, should visitors see a 404 or a 410 Gone page? (review after 2026-10-15)
 
 ## Done
 
-- [create-short-links-b153d3](docs/pm/items/create-short-links-b153d3-create-short-links.md) Create short links — shorten() returns a 4-character code and stores it; covered by tests/test_shorten.py.
+- [create-short-links-b153d3](docs/pm/items/create-short-links-b153d3.md) Create short links — shorten() returns a 4-character code and stores it; covered by tests/test_shorten.py.
 
 Ready next: redirect-a-short-link-9bbffa Redirect a short link</pre>
   <p>A is Done, so B is no longer blocked. Only D still waits (on B):</p>
   <pre class="term"><span class="cmd">$ pm.py next</span>
-redirect-a-short-link-9bbffa Redirect a short link — docs/pm/items/redirect-a-short-link-9bbffa-redirect-a-short-link.md</pre>
+redirect-a-short-link-9bbffa Redirect a short link — docs/pm/items/redirect-a-short-link-9bbffa.md</pre>
   <h3>Answer the decision, then resume: <code>pm.py resume</code></h3>
   <p>Dana decides expired links should return <strong>410 Gone</strong>. Resuming the hold puts C back in the queue, and <code>--answer</code> saves Dana's exact words at the top of the item's current notes in the same commit, so the next person to pick it up sees what was decided and why. (Since nobody had claimed C, it returns to Queued; a claimed item would return In flight to its owner.)</p>
   <div class="label">You type</div>
@@ -497,9 +516,9 @@ Published to shared origin/main.</pre>
 
 ## Queued
 
-- [click-counts-790dc4](docs/pm/items/click-counts-790dc4-click-counts.md) Click counts — Show me how many times each short link was opened.; blocked by redirect-a-short-link-9bbffa
-- [link-expiry-cc352f](docs/pm/items/link-expiry-cc352f-link-expiry.md) Link expiry — Decision on &quot;When a link expires, should visitors see a 404 or a 410 Gone page?&quot;: Dana: expired links should return 410…
-- [redirect-a-short-link-9bbffa](docs/pm/items/redirect-a-short-link-9bbffa-redirect-a-short-link.md) Redirect a short link — Opening /a1b2 should send the visitor to the original URL.
+- [click-counts-790dc4](docs/pm/items/click-counts-790dc4.md) Click counts — Show me how many times each short link was opened.; blocked by redirect-a-short-link-9bbffa
+- [link-expiry-cc352f](docs/pm/items/link-expiry-cc352f.md) Link expiry — Decision on &quot;When a link expires, should visitors see a 404 or a 410 Gone page?&quot;: Dana: expired links should return 410…
+- [redirect-a-short-link-9bbffa](docs/pm/items/redirect-a-short-link-9bbffa.md) Redirect a short link — Opening /a1b2 should send the visitor to the original URL.
 
 ## Waiting
 
@@ -507,7 +526,7 @@ Published to shared origin/main.</pre>
 
 ## Done
 
-- [create-short-links-b153d3](docs/pm/items/create-short-links-b153d3-create-short-links.md) Create short links — shorten() returns a 4-character code and stores it; covered by tests/test_shorten.py.
+- [create-short-links-b153d3](docs/pm/items/create-short-links-b153d3.md) Create short links — shorten() returns a 4-character code and stores it; covered by tests/test_shorten.py.
 
 Ready next: link-expiry-cc352f Link expiry, redirect-a-short-link-9bbffa Redirect a short link</pre>
   <p>Now <code>/pm:work</code> can pick B or C. The cycle repeats: claim, build, finish, PR, merge.</p>
@@ -569,7 +588,7 @@ shorten() returns a 4-character code and stores it; covered by tests/test_shorte
   <span class="stepno">Step 10</span>
   <h2><code>/pm:map</code>: a map of the code, one card per part</h2>
   <div class="grid">
-    <div class="card"><h4>When to use</h4><p>You are new to a codebase, want an architecture overview, or need to know what a change would break. Optional for an ordinary project; worth it once agents change the code part by part. Add an area to map or refresh just that part.</p></div>
+    <div class="card"><h4>When to use</h4><p>You are new to a codebase, want an architecture overview, or need to know what a change would break. Optional for any shape; worth it once agents change the code part by part. Add an area to map or refresh just that part.</p></div>
     <div class="card"><h4>Say it like this</h4><p>“how does this codebase work?”, “map the code”, “what would changing the link storage break?”</p></div>
   </div>
   <div class="label">You type</div>
@@ -634,13 +653,14 @@ One in-memory dict keeps lookup to a single read; nothing is persisted yet, so l
 - Source: `app.py`</pre>
   <div class="label">Skill runs: check it, build the index, check again</div>
   <pre class="term"><span class="cmd">$ pm.py walk</span>
-Walk test: 3 to fix (3 ok, 0 warnings).
+Walk test: 3 to fix (4 ok, 0 warnings).
 FAIL  Links that do not resolve (a moved file that something still points at is a break): docs/pm/map/AGENTS.md:16 -&gt; _index.md
 FAIL  The entry file does not route to the System map: add a row pointing at docs/pm/map/AGENTS.md.
 FAIL  docs/pm/map/_index.md is missing or out of date. Run pm.py index; never edit it by hand.
-ok    AGENTS.md is a small catalog (25 lines).
+ok    AGENTS.md is a small catalog (32 lines).
+ok    Every file is in a place AGENTS.md &gt; Where things go names (7 rows).
 ok    3 cards have their frontmatter, sections, and citations.
-ok    entry + map catalog + largest card or contract: about 722 tokens (under 8,000).
+ok    entry + map catalog + largest card or contract: about 945 tokens (under 8,000).
 These are the mechanical checks. Then walk it cold with the questions in the pm plugin&#x27;s icm/method.md.
 pm: walk test failed: 3 things to fix.</pre>
   <pre class="term"><span class="cmd">$ pm.py index</span>
@@ -663,11 +683,12 @@ Generated by `pm.py index` from each card&#x27;s frontmatter. Do not edit by han
 - [shorten](processes/shorten.md) — verified — A long URL comes in and leaves as a new 4-character code.</pre>
   <p>It adds one row to the root <code>AGENTS.md</code> (“understanding or changing the code → docs/pm/map/AGENTS.md”), and the walk passes:</p>
   <pre class="term"><span class="cmd">$ pm.py walk</span>
-Walk test: passed (4 ok, 0 warnings).
-ok    AGENTS.md is a small catalog (26 lines).
+Walk test: passed (5 ok, 0 warnings).
+ok    AGENTS.md is a small catalog (33 lines).
 ok    Every link in the 10 routing files and cards resolves.
+ok    Every file is in a place AGENTS.md &gt; Where things go names (7 rows).
 ok    3 cards have their frontmatter, sections, and citations.
-ok    entry + map catalog + largest card or contract: about 748 tokens (under 8,000).
+ok    entry + map catalog + largest card or contract: about 967 tokens (under 8,000).
 These are the mechanical checks. Then walk it cold with the questions in the pm plugin&#x27;s icm/method.md.</pre>
   <p>In the chat it leads with a two-line summary and ASCII diagrams, for example:</p>
 <pre class="ascii">shortlink is one Python file: shorten() turns a URL into a 4-character code kept in memory.
@@ -755,13 +776,13 @@ Published to shared origin/main.</pre>
   <h2><code>/pm:help</code> and the two hooks</h2>
   <div class="grid">
     <div class="card"><h4><code>/pm:help</code>: when to use</h4><p>You forgot the commands. It prints this card and the placement guide, then stops. Say “how do I use pm?” or “what commands are there?”.</p></div>
-    <div class="card"><h4>Hooks: automatic</h4><p>Nothing to type. They are on once the plugin is installed and never block your session.</p></div>
+    <div class="card"><h4>Hooks: automatic</h4><p>Nothing to type. They are on once the plugin is installed. The only one that can hold the agent back does it once, for a file in the wrong place.</p></div>
   </div>
   <div class="label">You type</div>
   <pre class="slash">/pm:help</pre>
-  <pre class="term">/pm:init             Set up the board and a small AGENTS.md catalog
+  <pre class="term">/pm:init             Set up the board, the AGENTS.md catalog, and where things go
 /pm:plan &lt;request&gt;   Record a request verbatim, with what it touches
-/pm:work [item-id]   Claim first, build, verify, then update notes
+/pm:work [item-id]   Any project work: claim first, build, verify, commit
 /pm:status           Show owners, waiting items, and what&#x27;s ready
 /pm:map [area]       Map the code as cards: what a change hits
 /pm:migrate          Move an existing task system onto the board
@@ -771,16 +792,19 @@ Published to shared origin/main.</pre>
 
 Put each fact in the most specific place that owns it, once, and link to it from anywhere else. Anything useful to every contributor lives in the repo, so it travels with the code. The layout follows ICM ([icm/](../icm/README.md)): small routing files point at the files that hold the facts, and an agent loads only what its task needs.
 
+Files that are not knowledge (code, data, notebooks, outputs, deliverables) go where the `## Where things go` table in the root `AGENTS.md` says, by kind; the shapes and tie-breakers behind that table are in [icm/shapes.md](../icm/shapes.md). Findings written for people are deliverables in `reports/`, not item notes and not `docs/`.
+
 | Kind of knowledge | File |
 | --- | --- |
-| Where things live, where to go for a task, and the few rules every session needs (build and test commands, claim before coding) | `AGENTS.md`, the catalog: under 60 lines; it routes rather than explains. `CLAUDE.md` holds only `@AGENTS.md`. |
+| Where things go, where to go for a task, and the few rules every session needs (build and test commands, claim before coding) | `AGENTS.md`, the catalog: under 60 lines; it routes rather than explains. `CLAUDE.md` holds only `@AGENTS.md`. |
 | Product overview: what it is, who it is for, goals, how to run it (never private context) | `README.md`. The catalog links to it. |
 | What one part of the code is, why it has that shape, what a change to it hits, its gotchas | That part&#x27;s card in `docs/pm/map/` (`objects/` for things, `processes/` for movements), written by `/pm:map`. Without a map, the doc that already owns that area, linked from the catalog. |
 | Which cards to open before a change | `docs/pm/map/effects/CONTEXT.md` |
 | Domain vocabulary; product words versus code names | The Names table in `docs/pm/map/AGENTS.md` |
 | How a working folder&#x27;s job is done: inputs, process, outputs, verify, human check | That folder&#x27;s `CONTEXT.md`. A `CONTEXT.md` is always a folder&#x27;s contract or router, never a glossary or overview. |
-| A workflow being built | Its skill folder, `.claude/skills/&lt;name&gt;/`: `SKILL.md` routes, `stages/NN_&lt;step&gt;/CONTEXT.md` are the contracts, `_shared/` and `references/` the stable material. Each run&#x27;s files go in `runs/&lt;run&gt;/`, outside the skill. |
+| A workflow being built (the skill shape) | Its skill folder, `.claude/skills/&lt;name&gt;/`: `SKILL.md` routes, `stages/NN_&lt;step&gt;/CONTEXT.md` are the contracts, `_shared/` and `references/` the stable material. Each run&#x27;s files go in `runs/&lt;run&gt;/`, outside the skill. |
 | One task: the requester&#x27;s exact words, the cards or stages it touches, progress, decisions, corrections | `docs/pm/items/&lt;id&gt;.md`: intent under `## Requester intent`, `touches` and `corrections` in its frontmatter, the rest under `## Current notes`. |
+| Where a dataset or source came from, when it arrived, what reads it | `data/README.md` (or `sources/README.md`), one line each |
 | Generated lists: the board, the map&#x27;s card index | Rebuilt by `pm.py board` and `pm.py index`; never edited by hand. |
 
 ## Recording decisions
@@ -804,7 +828,7 @@ When a person corrects an agent&#x27;s output, record it with `pm.py correct ITE
 | What `CONTEXT.md` is | A folder&#x27;s contract or router, as in ICM. pm&#x27;s old glossary use moves to the Names table. |
 | Where architecture goes | The System map&#x27;s cards, replacing `docs/pm/CODEBASE.md`; `/pm:map` absorbs and retires that file. |
 | Where lasting rules go | The card or contract of the part they govern; `AGENTS.md` keeps only what every session needs. |
-| Stages | Only for a workflow being built, inside its skill folder. An ordinary project never gets stage folders. |
+| Stages | Only for the skill shape, inside its skill folder. Other shapes never get stage folders. |
 | The unit of work | A board item. It names the cards or stages it touches; its contract is the requester&#x27;s words plus those files. |
 | Templates | Ship with the plugin in `icm/templates/`; a map keeps copies in `_templates/` so a new card is a copy. |
 | Removing files | `git rm` after the owner&#x27;s yes; git history replaces ICM&#x27;s `_archive/` folder. |
@@ -812,9 +836,17 @@ When a person corrects an agent&#x27;s output, record it with `pm.py correct ITE
 Before writing anywhere, check the file already covers the fact; update it instead of adding a duplicate. Mark claims you have not verified `[UNSURE]`.</pre>
   <h3>The hooks</h3>
   <ul class="tight">
-    <li><strong>Session start:</strong> prints the board (the same text as step 5), so every session begins knowing what is in flight and ready. It adds one line telling the agent to claim an item with <code>/pm:work</code> before building it and to add work with <code>/pm:plan</code>, so any model follows the board rules. In a project still on pm 1.0's <code>docs/pm/CODEBASE.md</code>, it first adds the one-line pointer to <code>/pm:map</code> (<a href="#map">step 10</a>).</li>
-    <li><strong>Stop:</strong> if you changed code but no item file, it reminds the agent once: <em>“Code changed without an item detail update. If this work is tracked, rewrite its Current notes, update the map cards it touches, and refresh affected project docs before finishing.”</em></li>
+    <li><strong>Session start:</strong> prints the board (the same text as step 5), so every session begins knowing what is in flight and ready. It adds one line saying that any project work (code, data, a deliverable) goes through <code>/pm:work</code>, which claims it first and adds it to the board if it is not there; that work to add goes through <code>/pm:plan</code>; and that every new file goes where <code>AGENTS.md</code> says, so any model follows the board rules. In a project whose <code>AGENTS.md</code> has no Where things go table yet, it first adds a pointer to <code>/pm:init</code>; in one still on pm 1.0's <code>docs/pm/CODEBASE.md</code>, a pointer to <code>/pm:map</code> (<a href="#map">step 10</a>).</li>
+    <li><strong>Stop:</strong> when the agent is about to end its turn with a new file outside the table's places, it sends the agent back once to move it or ask you for a row. Captured after dropping <code>clicks.csv</code> at the root of shortlink:</li>
   </ul>
+  <pre class="term soft">{&quot;decision&quot;: &quot;block&quot;, &quot;reason&quot;: &quot;These new files are outside the places in AGENTS.md &gt; Where things go: clicks.csv. Move each to the place for its kind (git mv, then update anything that reads or writes it), or, if it is a new kind of thing, ask the owner once and add a row.&quot;}</pre>
+  <p>The same check by hand is <code>pm.py places</code>:</p>
+  <pre class="term soft"><span class="cmd">$ pm.py places</span>
+New files outside the places in AGENTS.md &gt; Where things go:
+- clicks.csv
+Move each to the place for its kind (git mv, then update anything that reads or writes it), or, for a new kind of thing, ask the owner once and add a row.
+pm: 1 new file outside the places.</pre>
+  <p>Otherwise, if code changed but no item file did, it reminds the agent once: <em>“Code changed without an item detail update. If this work is tracked, rewrite its Current notes, update the map cards it touches, and refresh affected project docs before finishing.”</em></p>
 </section>
 
 <section class="step" id="migrate">
@@ -879,20 +911,20 @@ Rendered from `docs/pm/items/`, which holds each item's requester intent and cur
 
 ## In flight
 
-- [session-cookie-flags-cf7d81](docs/pm/items/session-cookie-flags-cf7d81-session-cookie-flags.md) Session cookie flags — Plan (0.x): Approach: set both flags in one place. approved: yes Migrated from pm-plugin 0.x ticket T005 (epic E01 Logi…; claimed by agent-a
-- [share-link-85d2cb](docs/pm/items/share-link-85d2cb-share-link.md) Share link — Migrated from pm-plugin 0.x ticket T006 (epic E02 Sharing, milestone M2, priority P1, PR https://github.com/acme/shortl…; claimed by agent-b; blocked by session-cookie-flags-cf7d81
+- [session-cookie-flags-cf7d81](docs/pm/items/session-cookie-flags-cf7d81.md) Session cookie flags — Plan (0.x): Approach: set both flags in one place. approved: yes Migrated from pm-plugin 0.x ticket T005 (epic E01 Logi…; claimed by agent-a
+- [share-link-85d2cb](docs/pm/items/share-link-85d2cb.md) Share link — Migrated from pm-plugin 0.x ticket T006 (epic E02 Sharing, milestone M2, priority P1, PR https://github.com/acme/shortl…; claimed by agent-b; blocked by session-cookie-flags-cf7d81
 
 ## Queued
 
-- [dark-mode-07343f](docs/pm/items/dark-mode-07343f-dark-mode.md) Dark mode — Migrated from the pm-plugin 0.x roadmap Backlog (no epic or milestone).
-- [export-to-csv-f078b1](docs/pm/items/export-to-csv-f078b1-export-to-csv.md) Export to CSV — Migrated from the pm-plugin 0.x roadmap Backlog (no epic or milestone).
-- [orphaned-in-progress-75eca4](docs/pm/items/orphaned-in-progress-75eca4-orphaned-in-progress.md) Orphaned in progress — Migrated from pm-plugin 0.x ticket T008 (priority P2).
-- [rate-limit-login-attempts-5e41d5](docs/pm/items/rate-limit-login-attempts-5e41d5-rate-limit-login-attempts.md) Rate-limit login attempts — Notes (0.x): Check the clock source first. Migrated from pm-plugin 0.x ticket T002 (epic E01 Login, milestone M1, prior…
-- [revoke-share-409b9f](docs/pm/items/revoke-share-409b9f-revoke-share.md) Revoke share — Migrated from pm-plugin 0.x ticket T007 (epic E02 Sharing, milestone M2, priority P3). Epic goal: Lists can be shared b…; claimed by agent-c; blocked by share-link-85d2cb
+- [dark-mode-07343f](docs/pm/items/dark-mode-07343f.md) Dark mode — Migrated from the pm-plugin 0.x roadmap Backlog (no epic or milestone).
+- [export-to-csv-f078b1](docs/pm/items/export-to-csv-f078b1.md) Export to CSV — Migrated from the pm-plugin 0.x roadmap Backlog (no epic or milestone).
+- [orphaned-in-progress-75eca4](docs/pm/items/orphaned-in-progress-75eca4.md) Orphaned in progress — Migrated from pm-plugin 0.x ticket T008 (priority P2).
+- [rate-limit-login-attempts-5e41d5](docs/pm/items/rate-limit-login-attempts-5e41d5.md) Rate-limit login attempts — Notes (0.x): Check the clock source first. Migrated from pm-plugin 0.x ticket T002 (epic E01 Login, milestone M1, prior…
+- [revoke-share-409b9f](docs/pm/items/revoke-share-409b9f.md) Revoke share — Migrated from pm-plugin 0.x ticket T007 (epic E02 Sharing, milestone M2, priority P3). Epic goal: Lists can be shared b…; claimed by agent-c; blocked by share-link-85d2cb
 
 ## Waiting
 
-- [lock-account-after-limit-29cba8](docs/pm/items/lock-account-after-limit-29cba8-lock-account-after-limit.md) Lock account after limit — Migrated from pm-plugin 0.x ticket T003 (epic E01 Login, milestone M1, priority P0). Epic goal: People can sign in safe…; blocked by rate-limit-login-attempts-5e41d5; held: Not yet clarified in pm 0.x (ready: no). Confirm what, why and acceptance before starting.
+- [lock-account-after-limit-29cba8](docs/pm/items/lock-account-after-limit-29cba8.md) Lock account after limit — Migrated from pm-plugin 0.x ticket T003 (epic E01 Login, milestone M1, priority P0). Epic goal: People can sign in safe…; blocked by rate-limit-login-attempts-5e41d5; held: Not yet clarified in pm 0.x (ready: no). Confirm what, why and acceptance before starting.
 
 ## Done
 
@@ -910,9 +942,9 @@ Ready next: dark-mode-07343f Dark mode, export-to-csv-f078b1 Export to CSV, orph
   <h3>Slash commands</h3>
   <div class="tablewrap"><table>
     <tr><th>Command</th><th>Reads / writes</th><th>Result</th></tr>
-    <tr><td><code>/pm:init</code></td><td>writes <code>docs/pm/config.json</code>, <code>AGENTS.md</code> (or a workflow skill's stages); moves files only after your yes</td><td>board exists, walk test passes</td></tr>
+    <tr><td><code>/pm:init</code></td><td>writes <code>docs/pm/config.json</code>, <code>AGENTS.md</code> with its Where things go table (and for the skill shape, the skill's stages); moves files only after your yes</td><td>board exists, files in their places, walk test passes</td></tr>
     <tr><td><code>/pm:plan &lt;request&gt;</code></td><td>writes an item file</td><td>Queued item, optional dependency, hold, or touched cards</td></tr>
-    <tr><td><code>/pm:work [id]</code></td><td>claims, loads only what the item touches, edits code and cards, updates the item</td><td>In flight, checked against your words, then Done on the branch</td></tr>
+    <tr><td><code>/pm:work [id]</code></td><td>adds the item if missing, claims it, loads only what it touches, edits code and cards, commits, updates the item</td><td>In flight, checked against your words, then Done on the branch</td></tr>
     <tr><td><code>/pm:status</code></td><td>read only</td><td>board, ready items, sources to fix</td></tr>
     <tr><td><code>/pm:map [area]</code></td><td>writes <code>docs/pm/map/</code>; retires an old <code>CODEBASE.md</code> on your yes</td><td>cards with citations and change impact, generated index</td></tr>
     <tr><td><code>/pm:migrate</code></td><td>reads the old system; writes items, only after your yes</td><td>items, counts before and after, other knowledge routed</td></tr>
@@ -927,7 +959,7 @@ Ready next: dark-mode-07343f Dark mode, export-to-csv-f078b1 Export to CSV, orph
     <tr><td><code>pm.py hold ID [--until YYYY-MM-DD]</code></td><td>the question</td><td>move to Waiting</td></tr>
     <tr><td><code>pm.py resume ID [--answer]</code></td><td>with <code>--answer</code>: the decider's exact words</td><td>back to Queued, or In flight for the claimer; the answer is saved in the item's current notes</td></tr>
     <tr><td><code>pm.py claim ID</code></td><td>the person's name</td><td>In flight, owned</td></tr>
-    <tr><td><code>pm.py finish ID</code></td><td>completion note</td><td>Done on the work branch</td></tr>
+    <tr><td><code>pm.py finish ID</code></td><td>completion note</td><td>Done on the work branch; refuses while files outside the board are uncommitted</td></tr>
     <tr><td><code>pm.py board</code></td><td>none</td><td>render the board</td></tr>
     <tr><td><code>pm.py next</code></td><td>none</td><td>list ready items</td></tr>
     <tr><td><code>pm.py mirror show|off|github</code></td><td>none</td><td>configure the GitHub Issues mirror</td></tr>
@@ -935,6 +967,7 @@ Ready next: dark-mode-07343f Dark mode, export-to-csv-f078b1 Export to CSV, orph
     <tr><td><code>pm.py correct ID --kind KIND [--where PATH] [--fixed]</code></td><td>what was corrected, or with <code>--fixed</code> the source change</td><td>count corrections; at three of one kind on one source, suggest fixing it</td></tr>
     <tr><td><code>pm.py walk</code></td><td>none</td><td>walk test, mechanical half (read only; fails on anything to fix)</td></tr>
     <tr><td><code>pm.py index</code></td><td>none</td><td>rebuild <code>docs/pm/map/_index.md</code> from the cards</td></tr>
+    <tr><td><code>pm.py places [--paths]</code></td><td>none</td><td>new files outside the places in <code>AGENTS.md</code> › Where things go (read only; the Stop hook runs it)</td></tr>
     <tr><td><code>pm.py refs PATH[=NEW] …</code></td><td>none</td><td>what points at a file before it moves; refuses a case-folded name clash (read only)</td></tr>
     <tr><td><code>pm.py migrate scan</code></td><td>none</td><td>list the task systems found (read only)</td></tr>
     <tr><td><code>pm.py migrate plan --from SOURCE --out FILE</code></td><td>none</td><td>save a migration plan (read only); sources <code>pm-0x</code> and <code>checklist</code></td></tr>
@@ -945,6 +978,8 @@ Ready next: dark-mode-07343f Dark mode, export-to-csv-f078b1 Export to CSV, orph
     <li><strong>“A person's name is required on stdin.”</strong> The claim needs a name; <code>/pm:work</code> supplies your git user name and asks if it cannot find one.</li>
     <li><strong>“GitHub Issues mirror is off.”</strong> Run <code>pm.py mirror github</code> first (mind the publishing warning).</li>
     <li><strong>An item you finished still shows In flight in another clone.</strong> Expected until its PR merges.</li>
+    <li><strong>“is not finished: N files uncommitted”.</strong> Commit the work on the branch (or remove what does not belong to it), then finish again.</li>
+    <li><strong>“outside the places in AGENTS.md &gt; Where things go”.</strong> Move the file to the place for its kind, or add a row for a new kind of thing.</li>
     <li><strong>“walk test failed”.</strong> Each FAIL line names the file and the fix; WARN lines do not fail it. <code>/pm:init</code> and <code>/pm:map</code> fix these themselves.</li>
     <li><strong>“_index.md is missing or out of date”.</strong> A card was added or changed status: run <code>pm.py index</code>.</li>
     <li><strong>“Fix the source” at the bottom of the board.</strong> The same correction came back three times; change the file it names, then record it with <code>--fixed</code>.</li>

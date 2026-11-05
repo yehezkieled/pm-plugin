@@ -1,0 +1,12 @@
+schema_version: "1"
+name: work-waits-holds
+description: Work that needs something only the owner has goes on the board as a hold with the question, not only a question in chat.
+tags: [behavior, hold, work]
+runs: 1
+context:
+  scaffold_script: scaffold.sh
+execution:
+  prompt: "Extend the reconciliation so it covers Essential Energy too."
+  max_turns: 80
+  timeout_seconds: 1200
+  allowed_tools: [Skill, Read, Glob, Grep, Bash, Write, Edit]

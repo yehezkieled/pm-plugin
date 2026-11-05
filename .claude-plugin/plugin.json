@@ -1,7 +1,7 @@
 {
   "name": "pm",
-  "version": "1.1.0",
-  "description": "A lightweight, shared project board for Claude Code with claims, dependencies, decision holds, and optional GitHub Issues sync, structuring the repo for agents with ICM: a small catalog, a card-based System map, and workflows packaged as skills.",
+  "version": "1.2.0",
+  "description": "A lightweight, shared project board for Claude Code with claims, dependencies, decision holds, and optional GitHub Issues sync, structuring the repo for agents with ICM: a small catalog that says where every kind of file goes for the project's shape, a card-based System map, and workflows packaged as skills.",
   "author": {
     "name": "hezki"
   },
