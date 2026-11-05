@@ -25,12 +25,14 @@ Each project keeps its own board in `docs/pm/`, so installing the plugin once co
 Open Claude Code in the repository and run `/pm:init`. It:
 
 1. Looks at the repository and runs the walk test (`pm.py walk`, read-only) to see where the structure stands.
-2. Creates `docs/pm/config.json` (with a Git remote it commits and pushes this to the default branch so every clone sees the board).
+2. Creates `docs/pm/config.json` (board writes publish through the shared board flow when a remote is configured).
 3. Tells you the project's shape (2.1) in one line, and asks only when two shapes fit equally.
 4. Gives the repository its structure: a small catalog `AGENTS.md` with a `## Where things go` table for that shape, and a one-line `CLAUDE.md` containing `@AGENTS.md` when absent; for the skill shape, the skill folder with its stages. Files outside the table's places are moved into them after one yes, with `out/` gitignored (a generated output already in Git leaves Git as it moves there) and, for an analysis, a `data/README.md`. An existing file is never replaced or moved without your yes (2.4).
 5. Scans for an existing system (next section). On a fresh project it reports none.
 6. Runs the walk test again and fixes the structure until it passes.
 7. Shows the board and the three commands to use next: `/pm:plan` to add work, `/pm:work` to build an item, `/pm:status` to see the board.
+
+After you approve the setup and both halves of the walk test pass, `/pm:init` commits the setup changes together on their own. With no Git remote, it commits on the current branch. With a remote, it commits on a separate setup branch (such as `pm/setup`) and asks you to open a PR; it does not commit setup changes to the default branch.
 
 The structure follows ICM (Interpretable Context Methodology); the plugin carries the method in [`icm/`](../icm/README.md), so no other skill is needed.
 

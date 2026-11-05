@@ -220,8 +220,7 @@ class ProjectBoardTests(unittest.TestCase):
         (self.root / "staged.py").unlink()
         self.commit_all("the memo")
         other = self.add("Unrelated", "Board files written by the CLI do not block finish")
-        self.assertIn("??", subprocess.check_output(["git", "status", "--porcelain"], cwd=self.root, text=True))
-        self.commit_all("add unrelated item")
+        self.assertEqual(subprocess.check_output(["git", "status", "--porcelain"], cwd=self.root, text=True), "")
         self.run_cli("finish", item_id, input_text="Memo in reports/")
         self.assertIn(f"[{item_id}]", self.board().split("## Done")[1])
         self.assertTrue(self.item_file(other).exists())
@@ -230,7 +229,6 @@ class ProjectBoardTests(unittest.TestCase):
         first = self.add("First task", "Finish this task")
         second = self.add("Second task", "Keep this change committed")
         self.run_cli("claim", first, input_text="Ari")
-        self.commit_all("start first task")
 
         self.item_file(second).write_text(self.item_file(second).read_text().replace(
             "Keep this change committed", "Updated second task"))
@@ -254,6 +252,31 @@ class ProjectBoardTests(unittest.TestCase):
                                   capture_output=True)
             self.assertEqual(done.returncode, 0, done.stderr)
             self.assertIn(f"Finished {item_id}.", done.stdout)
+
+    def test_no_remote_board_writes_commit_items_so_other_work_can_finish(self):
+        first = self.add("First task", "Finish this task")
+        second = self.add("Second task", "Wait for a decision")
+        self.run_cli("hold", second, input_text="Which source should we use?")
+        self.run_cli("claim", first, input_text="Ari")
+
+        self.assertIn(f"pm: Claimed {first}", subprocess.check_output(
+            ["git", "log", "-1", "--format=%s"], cwd=self.root, text=True))
+        committed_paths = subprocess.check_output(
+            ["git", "show", "--format=", "--name-only", "HEAD"], cwd=self.root, text=True).split()
+        self.assertEqual(committed_paths, [f"docs/pm/items/{first}.md"])
+
+        (self.root / "work.py").write_text("work is complete\n")
+        subprocess.run(["git", "add", "work.py"], cwd=self.root, check=True)
+        subprocess.run(["git", "commit", "-qm", "complete first task"], cwd=self.root, check=True)
+        self.run_cli("finish", first, input_text="Done")
+
+        self.assertEqual(subprocess.check_output(
+            ["git", "show", "--format=", "--name-only", "HEAD~1"], cwd=self.root, text=True).split(),
+            ["work.py"])
+        self.assertEqual(subprocess.check_output(
+            ["git", "show", "--format=", "--name-only", "HEAD~2"], cwd=self.root, text=True).split(),
+            [f"docs/pm/items/{first}.md"])
+        self.assertIn("held: Which source should we use?", self.board())
 
     def test_stop_hook_recognizes_slug_id_item_updates(self):
         with tempfile.TemporaryDirectory() as temp:

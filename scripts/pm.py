@@ -227,7 +227,12 @@ def sync_default_checkout(root: Path, tracking_ref: str) -> None:
 def publish(root: Path, change, require_default_branch: bool = False) -> str:
     remote = remote_default(root)
     if not remote:
-        return change(root)[1]
+        paths, text = change(root)
+        if paths and git(root, "rev-parse", "--is-inside-work-tree", check=False).returncode == 0:
+            relative = [path.relative_to(root).as_posix() for path in paths]
+            git(root, "add", "--", *relative)
+            git(root, "commit", "--only", "-m", f"pm: {text.splitlines()[0]}", "--", *relative)
+        return text
     name, branch = remote
     tracking_ref = f"refs/remotes/{name}/{branch}"
     last_error = ""
