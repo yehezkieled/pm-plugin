@@ -69,6 +69,13 @@ class ProjectBoardTests(unittest.TestCase):
         line = next(line for line in self.board().splitlines() if f"[{item_id}]" in line)
         self.assertTrue(line.endswith(f"— {note}"), line)
 
+    def test_a_one_line_request_is_its_own_requester_intent(self):
+        created = self.run_literal_cli("add", input_text="Extend the reconciliation to Essential Energy.\n")
+        item_id = created.stdout.split(":", 1)[0].split()[-1]
+        detail = self.item_file(item_id).read_text()
+        self.assertIn("## Requester intent\nExtend the reconciliation to Essential Energy.\n", detail)
+        self.assertIn('intent_length: 47', detail)
+
     def test_user_derived_fields_pass_through_literal_heredocs(self):
         title = 'x"; touch injected-title; $(touch injected-substitution); #'
         intent = 'Preserve $HOME, "quotes", and $(touch injected-intent).'
@@ -159,7 +166,10 @@ class ProjectBoardTests(unittest.TestCase):
     def test_same_owner_can_resume_but_another_owner_cannot_take_over(self):
         item_id = self.add("Resume task", "Keep the claim")
         self.run_cli("claim", item_id, input_text="Ari")
-        resumed = self.run_cli("claim", item_id, input_text="ari")
+        second_worker = self.run_cli("claim", item_id, ok=False, input_text="Ari")
+        self.assertIn("already in flight for Ari, so another worker may be on it", second_worker.stderr)
+        self.assertIn("--resume", second_worker.stderr)
+        resumed = self.run_cli("claim", item_id, "--resume", input_text="ari")
         self.assertIn("resuming the existing claim", resumed.stdout)
         refused = self.run_cli("claim", item_id, ok=False, input_text="Bea")
         self.assertIn("already claimed by Ari", refused.stderr)
@@ -278,6 +288,52 @@ class ProjectBoardTests(unittest.TestCase):
             [f"docs/pm/items/{first}.md"])
         self.assertIn("held: Which source should we use?", self.board())
 
+    def worker_worktree(self, name):
+        """A linked worktree like the one Claude Code makes for an isolated subagent, inside the main checkout."""
+        path = self.root / ".claude/worktrees" / name
+        subprocess.run(["git", "worktree", "add", "-q", "-b", f"worktree-{name}", str(path)], cwd=self.root, check=True)
+        return path
+
+    def test_no_remote_workers_in_worktrees_share_the_main_checkouts_board(self):
+        first = self.add("First task", "Build the first part")
+        second = self.add("Second task", "Build the second part")
+        worker_a, worker_b = self.worker_worktree("agent-a"), self.worker_worktree("agent-b")
+        claimed = self.cli_in(worker_a, "claim", first, input_text="Ari")
+        self.assertIn(f"board is in the main checkout {self.root}: saved on", claimed.stdout)
+        self.assertIn("branch worktree-agent-a shows it only after syncing", claimed.stdout)
+        taken = self.cli_in(worker_b, "claim", first, input_text="Ari", ok=False)
+        self.assertIn("another worker may be on it", taken.stderr)
+        self.cli_in(worker_b, "claim", second, input_text="Ari")
+        in_flight = self.board().split("## Queued")[0]
+        self.assertIn(f"[{first}]", in_flight)
+        self.assertIn(f"[{second}]", in_flight)
+        self.assertEqual(self.board(), self.cli_in(worker_a, "board").stdout)
+        self.cli_in(worker_b, "hold", second, input_text="Which format?")
+        self.assertIn("held: Which format?", self.board())
+        main_branch = subprocess.check_output(["git", "branch", "--show-current"], cwd=self.root, text=True).strip()
+        subprocess.run(["git", "switch", "-qc", f"pm/{first}", main_branch], cwd=worker_a, check=True)
+        (worker_a / "first.py").write_text("first part\n")
+        subprocess.run(["git", "add", "first.py"], cwd=worker_a, check=True)
+        subprocess.run(["git", "commit", "-qm", f"{first}: first part"], cwd=worker_a, check=True)
+        self.cli_in(worker_a, "finish", first, input_text="Validation: pass")
+        done = subprocess.check_output(["git", "show", f"pm/{first}:docs/pm/items/{first}.md"], cwd=self.root, text=True)
+        self.assertIn('status: "done"', done)
+        self.assertIn(f"[{first}]", self.board().split("## Queued")[0])  # Done reaches the board when the branch merges
+
+    def test_worker_worktrees_inside_the_checkout_are_not_stray_or_uncommitted_files(self):
+        item_id = self.add("Task", "Do it")
+        (self.root / "AGENTS.md").write_text("# P\n\n## Where things go\n\n| Kind of thing | Place | Rule |\n| --- | --- | --- |\n"
+                                            "| Project files at the root | `AGENTS.md`, `CLAUDE.md` | nothing else |\n")
+        self.commit_all("table")
+        self.worker_worktree("agent-a")
+        self.assertEqual(self.run_cli("places", "--paths").stdout, "")
+        self.run_cli("claim", item_id, input_text="Ari")
+        self.run_cli("finish", item_id, input_text="Done")
+        env = dict(os.environ, CLAUDE_PROJECT_DIR=str(self.root))
+        stop = subprocess.run(["bash", str(STOP_HOOK)], cwd=self.root, env=env, input="{}", text=True,
+                              capture_output=True, check=True)
+        self.assertEqual(stop.stdout, "")
+
     def test_stop_hook_recognizes_slug_id_item_updates(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
@@ -308,7 +364,9 @@ class ProjectBoardTests(unittest.TestCase):
         self.assertIn(f"Ready next: {item_id}", result.stdout)
         routing = result.stdout.strip().splitlines()[-1]
         self.assertIn("Any project work (code, data, a deliverable) goes through the pm:work skill", routing)
-        self.assertIn("claims it first and adds it to this board", routing)
+        self.assertIn("adds the work to this board if it is not there and hands each item to a pm:worker agent", routing)
+        self.assertIn("separate validator", routing)
+        self.assertIn("Do not edit project files in this session yourself", routing)
         self.assertIn("pm:plan skill", routing)
         self.assertIn("Where things go", routing)
         self.assertNotIn("Where things go table", result.stdout)  # no AGENTS.md: nothing to upgrade
@@ -380,7 +438,7 @@ class ProjectBoardTests(unittest.TestCase):
             self.assertIn("already claimed by Ari", waiting.stderr)
             self.cli_in(clone_a, "resume", first)
             subprocess.run(["git", "switch", "-q", "main"], cwd=clone_a, check=True)
-            resumed = self.cli_in(clone_a, "claim", first, input_text="Ari")
+            resumed = self.cli_in(clone_a, "claim", first, "--resume", input_text="Ari")
             self.assertIn("resuming the existing claim", resumed.stdout)
             subprocess.run(["git", "switch", "-q", f"pm/{first}"], cwd=clone_a, check=True)
             self.cli_in(clone_a, "finish", first, input_text="Done")
@@ -399,6 +457,20 @@ class ProjectBoardTests(unittest.TestCase):
             in_flight = self.cli_in(clone_b, "board").stdout.split("## Queued")[0]
             self.assertIn(f"[{item_id}]", in_flight)
             self.assertIn("claimed by Ari", in_flight)
+
+    def test_a_worker_in_a_worktree_claims_on_the_shared_default_branch(self):
+        with tempfile.TemporaryDirectory() as temp:
+            item_id, (clone_a, clone_b) = self.shared_clones(Path(temp))
+            worker = clone_a / ".claude/worktrees/agent-a"
+            subprocess.run(["git", "worktree", "add", "-q", "-b", "worktree-agent-a", str(worker), "origin/main"],
+                           cwd=clone_a, check=True, capture_output=True)
+            claimed = self.cli_in(worker, "claim", item_id, input_text="Ari")
+            self.assertIn("branch worktree-agent-a shows it only after syncing with origin/main", claimed.stdout)
+            refused = self.cli_in(clone_b, "claim", item_id, input_text="Ari", ok=False)
+            self.assertIn("another worker may be on it", refused.stderr)
+            subprocess.run(["git", "switch", "-qc", f"pm/{item_id}", "origin/main"], cwd=worker, check=True)
+            detail = (worker / "docs/pm/items" / f"{item_id}.md").read_text()
+            self.assertIn('status: "in-flight"', detail)
 
     def test_updates_from_a_work_branch_say_when_they_appear_locally(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -497,6 +569,31 @@ class SkillDescriptionTests(unittest.TestCase):
             self.assertLessEqual(len(text), 300, f"{name} description is too long")
             self.assertIn("Use when", text, f"{name} description needs a 'Use when' clause")
             self.assertRegex(text, r'"[^"]+"', f"{name} description needs quoted trigger phrases")
+
+    AGENTS = Path(__file__).resolve().parents[1] / "agents"
+
+    def test_worker_and_validator_agents_are_defined_for_the_coordinator(self):
+        work = (Path(__file__).resolve().parents[1] / "skills/work/SKILL.md").read_text()
+        for name in ("worker", "validator"):
+            fields = self.frontmatter(self.AGENTS / f"{name}.md")
+            self.assertEqual(fields.get("name"), name)
+            text = json.loads(fields["description"])
+            self.assertLessEqual(len(text), 300, f"{name} description is too long")
+            self.assertIn("Use when", text)
+        self.assertIn('subagent_type: "pm:worker"', work)
+        self.assertIn('isolation: "worktree"', work)
+        self.assertIn("never edit project files", work)
+        worker = (self.AGENTS / "worker.md").read_text()
+        for step in ("pm.py claim ITEM_ID", "--resume", "`pm:validator`", "At most two fix rounds", "pm.py hold ITEM_ID",
+                     "pm.py finish ITEM_ID", "Validation: pass after N round(s)", "Validation still fails after 2 fix rounds",
+                     "switch back to your start branch"):
+            self.assertIn(step, worker)
+        validator = self.frontmatter(self.AGENTS / "validator.md")
+        tools = {tool.strip() for tool in validator["tools"].split(",")}
+        self.assertEqual(tools, {"Read", "Grep", "Glob", "Bash"}, "the validator must not edit files or start agents")
+        body = (self.AGENTS / "validator.md").read_text()
+        for check in ("Requester intent", "pm.py places", "Tests", "VERDICT: pass | findings"):
+            self.assertIn(check, body)
 
     def test_guide_page_is_self_contained_and_covers_every_command(self):
         guide = (Path(__file__).resolve().parents[1] / "docs" / "guide.html").read_text()

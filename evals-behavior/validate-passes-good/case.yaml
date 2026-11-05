@@ -1,0 +1,12 @@
+schema_version: "1"
+name: validate-passes-good
+description: A pm:validator given correct work with passing tests and every file in its place reports a pass without invented findings.
+tags: [behavior, validation]
+runs: 1
+context:
+  scaffold_script: scaffold.sh
+execution:
+  prompt: "Have the pm:validator agent check the work on item word-count-3f9a1c, committed on branch pm/word-count-3f9a1c, which started from main. Tell me its verdict; do not change anything."
+  max_turns: 40
+  timeout_seconds: 900
+  allowed_tools: [Read, Glob, Grep, Bash, Agent]

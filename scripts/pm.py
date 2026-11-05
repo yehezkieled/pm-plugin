@@ -224,7 +224,20 @@ def sync_default_checkout(root: Path, tracking_ref: str) -> None:
         raise ValueError("Local default branch has unpublished commits. Sync it first.")
 
 
-def publish(root: Path, change, require_default_branch: bool = False) -> str:
+def board_checkout(root: Path) -> Path:
+    """Without a remote, the board lives in the clone's main checkout, so every worktree of it (a worker's) shares it."""
+    listed = git(root, "remote", check=False)
+    if listed.returncode or listed.stdout.strip():
+        return root
+    worktrees = git(root, "worktree", "list", "--porcelain", check=False)
+    first = worktrees.stdout.split("\n\n", 1)[0].splitlines() if worktrees.returncode == 0 else []
+    if not first or not first[0].startswith("worktree ") or "bare" in first:
+        return root
+    main = Path(first[0][len("worktree "):])
+    return root if main.resolve() == root.resolve() else main
+
+
+def publish(root: Path, change) -> str:
     remote = remote_default(root)
     if not remote:
         paths, text = change(root)
@@ -239,8 +252,6 @@ def publish(root: Path, change, require_default_branch: bool = False) -> str:
     for _ in range(3):
         base = fetch_default(root, name, branch)
         current = git(root, "rev-parse", "--abbrev-ref", "HEAD").stdout.strip()
-        if require_default_branch and current != branch:
-            raise ValueError(f"This change requires the default branch {branch}; current branch is {current}.")
         if current == branch:
             sync_default_checkout(root, tracking_ref)
         with tempfile.TemporaryDirectory(prefix="pm-publish-") as temp:
@@ -339,6 +350,8 @@ def cmd_add(root: Path, args) -> None:
     title = title.strip()
     if not title:
         raise ValueError("The first stdin line must be the item title.")
+    if not intent.strip():
+        intent = title + "\n"  # a one-line request is its own verbatim intent, so a worker and validator have criteria
     id_slug = item_slug(title)
     touches = repo_paths(root, args.touches or "")
 
@@ -391,6 +404,9 @@ def cmd_claim(root: Path, args) -> None:
         if item.get("owner") and item["owner"].casefold() != person.casefold():
             raise ValueError(f"{item['id']} is already claimed by {item['owner']}.")
         if item.get("owner") and item.get("status") == "in-flight":
+            if not args.resume:
+                raise ValueError(f"{item['id']} is already in flight for {item['owner']}, so another worker may be on it. "
+                                 "Only to continue that same claim, run claim again with --resume.")
             return [], f"{item['id']} is already in flight for {person}; resuming the existing claim."
         can_start, reason = ready(item, {i["id"]: i for i in items})
         if not can_start:
@@ -399,7 +415,7 @@ def cmd_claim(root: Path, args) -> None:
         save_item(item)
         return [item["path"]], f"Claimed {item['id']} for {person}. Claim is saved before work starts."
     with write_lock(root):
-        print(publish(root, change, require_default_branch=True))
+        print(publish(root, change))
 
 
 def uncommitted_work(root: Path, item_path: Path) -> list[str]:
@@ -762,6 +778,11 @@ def cmd_migrate(root: Path, args) -> None:
         print(publish(root, change))
 
 
+# Without a remote these read or write the main checkout's board from any worktree; finish stays on the work branch.
+BOARD_WRITES = {"add", "claim", "hold", "resume", "set", "correct"}
+SHARED_BOARD_COMMANDS = BOARD_WRITES | {"board", "next"}
+
+
 def parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description="Manage the docs/pm markdown board. Text values are read literally from stdin.")
     sub = p.add_subparsers(dest="command", required=True)
@@ -770,9 +791,10 @@ def parser() -> argparse.ArgumentParser:
     sub.add_parser("next", help="list queued items whose dependencies are done")
     add = sub.add_parser("add", help="create an item; stdin is the title line followed by the requester's exact words")
     add.add_argument("--touches", help="comma-separated map cards or stage folders the item touches")
-    for command, help_text in (("claim", "claim an item before work; stdin is the person's name"),
-                               ("finish", "mark an in-flight item done; stdin is the completion note")):
-        sub.add_parser(command, help=help_text).add_argument("id")
+    claim = sub.add_parser("claim", help="claim an item before work; stdin is the person's name")
+    claim.add_argument("id")
+    claim.add_argument("--resume", action="store_true", help="continue your own in-flight claim (after a hold or a new session)")
+    sub.add_parser("finish", help="mark an in-flight item done; stdin is the completion note").add_argument("id")
     resume = sub.add_parser("resume", help="release a hold; a claimed item returns to its owner In flight, others to queue")
     resume.add_argument("id")
     resume.add_argument("--answer", action="store_true", help="stdin is the decider's exact words; saved at the top of the item's current notes")
@@ -810,10 +832,21 @@ def main() -> int:
     args = parser().parse_args()
     root = root_dir()
     try:
+        note = ""
+        shared = board_checkout(root) if args.command in SHARED_BOARD_COMMANDS else root
+        if shared != root:
+            here = git(root, "rev-parse", "--abbrev-ref", "HEAD").stdout.strip()
+            there = git(shared, "rev-parse", "--abbrev-ref", "HEAD").stdout.strip()
+            if args.command in BOARD_WRITES:
+                note = (f"No remote, so the board is in the main checkout {shared}: saved on {there}; "
+                        f"branch {here} shows it only after syncing with {there}.")
+            root = shared
         {"init": cmd_init, "board": cmd_board, "next": cmd_next, "add": cmd_add,
          "claim": cmd_claim, "finish": cmd_finish, "hold": cmd_hold, "resume": cmd_resume,
          "set": cmd_set, "correct": cmd_correct, "walk": cmd_walk, "index": cmd_index, "places": cmd_places,
          "refs": cmd_refs, "mirror": cmd_mirror, "sync": cmd_sync, "migrate": cmd_migrate}[args.command](root, args)
+        if note:
+            print(note)
     except (ValueError, OSError) as exc:
         print(f"pm: {exc}", file=sys.stderr)
         return 1

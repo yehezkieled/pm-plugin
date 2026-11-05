@@ -23,20 +23,24 @@ flowchart LR
   C -. sync command .-> G
 ```
 
-Sources: [plugin manifest](../.claude-plugin/plugin.json), [skills](../skills/), [CLI](../scripts/pm.py), [migration readers](../scripts/pm_migrate.py), [structure checks](../scripts/pm_icm.py), [ICM guides and templates](../icm/README.md), [hooks](../hooks/), [placement guide](placement.md), [setup and migration manual](manual.md).
+Sources: [plugin manifest](../.claude-plugin/plugin.json), [skills](../skills/), [agents](../agents/), [CLI](../scripts/pm.py), [migration readers](../scripts/pm_migrate.py), [structure checks](../scripts/pm_icm.py), [ICM guides and templates](../icm/README.md), [hooks](../hooks/), [placement guide](placement.md), [setup and migration manual](manual.md).
 
 ## Work and data flow
 
 ```mermaid
 sequenceDiagram
   actor Person
-  participant Skill as Claude Code skill
+  participant Skill as /pm:work (coordinating session)
+  participant Worker as pm:worker agent
+  participant Validator as pm:validator agent
   participant CLI as scripts/pm.py
   participant Lock as local file lock
   participant Remote as remote default branch
   participant Item as docs/pm/items/slug-random.md
   Person->>Skill: request or start work
-  Skill->>CLI: init / add / set / hold / resume / claim
+  Skill->>CLI: add / set / resume --answer (board writes only)
+  Skill->>Worker: item ID, person's name, new or resume
+  Worker->>CLI: claim / hold
   CLI->>Lock: acquire exclusive local file lock
   CLI->>Remote: fetch the latest default branch
   CLI->>Item: check and change the item in a temporary checkout
@@ -44,17 +48,21 @@ sequenceDiagram
   Remote-->>CLI: accept one update or reject a race
   CLI->>Remote: fetch and re-check after rejection
   CLI->>Item: fast-forward the local default branch when checked out
-  Skill->>Skill: commit the work on the work branch
-  Skill->>CLI: finish on the work branch
+  Worker->>Worker: build and commit the work on the work branch
+  Worker->>Validator: item ID, checkout, branch, start commit
+  Validator-->>Worker: VERDICT pass, or findings (fix and re-validate, at most two fix rounds)
+  Worker->>CLI: finish on the work branch, verdict as the notes' last line (or hold with the findings)
   CLI->>CLI: refuse while files outside the board are uncommitted
   CLI->>Item: commit the item file after the work's commits; the PR merge publishes it
-  CLI-->>Skill: item path and rendered board
-  Skill-->>Person: work result and next ready item
+  Worker-->>Skill: report: result, branch, validation, checks, question
+  Skill-->>Person: work result, any question, next ready item
 ```
 
 `init`, `plan`, `work`, `map`, and `help` read the single [placement guide](placement.md) instead of restating it. For decisions, `hold` stores the question on the item and takes it to Waiting; `resume --answer` saves the decider's exact words at the top of `## Current notes` in the same commit as the resume, which matters because a notes edit made by hand on the default branch would block the CLI's fast-forward. Lasting decisions go on the card or contract they govern, or `AGENTS.md`, through the normal change.
 
-`next` selects only queued items with no hold and with all dependencies done. Claim changes a queued item to In flight while holding the same lock used by other CLI writes. Hold and resume never change the owner, so a held claim returns to In flight for the same person and no one else can claim it. Without a remote, each board write commits only the item file it changed on the current branch; with a remote, writes publish through the shared default board flow. Finishing records a UTC completion time; the rendered board shows the newest ten Done items and counts older ones. Because each change touches only its own item file, parallel work branches merge without board conflicts.
+The coordinating session never edits project files or claims; each item gets its own worker. Ready items run in parallel workers started with `isolation: "worktree"`, so Claude Code gives each a git worktree under `.claude/worktrees/`; a lone worker runs in the session's checkout so it sees files the person left there. A worker notes its start branch, claims, and creates `pm/ITEM_ID` from the branch the claim was saved on. In its own worktree it switches back to its start branch when it stops, so the work branch is free; a lone worker that finishes leaves the person's checkout on the work branch so they see the result, as before 1.3. To wait on the owner it commits work in progress and switches back before `hold`, so the hold lands on the board's branch where the session's `resume --answer` finds it. `pm_icm.git_status` skips an untracked directory Git lists whole (another checkout, such as a worker's worktree), so `places`, `finish`, and the Stop hook ignore worker worktrees.
+
+`next` selects only queued items with no hold and with all dependencies done. Claim changes a queued item to In flight while holding the same lock used by other CLI writes; the lock file is in the Git common directory, so every worktree of a clone shares it. Claiming an item that is already in flight fails even for the same name, so two workers cannot take one item; `claim --resume` continues one's own claim after a hold or in a new session. Claim works from any branch: off the default branch it publishes through the shared default board flow and says which branch the work branch should start from. Hold and resume never change the owner, so a held claim returns to In flight for the same person and no one else can claim it. Without a remote, the board is the main checkout's (the first entry of `git worktree list`): `board`, `next`, `add`, `claim`, `hold`, `resume`, `set`, and `correct` run there from any worktree and say which branch they saved on, while `finish` stays on the work branch. Each board write commits only the item file it changed on that checkout's current branch; with a remote, writes publish through the shared default board flow. Finishing records a UTC completion time; the rendered board shows the newest ten Done items and counts older ones. Because each change touches only its own item file, parallel work branches merge without board conflicts.
 
 ## Structure flow (ICM)
 
@@ -108,11 +116,13 @@ flowchart LR
 | `/pm:init` | Current project and existing instructions, its shape from `icm/shapes.md` | `docs/pm/`, a catalog `AGENTS.md` with a Where things go table (and for the skill shape, a workflow skill's stages), files moved into their places only after the owner's yes, a passing walk test; hands off to `/pm:migrate` when `migrate scan` finds an existing system | Claude Code file tools, `pm.py walk` and `refs`, `icm/` |
 | `/pm:migrate` | The old system, its plan edited by the owner, the owner's yes | Items written from the plan, counts before and after, knowledge routed per the placement guide, old files removed only on confirmation | `scripts/pm.py migrate`, `scripts/pm_migrate.py`, `gh` for GitHub Issues |
 | `/pm:plan` | Requester's exact words, optional dependencies, touched cards or stages, decision question or answer | Queued item detail published to the shared default branch | `scripts/pm.py add`, `set`, `hold`, `resume` |
-| `/pm:work` | Any project work request (added as an item first if missing), its touched cards or contracts, and person's name | Claim before changes, new files in their places, code/doc and card updates, verify result, recorded corrections, current item notes, committed work, then Done or a hold with the question | CLI lock, project checks, `pm.py walk`, `correct`, `hold` |
+| `/pm:work` | Any project work request (added as an item first if missing) and the person's name | One `pm:worker` per item, parallel for ready items; each report checked against the board and branch; questions relayed and answers saved with `resume --answer` | Claude Code Agent tool, `scripts/pm.py add`, `next`, `board`, `resume` |
+| `pm:worker` agent | Item ID, person's name, new or resume, an answer or correction | Claim before changes, new files in their places, code/doc and card updates, verify result, validation verdict, recorded corrections, current item notes, committed work, then Done or a hold with the question | CLI lock, project checks, `pm.py walk`, `correct`, `hold`, `finish`, `pm:validator` |
+| `pm:validator` agent | Item ID, checkout path, work branch, start commit | `VERDICT: pass` or numbered findings against the requester's words, touched cards, the Where things go table (`pm.py places`), the project's checks, and commit state; edits nothing | Read-only tools and Bash, `pm.py places` |
 | `/pm:status` | Project board | In flight owners, Queued, Waiting, Done, ready items, sources to fix | `scripts/pm.py board` |
 | `/pm:map` | Repository source, metadata, docs, tests, an old `docs/pm/CODEBASE.md` | System map in `docs/pm/map/`: catalog, cards with citations and change impact, effects index, generated `_index.md`; the old file retired on the owner's yes | Claude Code read/write tools, `pm.py index`, `walk`, `refs` |
-| `SessionStart` hook | Current project directory | Rendered board plus a note that any project work goes through `/pm:work`, added work through `/pm:plan`, and new files where the table says, in session context; a pointer to `/pm:init` for an unmigrated 0.x board or an `AGENTS.md` without the table, and to `/pm:map` for a 1.0 `CODEBASE.md` | `python3`; otherwise points to `docs/pm/items/` |
+| `SessionStart` hook | Current project directory | Rendered board plus a note that any project work goes through `/pm:work`, which hands each item to a worker (the session does not edit project files itself), added work through `/pm:plan`, and new files where the table says, in session context; a pointer to `/pm:init` for an unmigrated 0.x board or an `AGENTS.md` without the table, and to `/pm:map` for a 1.0 `CODEBASE.md` | `python3`; otherwise points to `docs/pm/items/` |
 | `Stop` hook | Hook payload, Git status, the Where things go table, item files | Blocks the stop once (never when `stop_hook_active`) while new files sit outside the table's places; otherwise a reminder when code changed without an item update | `git`, bash, `python3` for the place check |
 | Optional `sync` | Item Markdown and GitHub repo | GitHub Issues created/updated; new issue numbers published in item files | `gh` CLI and opt-in mirror setting |
 
-The model is selected by the Claude Code session. The plugin does not name a model or launch subagents. Its persistent data is plain Markdown; the CLI uses only Python's standard library. New item IDs combine a short title slug and random suffix, with a local duplicate check; an item's file is named after its ID (older files that repeat the slug are still read). The CLI uses OS file locking (`fcntl` on Unix-like systems and `msvcrt` on Windows); its remote claim path fetches the default branch and retries ownership checks after a rejected push. See the [README](../README.md) for the user-facing collaboration and GitHub mirror contract.
+The model is selected by the Claude Code session; the worker and validator agents inherit it. The plugin launches only its own two agents and does not switch model providers. Its persistent data is plain Markdown; the CLI uses only Python's standard library. New item IDs combine a short title slug and random suffix, with a local duplicate check; an item's file is named after its ID (older files that repeat the slug are still read). The CLI uses OS file locking (`fcntl` on Unix-like systems and `msvcrt` on Windows); its remote claim path fetches the default branch and retries ownership checks after a rejected push. See the [README](../README.md) for the user-facing collaboration and GitHub mirror contract.

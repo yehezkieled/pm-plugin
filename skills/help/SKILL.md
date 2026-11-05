@@ -8,7 +8,7 @@ description: "Explain the pm plugin and list its commands. Use when the user typ
 ```text
 /pm:init             Set up the board, the AGENTS.md catalog, and where things go
 /pm:plan <request>   Record a request verbatim, with what it touches
-/pm:work [item-id]   Any project work: claim first, build, verify, commit
+/pm:work [item-id]   Any project work: a worker claims, builds, validates, commits
 /pm:status           Show owners, waiting items, and what's ready
 /pm:map [area]       Map the code as cards: what a change hits
 /pm:migrate          Move an existing task system onto the board

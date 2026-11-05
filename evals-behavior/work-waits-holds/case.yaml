@@ -9,4 +9,4 @@ execution:
   prompt: "Extend the reconciliation so it covers Essential Energy too."
   max_turns: 80
   timeout_seconds: 1200
-  allowed_tools: [Skill, Read, Glob, Grep, Bash, Write, Edit]
+  allowed_tools: [Skill, Read, Glob, Grep, Bash, Write, Edit, Agent]

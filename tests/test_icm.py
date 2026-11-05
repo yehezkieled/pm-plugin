@@ -484,7 +484,7 @@ class IcmTests(unittest.TestCase):
         self.assertNotIn("CODEBASE.md", hook())
         self.write("docs/pm/CODEBASE.md", "# Architecture\n")
         self.assertIn("Run /pm:map to convert it", hook())
-        self.assertIn("pm:work skill, which claims it first", hook().strip().splitlines()[-1])
+        self.assertIn("hands each item to a pm:worker agent", hook().strip().splitlines()[-1])
         self.build_map()
         self.assertNotIn("CODEBASE.md", hook())
 

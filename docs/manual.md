@@ -96,9 +96,23 @@ A project set up before pm 1.2 has no `## Where things go` table; it sees a one-
 | --- | --- | --- |
 | Walk test | After `/pm:init`, `/pm:map`, and any restructure; when `/pm:work` touched a catalog, contract, map, or workflow | `pm.py walk` checks the entry file's size, links, contracts, cards, the index, workflow packaging, and the size of one walk; then the agent answers the cold-walk questions in [`icm/method.md`](../icm/method.md) from the files alone |
 | Places | Every time the agent stops; at `/pm:init` | `pm.py places` lists new files outside `AGENTS.md` › Where things go, and the Stop hook asks the agent once to move them or add a row; `pm.py walk` warns about any file outside the places |
-| Commit before Done | When `/pm:work` finishes an item | The agent commits the work on the item's branch; `pm.py finish` refuses while any file outside the board is uncommitted and lists them, so Done always means committed |
-| Verify | Before anyone reviews a change | `/pm:work` checks the change against the requester's words and each touched card's Hits and Does not hit (a stage's Outputs and Verify); a mismatch it leaves goes at the top of the item's notes |
+| Commit before Done | When a `/pm:work` worker finishes an item | The worker commits the work on the item's branch; `pm.py finish` refuses while any file outside the board is uncommitted and lists them, so Done always means committed |
+| Verify | Before anyone reviews a change | The worker checks the change against the requester's words and each touched card's Hits and Does not hit (a stage's Outputs and Verify); a mismatch it leaves goes at the top of the item's notes |
+| Validation | After the worker commits, before `finish` | A fresh `pm:validator` agent that did not do the work checks the requester's words, the touched cards, `pm.py places` and the table, the project's tests, and the commit state, and returns `VERDICT: pass` or numbered findings. The worker fixes findings and asks a fresh validator again, at most two fix rounds. A pass is the last line of the item's notes at `finish`; still failing parks the item in Waiting with the findings as the question |
 | Fix the source | When the same kind of correction keeps coming back | `pm.py correct ITEM_ID --kind KIND --where PATH` records each one; at the third of one kind on one source, the CLI and the board say to change that source (a contract, card, reference file, `AGENTS.md`, or placement rule); `--fixed` records the change and resets the count |
+
+### 2.6 Who does the work: the session and its workers
+
+The session you talk to is the coordinator. `/pm:work` adds your request to the board (or picks the item you named, or the next ready one) and starts a `pm:worker` agent per item; it does not edit project files itself. Each worker claims its item under your name, builds it, has it validated, and finishes it or parks it with a question. The session checks each worker's report against the board and the branch, then tells you the result.
+
+| You see | What happened | What to do |
+| --- | --- | --- |
+| Done, on branch `pm/ITEM_ID` | The worker committed the work and a separate check passed | Review the branch; merging it publishes Done to the board |
+| Waiting on your decision | The worker needed something only you have, or the separate check still failed after two fix rounds | Answer in chat; the session saves your words with `pm.py resume --answer` and a new worker picks the item up |
+| Two items running at once | Both were ready and did not depend on each other; each worker has its own git worktree under `.claude/worktrees/` | Merge the branches one at a time; two items that edit the same file can conflict on the second merge, so resolve it keeping both changes. An item that depends on another waits until that one is Done |
+| `already in flight ... another worker may be on it` | A second claim of a claimed item was refused | Nothing, unless no worker is on it: then a worker continues it with `claim --resume` |
+
+A lone worker runs in your checkout, so it sees files you dropped there, and leaves you on its work branch when it finishes (or back on your branch when it waits on you). Without a Git remote, every worktree shares the main checkout's board. Commit or set aside unrelated edits before starting work, as a worker's branch switch carries them along.
 
 ## 3. A project that already has a system
 
