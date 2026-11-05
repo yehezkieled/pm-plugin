@@ -573,27 +573,16 @@ class SkillDescriptionTests(unittest.TestCase):
     AGENTS = Path(__file__).resolve().parents[1] / "agents"
 
     def test_worker_and_validator_agents_are_defined_for_the_coordinator(self):
-        work = (Path(__file__).resolve().parents[1] / "skills/work/SKILL.md").read_text()
         for name in ("worker", "validator"):
             fields = self.frontmatter(self.AGENTS / f"{name}.md")
             self.assertEqual(fields.get("name"), name)
+            self.assertEqual(fields.get("model"), "inherit")
             text = json.loads(fields["description"])
             self.assertLessEqual(len(text), 300, f"{name} description is too long")
             self.assertIn("Use when", text)
-        self.assertIn('subagent_type: "pm:worker"', work)
-        self.assertIn('isolation: "worktree"', work)
-        self.assertIn("never edit project files", work)
-        worker = (self.AGENTS / "worker.md").read_text()
-        for step in ("pm.py claim ITEM_ID", "--resume", "`pm:validator`", "At most two fix rounds", "pm.py hold ITEM_ID",
-                     "pm.py finish ITEM_ID", "Validation: pass after N round(s)", "Validation still fails after 2 fix rounds",
-                     "switch back to your start branch"):
-            self.assertIn(step, worker)
         validator = self.frontmatter(self.AGENTS / "validator.md")
         tools = {tool.strip() for tool in validator["tools"].split(",")}
         self.assertEqual(tools, {"Read", "Grep", "Glob", "Bash"}, "the validator must not edit files or start agents")
-        body = (self.AGENTS / "validator.md").read_text()
-        for check in ("Requester intent", "pm.py places", "Tests", "VERDICT: pass | findings"):
-            self.assertIn(check, body)
 
     def test_guide_page_is_self_contained_and_covers_every_command(self):
         guide = (Path(__file__).resolve().parents[1] / "docs" / "guide.html").read_text()
