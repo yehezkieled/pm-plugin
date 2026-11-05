@@ -397,11 +397,11 @@ def cmd_claim(root: Path, args) -> None:
         print(publish(root, change, require_default_branch=True))
 
 
-def uncommitted_work(root: Path) -> list[str]:
-    """Changed or new files other than the board's own state (item files and config.json, which the CLI writes).
-    Map cards count: they change with the work."""
+def uncommitted_work(root: Path, item_path: Path) -> list[str]:
+    """Changed or new files other than the item being finished and config.json, which the CLI writes."""
+    item = item_path.relative_to(root).as_posix()
     return [path for _, path in pm_icm.git_status(root)
-            if not (path.startswith("docs/pm/items/") or path == "docs/pm/config.json")]
+            if path not in {item, "docs/pm/config.json"}]
 
 
 def cmd_finish(root: Path, args) -> None:
@@ -410,7 +410,7 @@ def cmd_finish(root: Path, args) -> None:
         item = find_item(read_items(root), args.id)
         if item.get("status") != "in-flight":
             raise ValueError(f"{item['id']} is not in flight.")
-        dirty = uncommitted_work(root)
+        dirty = uncommitted_work(root, item["path"])
         if dirty:
             shown = ", ".join(dirty[:10]) + (f", and {len(dirty) - 10} more" if len(dirty) > 10 else "")
             raise ValueError(f"{item['id']} is not finished: {len(dirty)} file{'s' if len(dirty) != 1 else ''} "

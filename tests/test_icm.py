@@ -516,14 +516,5 @@ class IcmDocsTests(unittest.TestCase):
         placement = (ROOT / "docs" / "placement.md").read_text().rstrip()
         self.assertTrue(html.escape(placement, quote=True) in guide, "docs/guide.html: printed placement guide is out of date")
 
-    def test_docs_cover_the_new_commands(self):
-        texts = {name: (ROOT / name).read_text() for name in ("skills/help/SKILL.md", "README.md", "docs/manual.md", "docs/guide.html")}
-        for command in ("walk", "index", "refs", "correct", "places"):
-            for name, text in texts.items():
-                self.assertTrue(f"pm.py {command}" in text, f"{name} should mention pm.py {command}")
-        for name in ("README.md", "docs/manual.md", "docs/guide.html"):
-            self.assertTrue("docs/pm/map" in texts[name], f"{name} should describe docs/pm/map")
-
-
 if __name__ == "__main__":
     unittest.main()

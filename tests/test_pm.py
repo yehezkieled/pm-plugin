@@ -221,9 +221,26 @@ class ProjectBoardTests(unittest.TestCase):
         self.commit_all("the memo")
         other = self.add("Unrelated", "Board files written by the CLI do not block finish")
         self.assertIn("??", subprocess.check_output(["git", "status", "--porcelain"], cwd=self.root, text=True))
+        self.commit_all("add unrelated item")
         self.run_cli("finish", item_id, input_text="Memo in reports/")
         self.assertIn(f"[{item_id}]", self.board().split("## Done")[1])
         self.assertTrue(self.item_file(other).exists())
+
+    def test_finish_refuses_for_another_dirty_item_then_succeeds_after_commit(self):
+        first = self.add("First task", "Finish this task")
+        second = self.add("Second task", "Keep this change committed")
+        self.run_cli("claim", first, input_text="Ari")
+        self.commit_all("start first task")
+
+        self.item_file(second).write_text(self.item_file(second).read_text().replace(
+            "Keep this change committed", "Updated second task"))
+        refused = self.run_cli("finish", first, ok=False, input_text="Done")
+        self.assertIn(f"docs/pm/items/{second}.md", refused.stderr)
+        self.assertIn('status: "in-flight"', self.item_file(first).read_text())
+
+        self.commit_all("update second task")
+        self.run_cli("finish", first, input_text="Done")
+        self.assertIn('status: "done"', self.item_file(first).read_text())
 
     def test_finish_outside_git_needs_no_commit(self):
         with tempfile.TemporaryDirectory() as temp:
