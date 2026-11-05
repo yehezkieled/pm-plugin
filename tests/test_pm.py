@@ -69,6 +69,13 @@ class ProjectBoardTests(unittest.TestCase):
         line = next(line for line in self.board().splitlines() if f"[{item_id}]" in line)
         self.assertTrue(line.endswith(f"— {note}"), line)
 
+    def test_a_one_line_request_is_its_own_requester_intent(self):
+        created = self.run_literal_cli("add", input_text="Extend the reconciliation to Essential Energy.\n")
+        item_id = created.stdout.split(":", 1)[0].split()[-1]
+        detail = self.item_file(item_id).read_text()
+        self.assertIn("## Requester intent\nExtend the reconciliation to Essential Energy.\n", detail)
+        self.assertIn('intent_length: 47', detail)
+
     def test_user_derived_fields_pass_through_literal_heredocs(self):
         title = 'x"; touch injected-title; $(touch injected-substitution); #'
         intent = 'Preserve $HOME, "quotes", and $(touch injected-intent).'
@@ -96,6 +103,7 @@ class ProjectBoardTests(unittest.TestCase):
         self.assertEqual(json.loads(hold), reason)
         self.run_cli("resume", item_id)
         note = 'Finished with "$HOME" and $(touch injected-note).'
+        self.run_cli("validated", item_id, "--verdict", "pass", input_text="Checks passed.")
         self.run_literal_cli("finish", item_id, input_text=note)
         self.assertIn(f"{note}", detail_path.read_text())
         for sentinel in ("injected-title", "injected-substitution", "injected-intent", "injected-person",
@@ -137,7 +145,7 @@ class ProjectBoardTests(unittest.TestCase):
         self.assertIn(first, ready)
         self.assertNotIn(second, ready)
         self.run_cli("claim", first, input_text="Ari")
-        self.run_cli("finish", first, input_text="")
+        self.finish_item(first)
         self.assertEqual(self.run_cli("next").stdout.strip().split()[0], second)
         self.run_cli("hold", second, "--until", "2026-10-10", input_text="Need a decision")
         self.assertIn("no queued items are ready", self.run_cli("next").stdout.lower())
@@ -159,7 +167,10 @@ class ProjectBoardTests(unittest.TestCase):
     def test_same_owner_can_resume_but_another_owner_cannot_take_over(self):
         item_id = self.add("Resume task", "Keep the claim")
         self.run_cli("claim", item_id, input_text="Ari")
-        resumed = self.run_cli("claim", item_id, input_text="ari")
+        second_worker = self.run_cli("claim", item_id, ok=False, input_text="Ari")
+        self.assertIn("already in flight for Ari, so another worker may be on it", second_worker.stderr)
+        self.assertIn("--resume", second_worker.stderr)
+        resumed = self.run_cli("claim", item_id, "--resume", input_text="ari")
         self.assertIn("resuming the existing claim", resumed.stdout)
         refused = self.run_cli("claim", item_id, ok=False, input_text="Bea")
         self.assertIn("already claimed by Ari", refused.stderr)
@@ -176,7 +187,7 @@ class ProjectBoardTests(unittest.TestCase):
             self.run_cli("claim", item_id, input_text="Ari")
             code.write_text(f"changed {number}\n")
             self.commit_all(f"work on {item_id}")
-            self.run_cli("finish", item_id, input_text=f"Done {number}")
+            self.finish_item(item_id, f"Done {number}")
         board = self.board()
         self.assertNotIn(f"[{ids[0]}]", board)
         self.assertIn(f"[{ids[-1]}]", board)
@@ -192,6 +203,8 @@ class ProjectBoardTests(unittest.TestCase):
                                             cwd=self.root, text=True)
         self.assertIn('status: "done"', committed)
         self.assertEqual(subprocess.check_output(["git", "log", "-1", "--format=%s", "HEAD~1"], cwd=self.root,
+                                                 text=True).strip(), f"pm: validation {ids[-1]}")
+        self.assertEqual(subprocess.check_output(["git", "log", "-1", "--format=%s", "HEAD~2"], cwd=self.root,
                                                  text=True).strip(), f"work on {ids[-1]}")
 
     def test_finish_refuses_while_the_work_is_uncommitted(self):
@@ -201,6 +214,7 @@ class ProjectBoardTests(unittest.TestCase):
         self.commit_all("baseline")
         item_id = self.add("Memo", "Write the memo")
         self.run_cli("claim", item_id, input_text="Ari")
+        self.run_cli("validated", item_id, "--verdict", "pass", input_text="Checks passed.")
         (self.root / "app.py").write_text("changed\n")
         (self.root / "reports").mkdir()
         (self.root / "reports/2026-11-05-memo.md").write_text("memo\n")
@@ -219,9 +233,10 @@ class ProjectBoardTests(unittest.TestCase):
         subprocess.run(["git", "rm", "-q", "--cached", "staged.py"], cwd=self.root, check=True)
         (self.root / "staged.py").unlink()
         self.commit_all("the memo")
+        self.run_cli("validated", item_id, "--verdict", "pass", input_text="Checks passed.")
         other = self.add("Unrelated", "Board files written by the CLI do not block finish")
         self.assertEqual(subprocess.check_output(["git", "status", "--porcelain"], cwd=self.root, text=True), "")
-        self.run_cli("finish", item_id, input_text="Memo in reports/")
+        self.finish_item(item_id, "Memo in reports/")
         self.assertIn(f"[{item_id}]", self.board().split("## Done")[1])
         self.assertTrue(self.item_file(other).exists())
 
@@ -232,15 +247,50 @@ class ProjectBoardTests(unittest.TestCase):
 
         self.item_file(second).write_text(self.item_file(second).read_text().replace(
             "Keep this change committed", "Updated second task"))
+        self.run_cli("validated", first, "--verdict", "pass", input_text="Checks passed.")
         refused = self.run_cli("finish", first, ok=False, input_text="Done")
         self.assertIn(f"docs/pm/items/{second}.md", refused.stderr)
         self.assertIn('status: "in-flight"', self.item_file(first).read_text())
 
         self.commit_all("update second task")
-        self.run_cli("finish", first, input_text="Done")
+        self.finish_item(first, "Done")
         self.assertIn('status: "done"', self.item_file(first).read_text())
 
-    def test_finish_outside_git_needs_no_commit(self):
+    def test_finish_requires_current_passing_validation_and_keeps_verdict(self):
+        item_id = self.add("Validated", "Check it")
+        self.run_cli("claim", item_id, input_text="Ari")
+        no_verdict = self.run_cli("finish", item_id, ok=False, input_text="Done")
+        self.assertIn("no recorded validation", no_verdict.stderr)
+        self.run_cli("validated", item_id, "--verdict", "findings", input_text="app.py:1 must change")
+        findings = self.run_cli("finish", item_id, ok=False, input_text="Done")
+        self.assertIn("validation findings", findings.stderr)
+        self.run_cli("hold", item_id, input_text="Validation still fails after 2 fix rounds: app.py:1")
+        self.assertIn('status: "waiting"', self.item_file(item_id).read_text())
+
+        self.run_cli("resume", item_id)
+        self.run_cli("claim", item_id, "--resume", input_text="Ari")
+        self.run_cli("validated", item_id, "--verdict", "pass", input_text="Checks passed")
+        work = self.root / "app.py"
+        work.write_text("new committed work\n")
+        self.commit_all("work after validation")
+        stale = self.run_cli("finish", item_id, ok=False, input_text="Done")
+        self.assertIn("changed since validation", stale.stderr)
+        self.run_cli("validated", item_id, "--verdict", "pass", input_text="Checks passed after fix")
+        self.run_cli("finish", item_id, input_text="Implemented and checked")
+        notes = self.item_file(item_id).read_text()
+        self.assertIn("Implemented and checked\nValidation: pass at ", notes)
+        self.assertIn(": Checks passed after fix", notes)
+
+    def test_validated_refuses_uncommitted_non_board_work(self):
+        item_id = self.add("Dirty validation", "Commit first")
+        self.run_cli("claim", item_id, input_text="Ari")
+        work = self.root / "app.py"
+        work.write_text("uncommitted\n")
+        refused = self.run_cli("validated", item_id, "--verdict", "pass", ok=False, input_text="Checks passed")
+        self.assertIn("non-board files are uncommitted", refused.stderr)
+        self.assertIn("app.py", refused.stderr)
+
+    def test_finish_outside_git_cannot_record_a_validation(self):
         with tempfile.TemporaryDirectory() as temp:
             plain = Path(temp)
             self.assertEqual(subprocess.run(["python3", str(CLI), "init"], cwd=plain, capture_output=True).returncode, 0)
@@ -250,8 +300,8 @@ class ProjectBoardTests(unittest.TestCase):
                            capture_output=True)
             done = subprocess.run(["python3", str(CLI), "finish", item_id], cwd=plain, input="", text=True,
                                   capture_output=True)
-            self.assertEqual(done.returncode, 0, done.stderr)
-            self.assertIn(f"Finished {item_id}.", done.stdout)
+            self.assertNotEqual(done.returncode, 0)
+            self.assertIn("no recorded validation", done.stderr)
 
     def test_no_remote_board_writes_commit_items_so_other_work_can_finish(self):
         first = self.add("First task", "Finish this task")
@@ -268,15 +318,73 @@ class ProjectBoardTests(unittest.TestCase):
         (self.root / "work.py").write_text("work is complete\n")
         subprocess.run(["git", "add", "work.py"], cwd=self.root, check=True)
         subprocess.run(["git", "commit", "-qm", "complete first task"], cwd=self.root, check=True)
-        self.run_cli("finish", first, input_text="Done")
+        self.finish_item(first, "Done")
 
         self.assertEqual(subprocess.check_output(
             ["git", "show", "--format=", "--name-only", "HEAD~1"], cwd=self.root, text=True).split(),
-            ["work.py"])
+            [f"docs/pm/items/{first}.md"])
         self.assertEqual(subprocess.check_output(
             ["git", "show", "--format=", "--name-only", "HEAD~2"], cwd=self.root, text=True).split(),
+            ["work.py"])
+        self.assertEqual(subprocess.check_output(
+            ["git", "show", "--format=", "--name-only", "HEAD~3"], cwd=self.root, text=True).split(),
             [f"docs/pm/items/{first}.md"])
         self.assertIn("held: Which source should we use?", self.board())
+
+    def worker_worktree(self, name):
+        """A linked worktree like the one Claude Code makes for an isolated subagent, inside the main checkout."""
+        path = self.root / ".claude/worktrees" / name
+        subprocess.run(["git", "worktree", "add", "-q", "-b", f"worktree-{name}", str(path)], cwd=self.root, check=True)
+        return path
+
+    def test_no_remote_workers_in_worktrees_share_the_main_checkouts_board(self):
+        first = self.add("First task", "Build the first part")
+        second = self.add("Second task", "Build the second part")
+        worker_a, worker_b = self.worker_worktree("agent-a"), self.worker_worktree("agent-b")
+        claimed = self.cli_in(worker_a, "claim", first, input_text="Ari")
+        self.assertIn(f"board is in the main checkout {self.root}: saved on", claimed.stdout)
+        self.assertIn("branch worktree-agent-a shows it only after syncing", claimed.stdout)
+        taken = self.cli_in(worker_b, "claim", first, input_text="Ari", ok=False)
+        self.assertIn("another worker may be on it", taken.stderr)
+        self.cli_in(worker_b, "claim", second, input_text="Ari")
+        in_flight = self.board().split("## Queued")[0]
+        self.assertIn(f"[{first}]", in_flight)
+        self.assertIn(f"[{second}]", in_flight)
+        self.assertEqual(self.board(), self.cli_in(worker_a, "board").stdout)
+        self.cli_in(worker_b, "hold", second, input_text="Which format?")
+        self.assertIn("held: Which format?", self.board())
+        main_branch = subprocess.check_output(["git", "branch", "--show-current"], cwd=self.root, text=True).strip()
+        subprocess.run(["git", "switch", "-qc", f"pm/{first}", main_branch], cwd=worker_a, check=True)
+        (worker_a / "first.py").write_text("first part\n")
+        subprocess.run(["git", "add", "first.py"], cwd=worker_a, check=True)
+        subprocess.run(["git", "commit", "-qm", f"{first}: first part"], cwd=worker_a, check=True)
+        self.finish_item(first, "Done", cwd=worker_a)
+        done = subprocess.check_output(["git", "show", f"pm/{first}:docs/pm/items/{first}.md"], cwd=self.root, text=True)
+        self.assertIn('status: "done"', done)
+        self.assertIn(f"[{first}]", self.board().split("## Queued")[0])  # Done reaches the board when the branch merges
+
+    def test_worker_worktrees_inside_the_checkout_are_not_stray_or_uncommitted_files(self):
+        item_id = self.add("Task", "Do it")
+        (self.root / "AGENTS.md").write_text("# P\n\n## Where things go\n\n| Kind of thing | Place | Rule |\n| --- | --- | --- |\n"
+                                            "| Project files at the root | `AGENTS.md`, `CLAUDE.md` | nothing else |\n")
+        self.commit_all("table")
+        self.worker_worktree("agent-a")
+        self.assertEqual(self.run_cli("places", "--paths").stdout, "")
+        self.run_cli("claim", item_id, input_text="Ari")
+        self.finish_item(item_id, "Done")
+        env = dict(os.environ, CLAUDE_PROJECT_DIR=str(self.root))
+        stop = subprocess.run(["bash", str(STOP_HOOK)], cwd=self.root, env=env, input="{}", text=True,
+                              capture_output=True, check=True)
+        self.assertEqual(stop.stdout, "")
+        nested_repo = self.root / "vendor/new-project"
+        nested_repo.mkdir(parents=True)
+        subprocess.run(["git", "init", "-q"], cwd=nested_repo, check=True)
+        stray = self.run_cli("places", "--paths").stdout
+        self.assertIn("vendor/new-project/", stray)
+        stop = subprocess.run(["bash", str(STOP_HOOK)], cwd=self.root, env=env, input="{}", text=True,
+                              capture_output=True, check=True)
+        self.assertIn('"decision": "block"', stop.stdout)
+        self.assertIn("vendor/new-project/", stop.stdout)
 
     def test_stop_hook_recognizes_slug_id_item_updates(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -308,7 +416,9 @@ class ProjectBoardTests(unittest.TestCase):
         self.assertIn(f"Ready next: {item_id}", result.stdout)
         routing = result.stdout.strip().splitlines()[-1]
         self.assertIn("Any project work (code, data, a deliverable) goes through the pm:work skill", routing)
-        self.assertIn("claims it first and adds it to this board", routing)
+        self.assertIn("adds the work to this board if it is not there and hands each item to a pm:worker agent", routing)
+        self.assertIn("separate validator", routing)
+        self.assertIn("Do not edit project files in this session yourself", routing)
         self.assertIn("pm:plan skill", routing)
         self.assertIn("Where things go", routing)
         self.assertNotIn("Where things go table", result.stdout)  # no AGENTS.md: nothing to upgrade
@@ -356,6 +466,13 @@ class ProjectBoardTests(unittest.TestCase):
         self.assertEqual(result.returncode == 0, ok, result.stderr)
         return result
 
+    def finish_item(self, item_id, note="", cwd=None):
+        if cwd is None:
+            self.run_cli("validated", item_id, "--verdict", "pass", input_text="Checks passed.")
+            return self.run_cli("finish", item_id, input_text=note)
+        self.cli_in(cwd, "validated", item_id, "--verdict", "pass", input_text="Checks passed.")
+        return self.cli_in(cwd, "finish", item_id, input_text=note)
+
     def test_remote_default_branch_serializes_claims_across_clones(self):
         with tempfile.TemporaryDirectory() as temp:
             item_id, (clone_a, clone_b) = self.shared_clones(Path(temp))
@@ -380,10 +497,10 @@ class ProjectBoardTests(unittest.TestCase):
             self.assertIn("already claimed by Ari", waiting.stderr)
             self.cli_in(clone_a, "resume", first)
             subprocess.run(["git", "switch", "-q", "main"], cwd=clone_a, check=True)
-            resumed = self.cli_in(clone_a, "claim", first, input_text="Ari")
+            resumed = self.cli_in(clone_a, "claim", first, "--resume", input_text="Ari")
             self.assertIn("resuming the existing claim", resumed.stdout)
             subprocess.run(["git", "switch", "-q", f"pm/{first}"], cwd=clone_a, check=True)
-            self.cli_in(clone_a, "finish", first, input_text="Done")
+            self.finish_item(first, "Done", cwd=clone_a)
 
     def test_hold_and_resume_by_another_person_keep_the_claim(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -399,6 +516,20 @@ class ProjectBoardTests(unittest.TestCase):
             in_flight = self.cli_in(clone_b, "board").stdout.split("## Queued")[0]
             self.assertIn(f"[{item_id}]", in_flight)
             self.assertIn("claimed by Ari", in_flight)
+
+    def test_a_worker_in_a_worktree_claims_on_the_shared_default_branch(self):
+        with tempfile.TemporaryDirectory() as temp:
+            item_id, (clone_a, clone_b) = self.shared_clones(Path(temp))
+            worker = clone_a / ".claude/worktrees/agent-a"
+            subprocess.run(["git", "worktree", "add", "-q", "-b", "worktree-agent-a", str(worker), "origin/main"],
+                           cwd=clone_a, check=True, capture_output=True)
+            claimed = self.cli_in(worker, "claim", item_id, input_text="Ari")
+            self.assertIn("branch worktree-agent-a shows it only after syncing with origin/main", claimed.stdout)
+            refused = self.cli_in(clone_b, "claim", item_id, input_text="Ari", ok=False)
+            self.assertIn("another worker may be on it", refused.stderr)
+            subprocess.run(["git", "switch", "-qc", f"pm/{item_id}", "origin/main"], cwd=worker, check=True)
+            detail = (worker / "docs/pm/items" / f"{item_id}.md").read_text()
+            self.assertIn('status: "in-flight"', detail)
 
     def test_updates_from_a_work_branch_say_when_they_appear_locally(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -439,7 +570,7 @@ esac
             self.assertEqual(synced.returncode, 0, synced.stderr)
             self.assertEqual(log.read_text().count("issue create"), 1)
 
-            self.cli_in(clone_a, "finish", item_id, input_text="Done")
+            self.finish_item(item_id, "Done", cwd=clone_a)
             subprocess.run(["git", "switch", "-q", "main"], cwd=clone_a, check=True)
             subprocess.run(["git", "pull", "-q", "--ff-only"], cwd=clone_a, check=True)
             merged = subprocess.run(["git", "merge", "--no-edit", f"pm/{item_id}"], cwd=clone_a,
@@ -457,7 +588,7 @@ esac
             for clone, item_id, person in ((clone_a, first, "Ari"), (clone_b, second, "Bea")):
                 self.cli_in(clone, "claim", item_id, input_text=person)
                 subprocess.run(["git", "switch", "-qc", f"pm/{item_id}"], cwd=clone, check=True)
-                self.cli_in(clone, "finish", item_id, input_text=f"{person} finished")
+                self.finish_item(item_id, f"{person} finished", cwd=clone)
                 subprocess.run(["git", "push", "-q", "origin", f"pm/{item_id}"], cwd=clone, check=True)
             subprocess.run(["git", "switch", "-q", "main"], cwd=clone_a, check=True)
             subprocess.run(["git", "pull", "-q", "--ff-only"], cwd=clone_a, check=True)
@@ -498,12 +629,26 @@ class SkillDescriptionTests(unittest.TestCase):
             self.assertIn("Use when", text, f"{name} description needs a 'Use when' clause")
             self.assertRegex(text, r'"[^"]+"', f"{name} description needs quoted trigger phrases")
 
+    AGENTS = Path(__file__).resolve().parents[1] / "agents"
+
+    def test_worker_and_validator_agents_are_defined_for_the_coordinator(self):
+        for name in ("worker", "validator"):
+            fields = self.frontmatter(self.AGENTS / f"{name}.md")
+            self.assertEqual(fields.get("name"), name)
+            self.assertEqual(fields.get("model"), "inherit")
+            text = json.loads(fields["description"])
+            self.assertLessEqual(len(text), 300, f"{name} description is too long")
+            self.assertIn("Use when", text)
+        validator = self.frontmatter(self.AGENTS / "validator.md")
+        tools = {tool.strip() for tool in validator["tools"].split(",")}
+        self.assertEqual(tools, {"Read", "Grep", "Glob", "Bash"}, "the validator must not edit files or start agents")
+
     def test_guide_page_is_self_contained_and_covers_every_command(self):
         guide = (Path(__file__).resolve().parents[1] / "docs" / "guide.html").read_text()
         self.assertNotRegex(guide, r'(?:src|href)="https?://', "guide must not load external resources")
         for command in ("init", "plan", "work", "status", "map", "migrate", "help"):
             self.assertIn(f"/pm:{command}", guide)
-        for cli in ("add", "set", "hold", "resume", "claim", "finish", "mirror", "sync", "next", "board", "migrate scan", "migrate plan", "migrate apply"):
+        for cli in ("add", "set", "hold", "resume", "claim", "validated", "finish", "mirror", "sync", "next", "board", "migrate scan", "migrate plan", "migrate apply"):
             self.assertIn(f"pm.py {cli}", guide)
 
 

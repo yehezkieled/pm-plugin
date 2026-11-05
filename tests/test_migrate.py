@@ -371,6 +371,8 @@ class MigrationTests(unittest.TestCase):
         self.assertNotIn("0.x board", start(), "tickets left in git history count as migrated")
         item_id = self.board_items()["Open work"]["id"]
         subprocess.run(["python3", str(CLI), "claim", item_id], cwd=self.root, input="Bea", text=True, check=True, capture_output=True)
+        subprocess.run(["python3", str(CLI), "validated", item_id, "--verdict", "pass"], cwd=self.root,
+                       input="Migrated work checked.", text=True, check=True, capture_output=True)
         subprocess.run(["python3", str(CLI), "finish", item_id], cwd=self.root, input="Shipped in #3.", text=True, check=True, capture_output=True)
         self.assertTrue((tickets / "T001-open.md").exists(), "the old tickets folder is kept")
         self.assertNotIn("0.x board", start(), "finishing a migrated item does not bring the reminder back")

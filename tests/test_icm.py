@@ -341,6 +341,7 @@ class IcmTests(unittest.TestCase):
         subprocess.run(["git", "add", "-A", "--", ":!docs/pm/items"], cwd=self.root, check=True)
         subprocess.run(["git", "-c", "user.name=T", "-c", "user.email=t@example.com", "commit", "-qm", "work"],
                        cwd=self.root, check=True)
+        self.cli("validated", item_id, "--verdict", "pass", input_text="Walk test passed.")
         self.cli("finish", item_id, input_text="")
         self.assertNotIn("touches paths that do not exist", self.walk(ok=False))
 
@@ -484,7 +485,7 @@ class IcmTests(unittest.TestCase):
         self.assertNotIn("CODEBASE.md", hook())
         self.write("docs/pm/CODEBASE.md", "# Architecture\n")
         self.assertIn("Run /pm:map to convert it", hook())
-        self.assertIn("pm:work skill, which claims it first", hook().strip().splitlines()[-1])
+        self.assertIn("hands each item to a pm:worker agent", hook().strip().splitlines()[-1])
         self.build_map()
         self.assertNotIn("CODEBASE.md", hook())
 

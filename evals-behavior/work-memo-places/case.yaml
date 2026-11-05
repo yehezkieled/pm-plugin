@@ -9,4 +9,4 @@ execution:
   prompt: "I dropped Endeavour Energy's 2025-26 price list at the root (endeavour_price_list_2025-26.csv). Add it to the project and extend the reconciliation so it covers Endeavour too. Then explore the Endeavour discrepancies (which tariff codes differ and by how much) and write up the findings as the one-page memo my manager wants for the pricing team."
   max_turns: 80
   timeout_seconds: 1200
-  allowed_tools: [Skill, Read, Glob, Grep, Bash, Write, Edit]
+  allowed_tools: [Skill, Read, Glob, Grep, Bash, Write, Edit, Agent]
