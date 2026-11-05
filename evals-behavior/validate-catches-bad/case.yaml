@@ -1,0 +1,12 @@
+schema_version: "1"
+name: validate-catches-bad
+description: A pm:validator given work that fails its own tests and leaves a file at the root reports findings, not a pass.
+tags: [behavior, validation]
+runs: 1
+context:
+  scaffold_script: scaffold.sh
+execution:
+  prompt: "Have the pm:validator agent check the work on item word-count-3f9a1c, committed on branch pm/word-count-3f9a1c, which started from main. Tell me its verdict; do not change anything."
+  max_turns: 40
+  timeout_seconds: 900
+  allowed_tools: [Read, Glob, Grep, Bash, Agent]

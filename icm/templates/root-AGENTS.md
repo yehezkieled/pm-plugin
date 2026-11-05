@@ -18,7 +18,7 @@ Before creating any file, find its kind here and put it in that place. No row fi
 | If you are | Go to |
 | --- | --- |
 | adding or tracking work | `/pm:plan` |
-| doing any project work (code, data, a deliverable) | `/pm:work`: it claims the item first, adding it with `/pm:plan` if it is not on the board |
+| doing any project work (code, data, a deliverable) | `/pm:work`: it adds the item with `/pm:plan` if it is not on the board and hands it to a worker that claims it first |
 | asking what is in flight or next | `/pm:status` |
 | {another common task} | `{the file or folder that answers it}` |
 

@@ -224,7 +224,20 @@ def sync_default_checkout(root: Path, tracking_ref: str) -> None:
         raise ValueError("Local default branch has unpublished commits. Sync it first.")
 
 
-def publish(root: Path, change, require_default_branch: bool = False) -> str:
+def board_checkout(root: Path) -> Path:
+    """Without a remote, the board lives in the clone's main checkout, so every worktree of it (a worker's) shares it."""
+    listed = git(root, "remote", check=False)
+    if listed.returncode or listed.stdout.strip():
+        return root
+    worktrees = git(root, "worktree", "list", "--porcelain", check=False)
+    first = worktrees.stdout.split("\n\n", 1)[0].splitlines() if worktrees.returncode == 0 else []
+    if not first or not first[0].startswith("worktree ") or "bare" in first:
+        return root
+    main = Path(first[0][len("worktree "):])
+    return root if main.resolve() == root.resolve() else main
+
+
+def publish(root: Path, change) -> str:
     remote = remote_default(root)
     if not remote:
         paths, text = change(root)
@@ -239,8 +252,6 @@ def publish(root: Path, change, require_default_branch: bool = False) -> str:
     for _ in range(3):
         base = fetch_default(root, name, branch)
         current = git(root, "rev-parse", "--abbrev-ref", "HEAD").stdout.strip()
-        if require_default_branch and current != branch:
-            raise ValueError(f"This change requires the default branch {branch}; current branch is {current}.")
         if current == branch:
             sync_default_checkout(root, tracking_ref)
         with tempfile.TemporaryDirectory(prefix="pm-publish-") as temp:
@@ -339,6 +350,8 @@ def cmd_add(root: Path, args) -> None:
     title = title.strip()
     if not title:
         raise ValueError("The first stdin line must be the item title.")
+    if not intent.strip():
+        intent = title + "\n"  # a one-line request is its own verbatim intent, so a worker and validator have criteria
     id_slug = item_slug(title)
     touches = repo_paths(root, args.touches or "")
 
@@ -391,6 +404,9 @@ def cmd_claim(root: Path, args) -> None:
         if item.get("owner") and item["owner"].casefold() != person.casefold():
             raise ValueError(f"{item['id']} is already claimed by {item['owner']}.")
         if item.get("owner") and item.get("status") == "in-flight":
+            if not args.resume:
+                raise ValueError(f"{item['id']} is already in flight for {item['owner']}, so another worker may be on it. "
+                                 "Only to continue that same claim, run claim again with --resume.")
             return [], f"{item['id']} is already in flight for {person}; resuming the existing claim."
         can_start, reason = ready(item, {i["id"]: i for i in items})
         if not can_start:
@@ -399,7 +415,7 @@ def cmd_claim(root: Path, args) -> None:
         save_item(item)
         return [item["path"]], f"Claimed {item['id']} for {person}. Claim is saved before work starts."
     with write_lock(root):
-        print(publish(root, change, require_default_branch=True))
+        print(publish(root, change))
 
 
 def uncommitted_work(root: Path, item_path: Path) -> list[str]:
@@ -409,19 +425,52 @@ def uncommitted_work(root: Path, item_path: Path) -> list[str]:
             if path not in {item, "docs/pm/config.json"}]
 
 
+def cmd_validated(root: Path, args) -> None:
+    summary = " ".join(read_literal_stdin().split())
+    if not summary:
+        raise ValueError("A validator summary is required on stdin.")
+    with write_lock(root):
+        item = find_item(read_items(root), args.id)
+        if item.get("status") != "in-flight":
+            raise ValueError(f"{item['id']} is not in flight.")
+        dirty = [path for _, path in pm_icm.git_status(root) if not path.startswith("docs/pm/")]
+        if dirty:
+            shown = ", ".join(dirty[:10]) + (f", and {len(dirty) - 10} more" if len(dirty) > 10 else "")
+            raise ValueError(f"Cannot record validation while non-board files are uncommitted ({shown}). Commit the work first.")
+        head = git(root, "rev-parse", "HEAD").stdout.strip()
+        validation = f"Validation: {args.verdict} at {head}: {summary}"
+        notes = [line for line in item.get("notes", "").splitlines() if not line.startswith("Validation:")]
+        item["notes"] = "\n".join(notes + [validation]).strip()
+        save_item(item)
+        path = item["path"].relative_to(root).as_posix()
+        git(root, "add", "--", path)
+        git(root, "commit", "--only", "-m", f"pm: validation {item['id']}", "--", path)
+    print(f"Recorded {args.verdict} validation for {item['id']} at {head}.")
+
+
 def cmd_finish(root: Path, args) -> None:
     note = read_literal_stdin()
     with write_lock(root):
         item = find_item(read_items(root), args.id)
         if item.get("status") != "in-flight":
             raise ValueError(f"{item['id']} is not in flight.")
+        verdict = re.search(r"^Validation: (pass|findings) at ([0-9a-f]{40}|[0-9a-f]{64}): .+$", item.get("notes", ""), re.M)
+        if not verdict:
+            raise ValueError(f"{item['id']} has no recorded validation. Run the pm:validator agent, then record its verdict with `pm.py validated {item['id']} --verdict pass|findings`.")
+        if verdict.group(1) != "pass":
+            raise ValueError(f"{item['id']} has validation findings. Fix them, commit, and validate again, or after 2 fix rounds hold it with `pm.py hold {item['id']}`.")
+        stale = git(root, "diff", "--quiet", verdict.group(2), "HEAD", "--", ".", ":(exclude)docs/pm", check=False)
+        if stale.returncode:
+            raise ValueError(f"{item['id']} changed since validation at {verdict.group(2)[:7]}; validate again.")
         dirty = uncommitted_work(root, item["path"])
         if dirty:
             shown = ", ".join(dirty[:10]) + (f", and {len(dirty) - 10} more" if len(dirty) > 10 else "")
             raise ValueError(f"{item['id']} is not finished: {len(dirty)} file{'s' if len(dirty) != 1 else ''} "
                              f"uncommitted ({shown}). Commit the work on this branch first (or remove what does not "
                              "belong to it), then run finish again; the board says Done only for committed work.")
-        item.update(status="done", owner="", notes=note or item.get("notes", ""),
+        validation_line = verdict.group(0)
+        completion = note.strip() or "Work complete."
+        item.update(status="done", owner="", notes=f"{completion}\n{validation_line}",
                     done_at=datetime.now(timezone.utc).isoformat(timespec="microseconds"))
         save_item(item)
         path = item["path"].relative_to(root).as_posix()
@@ -762,6 +811,11 @@ def cmd_migrate(root: Path, args) -> None:
         print(publish(root, change))
 
 
+# Without a remote these read or write the main checkout's board from any worktree; finish stays on the work branch.
+BOARD_WRITES = {"add", "claim", "hold", "resume", "set", "correct"}
+SHARED_BOARD_COMMANDS = BOARD_WRITES | {"board", "next"}
+
+
 def parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description="Manage the docs/pm markdown board. Text values are read literally from stdin.")
     sub = p.add_subparsers(dest="command", required=True)
@@ -770,9 +824,13 @@ def parser() -> argparse.ArgumentParser:
     sub.add_parser("next", help="list queued items whose dependencies are done")
     add = sub.add_parser("add", help="create an item; stdin is the title line followed by the requester's exact words")
     add.add_argument("--touches", help="comma-separated map cards or stage folders the item touches")
-    for command, help_text in (("claim", "claim an item before work; stdin is the person's name"),
-                               ("finish", "mark an in-flight item done; stdin is the completion note")):
-        sub.add_parser(command, help=help_text).add_argument("id")
+    claim = sub.add_parser("claim", help="claim an item before work; stdin is the person's name")
+    claim.add_argument("id")
+    claim.add_argument("--resume", action="store_true", help="continue your own in-flight claim (after a hold or a new session)")
+    sub.add_parser("finish", help="mark an in-flight item done; stdin is the completion note").add_argument("id")
+    validated = sub.add_parser("validated", help="record a pm:validator verdict for committed work; stdin is its summary")
+    validated.add_argument("id")
+    validated.add_argument("--verdict", choices=("pass", "findings"), required=True)
     resume = sub.add_parser("resume", help="release a hold; a claimed item returns to its owner In flight, others to queue")
     resume.add_argument("id")
     resume.add_argument("--answer", action="store_true", help="stdin is the decider's exact words; saved at the top of the item's current notes")
@@ -810,10 +868,21 @@ def main() -> int:
     args = parser().parse_args()
     root = root_dir()
     try:
+        note = ""
+        shared = board_checkout(root) if args.command in SHARED_BOARD_COMMANDS else root
+        if shared != root:
+            here = git(root, "rev-parse", "--abbrev-ref", "HEAD").stdout.strip()
+            there = git(shared, "rev-parse", "--abbrev-ref", "HEAD").stdout.strip()
+            if args.command in BOARD_WRITES:
+                note = (f"No remote, so the board is in the main checkout {shared}: saved on {there}; "
+                        f"branch {here} shows it only after syncing with {there}.")
+            root = shared
         {"init": cmd_init, "board": cmd_board, "next": cmd_next, "add": cmd_add,
-         "claim": cmd_claim, "finish": cmd_finish, "hold": cmd_hold, "resume": cmd_resume,
+         "claim": cmd_claim, "finish": cmd_finish, "validated": cmd_validated, "hold": cmd_hold, "resume": cmd_resume,
          "set": cmd_set, "correct": cmd_correct, "walk": cmd_walk, "index": cmd_index, "places": cmd_places,
          "refs": cmd_refs, "mirror": cmd_mirror, "sync": cmd_sync, "migrate": cmd_migrate}[args.command](root, args)
+        if note:
+            print(note)
     except (ValueError, OSError) as exc:
         print(f"pm: {exc}", file=sys.stderr)
         return 1

@@ -52,11 +52,16 @@ Earlier results, before `migrate` (47 cases): Haiku 35/37 tuning and 8/10 held-o
 | `init-ordinary-cold-walk` | `/pm:init` on a small Python library | a `## Where things go` table in `AGENTS.md`; the reply reports both halves of the walk test, one cold-walk answer per question; the app shape, no stage folders |
 | `init-analysis-places` | set up pm on a loose data analysis, with the yes given up front | the analysis shape and its table; the source CSVs moved into `data/raw/<source>/`, a `data/README.md`, no new CSV at the root |
 | `work-memo-places` | add a price list dropped at the root, extend the reconciliation, write the memo | the data moved to `data/raw/<source>/` with its name kept, the memo in `reports/`, nothing new at the root, the work added to the board and claimed, finished after it was committed |
-| `work-waits-holds` | extend the reconciliation to a distributor whose data is not in the repository | the work goes on the board and is held with the question (`pm.py hold`), and no tariff data is invented |
+| `work-waits-holds` | extend the reconciliation to a distributor whose data is not in the repository | the work goes on the board and is held with the question (`pm.py hold`) by the worker, the session relays the question, and no tariff data is invented |
+| `work-two-workers` | "work on both ready items" with two independent items on a small Python library's board | two `pm:worker` agents, each started with `isolation: "worktree"`, two claims, a `pm:validator` per item, and no edit by the session itself |
+| `validate-catches-bad` | ask `pm:validator` to check a work branch whose `word_count` fails its own tests and leaves a notes file at the root | the verdict is findings naming both problems; nothing is edited |
+| `validate-passes-good` | the same check on a correct branch | the verdict is a pass with no invented findings; nothing is edited |
+
+Since 1.3 the coordinating session does no project work itself: `work-memo-places`, `work-waits-holds`, and `work-two-workers` also grade that a `pm:worker` did the work (`tool_used: Agent` with `"subagent_type":"pm:worker"`) and that the session made no edit (`main-made-no-edits.md`, a `regex` on the trace: a main-session message has `"parent_tool_use_id":null`, a subagent's carries the id of the Agent call that started it). `tool_used` counts subagents' calls too, so the claim, hold, and finish graders still see the worker's Bash calls; `held-by-the-worker.md` checks the hold came from a subagent. A worker's own call to `pm:validator` shows in the trace; the validator's calls do not.
 
 Run them with:
 
-    claude plugin eval . --eval-dir evals-behavior --model claude-sonnet-5-5 --ablation none --trust-plugin --scaffold --allow-tools Bash Write Edit --no-publish
+    claude plugin eval . --eval-dir evals-behavior --model claude-sonnet-5-5 --ablation none --trust-plugin --scaffold --allow-tools Bash Write Edit Agent --no-publish
 
 The Bash grant runs inside Claude Code's shell sandbox, which on Linux needs `bubblewrap` and `socat` installed; without them the run refuses to start rather than run unconfined.
 
@@ -68,3 +73,13 @@ Results on 2026-11-05, Sonnet 5.5, 1 run per case. The machine lacked `socat`, s
 | `init-analysis-places` | pass on the third run. The first left the generated `discrepancies.csv` tracked inside the gitignored `out/`, and the second renamed `explore.ipynb` to a dated name it invented. `/pm:init` and `icm/shapes.md` now say that a generated output leaves Git as it moves and that a moved file keeps its name; the third run did both |
 | `work-memo-places` | pass, twice: `pm:work` called first, the item added and claimed, the price list moved to `data/raw/endeavour/` under its own name, the memo in `reports/`. In the first run `finish` was refused with 5 files uncommitted, the agent committed them, and `finish` then succeeded; that memo carried the data's year (2025) in its name, so `icm/shapes.md` now says to date a file the day it is written, and the second run named it `2026-11-05-…` and committed before `finish` |
 | `work-waits-holds` | pass: `pm:work` called first, the item added, claimed, and held with the question asking for Essential Energy's price list, no rates invented |
+
+Results on 2026-11-06 for 1.3 (coordinator, `pm:worker`, `pm:validator`), Sonnet 5.5, 1 run per case, run the same direct way; every Agent, Edit, and Write call in the trace was attributed to the main session or a subagent by its `parent_tool_use_id`.
+
+| Case | Result |
+| --- | --- |
+| `work-two-workers` | pass, twice: the session started two `pm:worker` agents in one message, each with `isolation: "worktree"`; each claimed its own item, had its own `pm:validator` (pass, 1 round each), and finished on `pm/<id>`; the session's only tool calls were `pm.py next`, `pm.py board`, and `git log`/`git show`. Both runs' replies flagged that the two branches edit the same files, so the second merge conflicts |
+| `work-memo-places` | pass on the third run. In the first two the work was right and the session made no edits, but it split the request in two: the session filed two items, the second depending on the first, so the memo waited for a merge (in the first run), or one worker did both under one item while the file graders read the person's checkout, which stayed on the start branch (in the second). `/pm:work` now keeps one request as one item and a lone worker leaves the person on its finished branch; the third run moved the data under its own name, wrote `reports/2026-11-06-…md`, validated (pass, 1 round), and finished |
+| `work-waits-holds` | pass, twice: the worker claimed, found no Essential Energy price list, switched back, and ran `pm.py hold` with the question (from a subagent, per `held-by-the-worker`); the session relayed it as one question with options and invented no rates. The second run noticed the item's requester intent was empty because the session had added a one-line request; `pm.py add` now saves a lone line as its own intent |
+| `validate-catches-bad` | pass: `VERDICT: findings`, naming the `split(" ")` bug with the 2 failing tests by name and `wordcount-notes.md` at the root against the table; nothing edited |
+| `validate-passes-good` | pass: `VERDICT: pass`, 4 tests OK, no invented findings; nothing edited |

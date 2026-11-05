@@ -191,7 +191,7 @@ Before creating any file, find its kind here and put it in that place. No row fi
 | If you are | Go to |
 | --- | --- |
 | adding or tracking work | `/pm:plan` |
-| doing any project work (code, data, a deliverable) | `/pm:work`: it claims the item first, adding it with `/pm:plan` if it is not on the board |
+| doing any project work (code, data, a deliverable) | `/pm:work`: it adds the item with `/pm:plan` if it is not on the board and hands it to a worker that claims it first |
 | asking what is in flight or next | `/pm:status` |
 
 ## Every session
@@ -209,6 +209,8 @@ These are the mechanical checks. Then walk it cold with the questions in the pm 
   <p>Then the cold half: the agent answers a few questions from the files alone, such as “from <code>AGENTS.md</code> plus two reads, where do I go to run the tests?” and “where does a new CSV of click data go?”. The board is empty at first:</p>
   <pre class="term"><span class="cmd">$ pm.py board</span>
 # Project board
+
+Rendered from `docs/pm/items/`, which holds each item's requester intent and current notes.
 
 ## In flight
 
@@ -299,7 +301,7 @@ github_issue: &quot;&quot;
 Let me paste a long URL and get back a short code like /a1b2.
 
 ## Current notes</pre>
-  <div class="note"><p>Short title on the first line, requester's exact words after it. Nothing is added: no priority, dates or estimates. “Current notes” starts empty and is rewritten as work proceeds (a snapshot, not a diary).</p></div>
+  <div class="note"><p>Short title on the first line, requester's exact words after it (a lone line counts as both). Nothing is added: no priority, dates or estimates. “Current notes” starts empty and is rewritten as work proceeds (a snapshot, not a diary).</p></div>
 </section>
 
 <section class="step" id="deps">
@@ -352,6 +354,8 @@ Published to shared origin/main.</pre>
   <pre class="term"><span class="cmd">$ pm.py board</span>
 # Project board
 
+Rendered from `docs/pm/items/`, which holds each item's requester intent and current notes.
+
 ## In flight
 
 - None.
@@ -380,15 +384,18 @@ create-short-links-b153d3 Create short links — docs/pm/items/create-short-link
 
 <section class="step" id="work">
   <span class="stepno">Step 6</span>
-  <h2><code>/pm:work</code>: claim first, then build</h2>
+  <h2><code>/pm:work</code>: a worker claims first, then builds</h2>
   <div class="grid">
-    <div class="card"><h4>When to use</h4><p>For any project work, tracked or not yet: a request that is not on the board is added first with your exact words. The claim is published <em>before</em> any code is touched, so two people (or two agents) cannot grab the same item.</p></div>
+    <div class="card"><h4>When to use</h4><p>For any project work, tracked or not yet: a request that is not on the board is added first with your exact words. The session you talk to only coordinates: it hands each item to a <strong>worker</strong> agent, which publishes the claim <em>before</em> any code is touched, so two people (or two workers) cannot grab the same item.</p></div>
     <div class="card"><h4>Say it like this</h4><p>“work on create short links”, “start the next task”, “analyse last week&#x27;s clicks and write it up”</p></div>
   </div>
   <div class="label">You type</div>
   <pre class="slash">/pm:work            <span style="color:var(--muted)"># takes the first ready item</span>
 /pm:work create-short-links-b153d3</pre>
-  <div class="label">Skill runs</div>
+<pre class="ascii">you ──▶ session (/pm:work) ──▶ pm:worker: claim ─▶ build ─▶ commit ─▶ pm:validator ─▶ finish
+          ▲   files, relays        │                                    │ findings: fix, re-check (2 rounds)
+          └──── report ◀───────────┴──── question? item held ◀──────────┘</pre>
+  <div class="label">Worker runs</div>
   <pre class="term"><span class="cmd">$ pm.py claim create-short-links-b153d3 &lt;&lt;&#x27;PM_END&#x27;
 Dana
 PM_END</span>
@@ -397,8 +404,15 @@ Published to shared origin/main.</pre>
   <p>The claim needs a person's name on stdin. Forget it and you get a clear error, nothing changes:</p>
   <pre class="term"><span class="cmd">$ pm.py claim redirect-a-short-link-9bbffa</span>
 pm: A person&#x27;s name is required on stdin.</pre>
-  <p>The skill then creates a branch <code>pm/create-short-links-b153d3</code> from the claim commit, reads the item and the code it needs (once the repo has a map, only the cards the item touches, <a href="#touches">step 11</a>), builds it, putting every new file where <code>AGENTS.md</code> says for its kind, runs the project's checks, and rewrites “Current notes”. Before you review, it checks the change against your exact words and lists anything that does not match at the top of the notes. The board now shows the claim:</p>
+  <p>A second claim of an item already in flight fails, even under the same name, so a ticket never goes to two workers. Only a worker continuing its own claim (after a hold, say) passes <code>--resume</code>:</p>
+  <pre class="term"><span class="cmd">$ pm.py claim create-short-links-b153d3 &lt;&lt;&#x27;PM_END&#x27;
+Dana
+PM_END</span>
+pm: create-short-links-b153d3 is already in flight for Dana, so another worker may be on it. Only to continue that same claim, run claim again with --resume.</pre>
+  <p>The worker then creates a branch <code>pm/create-short-links-b153d3</code> from the claim commit, reads the item and the code it needs (once the repo has a map, only the cards the item touches, <a href="#touches">step 11</a>), builds it, putting every new file where <code>AGENTS.md</code> says for its kind, runs the project's checks, and rewrites “Current notes”. Before you review, it checks the change against your exact words and lists anything that does not match at the top of the notes. The board now shows the claim:</p>
   <pre class="term"># Project board
+
+Rendered from `docs/pm/items/`, which holds each item's requester intent and current notes.
 
 ## In flight
 
@@ -421,29 +435,48 @@ Ready next: none</pre>
 <pre class="ascii">   main ──●── pm: Claimed …Dana ──●──────────────────▶
                      \
   pm/create-short-links-b153d3 ●── Add shorten() ── finish ──▶ PR</pre>
-  <div class="note warn"><p><strong>If someone else owns it,</strong> <code>/pm:work</code> stops and tells you who; it will not touch their work. If the push is rejected because someone claimed at the same moment, it re-checks and lets exactly one claim win.</p></div>
+  <div class="note warn"><p><strong>If someone else owns it,</strong> the worker stops and <code>/pm:work</code> tells you who; it will not touch their work. If the push is rejected because someone claimed at the same moment, it re-checks and lets exactly one claim win.</p></div>
+  <div class="note"><p><strong>Several items at once.</strong> Ask for two ready items that do not depend on each other and the session starts two workers in parallel, each in its own git worktree under <code>.claude/worktrees/</code>. An item that depends on another waits until that one is Done. A single worker works in your checkout, so it sees files you dropped there, and leaves you on its branch when it finishes.</p></div>
 </section>
 
 <section class="step" id="finish">
   <span class="stepno">Step 7</span>
   <h2>Finishing through a PR</h2>
   <div class="grid">
-    <div class="card"><h4>When it happens</h4><p>At the end of <code>/pm:work</code>, when the requested work is complete, checks pass, and the work is committed on the branch. If not complete, the item stays In flight, still yours; if it waits on you, it is held with the question.</p></div>
+    <div class="card"><h4>When it happens</h4><p>At the end of a worker's run, when the work is complete and committed on the branch and a separate <strong>validator</strong> agent, one that did not do the work, has passed it: your exact words, the cards it touches, the Where things go table, and the project's tests. On findings the worker fixes them and asks a fresh validator again, at most twice; if it still fails, or anything waits on you, the item is held with the question and the session asks you.</p></div>
     <div class="card"><h4>You do</h4><p>Push the branch and open a PR as usual. Merging the PR is what tells everyone else the item is Done.</p></div>
   </div>
-  <div class="label">Skill runs: commit the work, then finish</div>
-  <p><code>finish</code> marks Done only committed work. Run before the commit, it refuses and lists what is left:</p>
+  <div class="label">Worker runs: commit the work, have it validated, then finish</div>
+  <p><code>finish</code> marks Done only after a passing verdict for the current work. Without a recorded verdict it refuses:</p>
   <pre class="term soft"><span class="cmd">$ pm.py finish create-short-links-b153d3 &lt;&lt;&#x27;PM_END&#x27;
 shorten() returns a 4-character code and stores it; covered by tests/test_shorten.py.
 PM_END</span>
-pm: create-short-links-b153d3 is not finished: 1 file uncommitted (tests/test_shorten.py). Commit the work on this branch first (or remove what does not belong to it), then run finish again; the board says Done only for committed work.</pre>
-  <pre class="term"><span class="cmd">$ git add tests/test_shorten.py &amp;&amp; git commit -m &quot;Add shorten() tests (create-short-links-b153d3)&quot;</span>
-<span class="cmd">$ pm.py finish create-short-links-b153d3 &lt;&lt;&#x27;PM_END&#x27;
+pm: create-short-links-b153d3 has no recorded validation. Run the pm:validator agent, then record its verdict with `pm.py validated create-short-links-b153d3 --verdict pass|findings`.</pre>
+  <pre class="term"><span class="cmd">$ git add tests/test_shorten.py &amp;&amp; git commit -m &quot;Add shorten() tests (create-short-links-b153d3)&quot;</span></pre>
+  <p>The worker then starts the validator and waits for its verdict. The validator reads the repository, not the worker's account, and edits nothing. Its verdict has this shape:</p>
+  <pre class="term soft">VERDICT: pass
+Checked:
+- intent: a long URL in, a 4-character code like /a1b2 out
+- cards: none touched
+- places: pm.py places lists nothing; shortlink.py and tests/test_shorten.py sit where the table says
+- tests: python3 -m unittest -> 3 tests OK
+- committed: git status clean
+Findings: none</pre>
+  <p>On <code>VERDICT: findings</code> each finding names a file and line, what is wrong, the rule it breaks, and the fix; in the plugin's own eval, a <code>word_count</code> that split on single spaces came back with its 2 failing tests and a stray notes file at the root. The worker fixes them, commits, and asks a fresh validator, at most two fix rounds. If it still fails, the item waits on you with the findings (<code>Validation still fails after 2 fix rounds: …</code>) instead of going Done.</p>
+  <p>After each verdict, record the validator's summary against the current commit. The command commits only the item's notes on the work branch:</p>
+  <pre class="term"><span class="cmd">$ pm.py validated create-short-links-b153d3 --verdict pass &lt;&lt;&#x27;PM_END&#x27;
+python3 -m unittest -&gt; 3 tests OK; new files in their places.
+PM_END</span>
+Recorded pass validation for create-short-links-b153d3 at f53638671c499bcfe6e9566d2ff4e0a1e15b1739.</pre>
+  <p>Then finish with the completion summary. The CLI keeps the validation record in the final notes. Any later non-board commit makes that pass stale, so fix and validate again before finishing.</p>
+  <pre class="term"><span class="cmd">$ pm.py finish create-short-links-b153d3 &lt;&lt;&#x27;PM_END&#x27;
 shorten() returns a 4-character code and stores it; covered by tests/test_shorten.py.
 PM_END</span>
 Finished create-short-links-b153d3 and committed locally.</pre>
   <p>On the work branch the board already says Done:</p>
   <pre class="term"># Project board
+
+Rendered from `docs/pm/items/`, which holds each item's requester intent and current notes.
 
 ## In flight
 
@@ -460,14 +493,14 @@ Finished create-short-links-b153d3 and committed locally.</pre>
 
 ## Done
 
-- [create-short-links-b153d3](docs/pm/items/create-short-links-b153d3.md) Create short links — shorten() returns a 4-character code and stores it; covered by tests/test_shorten.py.
+- [create-short-links-b153d3](docs/pm/items/create-short-links-b153d3.md) Guide item — shorten() returns a 4-character code and stores it; covered by tests/test_shorten.py. Validation: pass at f53638671c499…
 
 Ready next: redirect-a-short-link-9bbffa Redirect a short link</pre>
-  <div class="label">You (or the skill) then run</div>
+  <div class="label">You (or the session) then run</div>
   <pre class="slash">git push -u origin pm/create-short-links-b153d3
 gh pr create --fill</pre>
   <div class="note"><p><strong>Why not Done everywhere immediately?</strong> <code>finish</code> commits that item's file after the work's own commits, and only on the work branch. Until the PR merges, other clones correctly see it <span class="tag i">In flight</span> under Dana. After the merge it is Done for everybody, with no board file to conflict on. (This sample used a local merge in place of a hosted PR; the result is the same.)</p></div>
-<pre class="ascii">work branch:  claim ─▶ code ─▶ notes ─▶ commit ─▶ finish (Done, local)
+<pre class="ascii">work branch:  claim ─▶ code ─▶ notes ─▶ commit ─▶ validate ─▶ finish (Done, local)
                                                        │  PR opened
 main:                                                  └─ merge ─▶ Done for everyone</pre>
 </section>
@@ -476,6 +509,8 @@ main:                                                  └─ merge ─▶ Done 
   <span class="stepno">Step 8</span>
   <h2>After the merge: what got unblocked</h2>
   <pre class="term"># Project board
+
+Rendered from `docs/pm/items/`, which holds each item's requester intent and current notes.
 
 ## In flight
 
@@ -509,6 +544,8 @@ PM_END</span>
 Returned link-expiry-cc352f to Queued.
 Published to shared origin/main.</pre>
   <pre class="term"># Project board
+
+Rendered from `docs/pm/items/`, which holds each item's requester intent and current notes.
 
 ## In flight
 
@@ -782,7 +819,7 @@ Published to shared origin/main.</pre>
   <pre class="slash">/pm:help</pre>
   <pre class="term">/pm:init             Set up the board, the AGENTS.md catalog, and where things go
 /pm:plan &lt;request&gt;   Record a request verbatim, with what it touches
-/pm:work [item-id]   Any project work: claim first, build, verify, commit
+/pm:work [item-id]   Any project work: a worker claims, builds, validates, commits
 /pm:status           Show owners, waiting items, and what&#x27;s ready
 /pm:map [area]       Map the code as cards: what a change hits
 /pm:migrate          Move an existing task system onto the board
@@ -836,7 +873,7 @@ When a person corrects an agent&#x27;s output, record it with `pm.py correct ITE
 Before writing anywhere, check the file already covers the fact; update it instead of adding a duplicate. Mark claims you have not verified `[UNSURE]`.</pre>
   <h3>The hooks</h3>
   <ul class="tight">
-    <li><strong>Session start:</strong> prints the board (the same text as step 5), so every session begins knowing what is in flight and ready. It adds one line saying that any project work (code, data, a deliverable) goes through <code>/pm:work</code>, which claims it first and adds it to the board if it is not there; that work to add goes through <code>/pm:plan</code>; and that every new file goes where <code>AGENTS.md</code> says, so any model follows the board rules. In a project whose <code>AGENTS.md</code> has no Where things go table yet, it first adds a pointer to <code>/pm:init</code>; in one still on pm 1.0's <code>docs/pm/CODEBASE.md</code>, a pointer to <code>/pm:map</code> (<a href="#map">step 10</a>).</li>
+    <li><strong>Session start:</strong> prints the board (the same text as step 5), so every session begins knowing what is in flight and ready. It adds one line saying that any project work (code, data, a deliverable) goes through <code>/pm:work</code>, which adds it to the board if it is not there and hands each item to a worker that claims, builds, and validates it, so the session itself edits no project files; that work to add goes through <code>/pm:plan</code>; and that every new file goes where <code>AGENTS.md</code> says, so any model follows the board rules. In a project whose <code>AGENTS.md</code> has no Where things go table yet, it first adds a pointer to <code>/pm:init</code>; in one still on pm 1.0's <code>docs/pm/CODEBASE.md</code>, a pointer to <code>/pm:map</code> (<a href="#map">step 10</a>).</li>
     <li><strong>Stop:</strong> when the agent is about to end its turn with a new file outside the table's places, it sends the agent back once to move it or ask you for a row. Captured after dropping <code>clicks.csv</code> at the root of shortlink:</li>
   </ul>
   <pre class="term soft">{&quot;decision&quot;: &quot;block&quot;, &quot;reason&quot;: &quot;These new files are outside the places in AGENTS.md &gt; Where things go: clicks.csv. Move each to the place for its kind (git mv, then update anything that reads or writes it), or, if it is a new kind of thing, ask the owner once and add a row.&quot;}</pre>
@@ -944,7 +981,7 @@ Ready next: dark-mode-07343f Dark mode, export-to-csv-f078b1 Export to CSV, orph
     <tr><th>Command</th><th>Reads / writes</th><th>Result</th></tr>
     <tr><td><code>/pm:init</code></td><td>writes <code>docs/pm/config.json</code>, <code>AGENTS.md</code> with its Where things go table (and for the skill shape, the skill's stages); moves files only after your yes</td><td>board exists, files in their places, walk test passes</td></tr>
     <tr><td><code>/pm:plan &lt;request&gt;</code></td><td>writes an item file</td><td>Queued item, optional dependency, hold, or touched cards</td></tr>
-    <tr><td><code>/pm:work [id]</code></td><td>adds the item if missing, claims it, loads only what it touches, edits code and cards, commits, updates the item</td><td>In flight, checked against your words, then Done on the branch</td></tr>
+    <tr><td><code>/pm:work [id]</code></td><td>adds the item if missing and starts a worker per item (in parallel when ready); the worker claims it, loads only what it touches, edits code and cards, commits, and has a validator check it</td><td>In flight, validated against your words, then Done on the branch, or held with a question</td></tr>
     <tr><td><code>/pm:status</code></td><td>read only</td><td>board, ready items, sources to fix</td></tr>
     <tr><td><code>/pm:map [area]</code></td><td>writes <code>docs/pm/map/</code>; retires an old <code>CODEBASE.md</code> on your yes</td><td>cards with citations and change impact, generated index</td></tr>
     <tr><td><code>/pm:migrate</code></td><td>reads the old system; writes items, only after your yes</td><td>items, counts before and after, other knowledge routed</td></tr>
@@ -958,8 +995,9 @@ Ready next: dark-mode-07343f Dark mode, export-to-csv-f078b1 Export to CSV, orph
     <tr><td><code>pm.py set ID --depends A,B --touches PATH,PATH</code></td><td>none</td><td>set dependencies, touched paths, or both (an empty value clears)</td></tr>
     <tr><td><code>pm.py hold ID [--until YYYY-MM-DD]</code></td><td>the question</td><td>move to Waiting</td></tr>
     <tr><td><code>pm.py resume ID [--answer]</code></td><td>with <code>--answer</code>: the decider's exact words</td><td>back to Queued, or In flight for the claimer; the answer is saved in the item's current notes</td></tr>
-    <tr><td><code>pm.py claim ID</code></td><td>the person's name</td><td>In flight, owned</td></tr>
-    <tr><td><code>pm.py finish ID</code></td><td>completion note</td><td>Done on the work branch; refuses while files outside the board are uncommitted</td></tr>
+    <tr><td><code>pm.py claim ID [--resume]</code></td><td>the person's name</td><td>In flight, owned; refuses an item already in flight unless <code>--resume</code> continues your own claim</td></tr>
+    <tr><td><code>pm.py validated ID --verdict pass|findings</code></td><td>validator summary</td><td>record the verdict against committed work on the work branch</td></tr>
+    <tr><td><code>pm.py finish ID</code></td><td>completion note</td><td>Done on the work branch only with a current pass and no uncommitted work</td></tr>
     <tr><td><code>pm.py board</code></td><td>none</td><td>render the board</td></tr>
     <tr><td><code>pm.py next</code></td><td>none</td><td>list ready items</td></tr>
     <tr><td><code>pm.py mirror show|off|github</code></td><td>none</td><td>configure the GitHub Issues mirror</td></tr>
@@ -975,10 +1013,12 @@ Ready next: dark-mode-07343f Dark mode, export-to-csv-f078b1 Export to CSV, orph
   </table></div>
   <h3>When something looks wrong</h3>
   <ul class="tight">
-    <li><strong>“A person's name is required on stdin.”</strong> The claim needs a name; <code>/pm:work</code> supplies your git user name and asks if it cannot find one.</li>
+    <li><strong>“A person's name is required on stdin.”</strong> The claim needs a name; <code>/pm:work</code> gives its workers your git user name and asks if it cannot find one.</li>
+    <li><strong>“already in flight … another worker may be on it”.</strong> A second worker was refused the item. If no worker is on it any more, a worker continues it with <code>claim --resume</code>.</li>
     <li><strong>“GitHub Issues mirror is off.”</strong> Run <code>pm.py mirror github</code> first (mind the publishing warning).</li>
     <li><strong>An item you finished still shows In flight in another clone.</strong> Expected until its PR merges.</li>
     <li><strong>“is not finished: N files uncommitted”.</strong> Commit the work on the branch (or remove what does not belong to it), then finish again.</li>
+    <li><strong>“has no recorded validation”, “has validation findings”, or “changed since validation”.</strong> Have a fresh validator check the committed work, record its verdict with <code>pm.py validated ID --verdict pass|findings</code>, and run finish again. After a fix, commit and validate again.</li>
     <li><strong>“outside the places in AGENTS.md &gt; Where things go”.</strong> Move the file to the place for its kind, or add a row for a new kind of thing.</li>
     <li><strong>“walk test failed”.</strong> Each FAIL line names the file and the fix; WARN lines do not fail it. <code>/pm:init</code> and <code>/pm:map</code> fix these themselves.</li>
     <li><strong>“_index.md is missing or out of date”.</strong> A card was added or changed status: run <code>pm.py index</code>.</li>
