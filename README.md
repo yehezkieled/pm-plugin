@@ -18,7 +18,7 @@ New here? The [step-by-step guide](docs/guide.html) walks one sample project thr
 | --- | --- | --- |
 | `/pm:init` | Set up the board and the repository's structure: a small catalog `AGENTS.md` whose Where things go table fits the project's shape | Board, catalog, files in their places, walk test result |
 | `/pm:plan` | Record a request in the requester's exact words, with the cards or stages it touches | Queued item with a separate detail file |
-| `/pm:work` | Do any project work through an item: add it if missing, then hand it to a worker agent that claims, builds, validates, and commits it | Committed work, updated cards and item notes, a validation verdict, item Done |
+| `/pm:work` | Do any project work through an item: add it if missing, then hand it to a worker agent that claims, builds, commits, and gets it validated | Committed work, updated cards and item notes, a validation verdict, item Done |
 | `/pm:status` | See current work, owners, holds, what is ready, and sources to fix | Board and dependency-aware next items |
 | `/pm:map` | Understand the current codebase part by part | System map in `docs/pm/map/`: cards, change impact, generated index |
 | `/pm:migrate` | Move an existing task system onto the board | Items with the original words kept, counts before and after, other knowledge routed |
