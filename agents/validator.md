@@ -21,6 +21,8 @@ Check, in order:
 4. **Tests.** Find the project's checks (the check command in your brief, `AGENTS.md`'s every-session commands, `README.md`, or the test setup: `tests/`, `pyproject.toml`, `package.json`, `Makefile`) and run them. Report the real command and result. A failing check is a finding. If the project has no checks, say so and check what the change produces by running it where that is cheap.
 5. **Committed.** `git status --short` shows no uncommitted change of the work (generated outputs in ignored folders are fine), and the commits name the item.
 
+As your last action, record your own verdict in the checkout you were given with `cd <checkout path> && python3 "${CLAUDE_PLUGIN_ROOT}/scripts/pm.py" validated ITEM_ID --verdict pass` or `--verdict findings`, passing your one-paragraph summary on stdin through a single-quoted heredoc. This is the only write you make; do not edit, create, move, or delete project files. If the command fails, report its error.
+
 A finding is something that breaks the requester's words, a touched card or contract, the table, the tests, or the commit state. Style preferences are not findings.
 
 ## Verdict
@@ -39,4 +41,4 @@ Findings:
 1. <path:line> — <what is wrong> — <the criterion it breaks> — <what would fix it>
 ```
 
-Write `VERDICT: pass` only when there are no findings; then leave `Findings:` as `none`.
+Write `VERDICT: pass` only when there are no findings; then leave `Findings:` as `none`. End by saying the verdict was recorded, or give the CLI's error if it could not be recorded.
