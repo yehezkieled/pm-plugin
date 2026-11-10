@@ -225,10 +225,15 @@ def sync_default_checkout(root: Path, tracking_ref: str) -> None:
         raise ValueError("Local default branch has unpublished commits. Sync it first.")
 
 
+def local_board(root: Path) -> bool:
+    """A Git repository with no remote: its board lives on the branch checked out in its main checkout."""
+    listed = git(root, "remote", check=False)
+    return listed.returncode == 0 and not listed.stdout.strip()
+
+
 def board_checkout(root: Path) -> Path:
     """Without a remote, the board lives in the clone's main checkout, so every worktree of it (a worker's) shares it."""
-    listed = git(root, "remote", check=False)
-    if listed.returncode or listed.stdout.strip():
+    if not local_board(root):
         return root
     worktrees = git(root, "worktree", "list", "--porcelain", check=False)
     first = worktrees.stdout.split("\n\n", 1)[0].splitlines() if worktrees.returncode == 0 else []
@@ -236,6 +241,53 @@ def board_checkout(root: Path) -> Path:
         return root
     main = Path(first[0][len("worktree "):])
     return root if main.resolve() == root.resolve() else main
+
+
+WORK_BRANCH = "pm/"  # an item's work branch is pm/ITEM_ID
+
+
+def leave_item_branch(checkout: Path, item_id: str = "", must: bool = True) -> str:
+    """Return a checkout left on another item's finished work branch to the branch it was on before.
+
+    A lone worker leaves the person's checkout on its finished `pm/ITEM_ID` branch so they see the result. A new
+    item or claim saved there would land on that item's branch, and the next item's branch would start from it
+    and carry its commits. So before new work is saved or started in a checkout, it goes back. Returns what was
+    done, or "" when the checkout is not on another item's branch. When it cannot go back (that item is not
+    finished, or a worker is working there), `must` stops the command; without it the checkout is left alone.
+    """
+    branch = git(checkout, "branch", "--show-current", check=False).stdout.strip()
+    work_branches = {f"{WORK_BRANCH}{item['id']}".casefold(): item for item in read_items(checkout)}
+    parked = work_branches.get(branch.casefold())
+    if not parked or parked["id"].casefold() == item_id.casefold():
+        return ""
+    busy = pm_workers.running_in(checkout)
+    if busy:
+        problem = (f"the worker session for {busy} is working there. Wait for it (`pm.py worker wait {busy}`), then run "
+                   "this again.")
+    elif parked.get("status") != "done":
+        problem = (f"{parked['id']} is not finished there. Continue it first (`pm.py worker answer {parked['id']}`), or "
+                   "switch that checkout to the branch new work starts from, then run this again.")
+    else:
+        # The branch it was on before: the latest move in its checkout history that left a branch that is not an item's.
+        moves = git(checkout, "reflog", "show", "--format=%gs", "-n", "1000", "HEAD", check=False).stdout
+        home = next((name for name in re.findall(r"^checkout: moving from (\S+) to \S+$", moves, re.M)
+                     if name.casefold() not in work_branches
+                     and git(checkout, "show-ref", "--verify", "--quiet", f"refs/heads/{name}", check=False).returncode == 0), "")
+        switched = git(checkout, "switch", "--quiet", home, check=False) if home else None
+        if not home:
+            problem = ("Git has no record of the branch it was on before. Switch it to the branch new work starts from "
+                       "(for example `git switch main`), then run this again.")
+        elif switched.returncode:
+            problem = (f"it could not return to {home}: {switched.stderr.strip()} Commit or set aside the changes there, "
+                       "then run this again.")
+        else:
+            return (f"{checkout} was on {branch}, another item's finished work branch, so it was returned to {home} first: "
+                    f"new work is saved on and starts from {home}, never from another item's branch. {branch} keeps its "
+                    "commits for review and merge.")
+    if must:
+        raise ValueError(f"{checkout} is on {branch}, another item's work branch, and new work is never saved on or "
+                         f"started from another item's branch; {problem}")
+    return ""
 
 
 def publish(root: Path, change) -> str:
@@ -697,12 +749,21 @@ def cmd_worker(root: Path, args) -> int:
     if action == "list":
         return pm_workers.cmd_list(root, {item["id"]: item for item in read_items(board_checkout(root))})
     if action == "start":
-        require_board(board_checkout(root))
+        board = board_checkout(root)
+        require_board(board)
         person, _, note = read_literal_stdin().partition("\n")
         if not person.strip():
             raise ValueError("The person's name is required on the first stdin line; the worker claims under it.")
-        find_item(read_items(board_checkout(root)), args.id)
-        return pm_workers.cmd_start(root, args, PLUGIN_ROOT, read_config(board_checkout(root)), person.strip(), note)
+        # The item's branch starts from the branch the board lives on, never from another item's: the checkout the
+        # claim is saved in (no remote) and the one a lone worker works in go back from a finished item's branch.
+        for checkout in dict.fromkeys(([board] if local_board(root) else []) + ([root] if args.here else [])):
+            moved = leave_item_branch(checkout, args.id)
+            if moved:
+                print(moved, flush=True)
+        find_item(read_items(board), args.id)
+        remote = remote_default(root)
+        base = fetch_default(root, *remote) if remote else git(board, "rev-parse", "HEAD").stdout.strip()
+        return pm_workers.cmd_start(root, args, PLUGIN_ROOT, read_config(board), person.strip(), note, base)
     if action == "answer":
         message = read_literal_stdin()
         if not message.strip():
@@ -952,9 +1013,14 @@ def parser() -> argparse.ArgumentParser:
 def main() -> int:
     args = parser().parse_args()
     root = root_dir()
+    moved = ""
     try:
         note = ""
         shared = board_checkout(root) if args.command in SHARED_BOARD_COMMANDS else root
+        if args.command in BOARD_WRITES and local_board(root):
+            # A new item and a new claim come before an item's branch exists, so they must not land on another's.
+            starts_work = args.command == "add" or (args.command == "claim" and not args.resume)
+            moved = leave_item_branch(shared, getattr(args, "id", ""), must=starts_work)
         if shared != root:
             here = git(root, "rev-parse", "--abbrev-ref", "HEAD").stdout.strip()
             there = git(shared, "rev-parse", "--abbrev-ref", "HEAD").stdout.strip()
@@ -969,10 +1035,14 @@ def main() -> int:
                 "defaults": cmd_defaults, "worker": cmd_worker}[args.command](root, args)
         if note:
             print(note)
+        if moved:
+            print(moved)
         if isinstance(code, int):
             return code
     except (ValueError, OSError) as exc:
         print(f"pm: {exc}", file=sys.stderr)
+        if moved:
+            print(f"pm: {moved}", file=sys.stderr)
         return 1
     return 0
 

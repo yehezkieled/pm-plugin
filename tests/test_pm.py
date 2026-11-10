@@ -643,6 +643,23 @@ class SkillDescriptionTests(unittest.TestCase):
         tools = {tool.strip() for tool in validator["tools"].split(",")}
         self.assertEqual(tools, {"Read", "Grep", "Glob", "Bash"}, "the validator must not edit files or start agents")
 
+    def test_setup_and_the_map_end_committed_and_never_on_the_default_branch_of_a_remote(self):
+        """/pm:init and /pm:map both write files a later worker starts from, so each must end with its own commit."""
+        skills = Path(__file__).resolve().parents[1] / "skills"
+        for name, written in (("init", "commit the setup changes together as their own commit"),
+                              ("map", "together as its own commit")):
+            steps = [line for line in (skills / name / "SKILL.md").read_text().splitlines() if re.match(r"\d+\. ", line)]
+            commits = [step for step in steps if written in step]
+            self.assertEqual(len(commits), 1, f"/pm:{name} needs one numbered step that commits what it wrote")
+            self.assertIn("Without a Git remote, commit on the current branch.", commits[0])
+            self.assertRegex(commits[0], r"With a remote, .*separate (setup )?branch", f"/pm:{name}: a remote needs its own branch")
+            self.assertRegex(commits[0], r"never commit or push .* directly to the default branch")
+        map_step = [line for line in (skills / "map" / "SKILL.md").read_text().splitlines() if line.startswith("7. ")][0]
+        for part in ("`docs/pm/map/`", "the root `AGENTS.md` row", "`docs/pm/CODEBASE.md` removal",
+                     "must not reply, until that commit exists"):
+            self.assertIn(part, map_step)
+        self.assertIn("the commit that holds the map", (skills / "map" / "SKILL.md").read_text().split("## Reply")[1])
+
     def test_guide_page_is_self_contained_and_covers_every_command(self):
         guide = (Path(__file__).resolve().parents[1] / "docs" / "guide.html").read_text()
         self.assertNotRegex(guide, r'(?:src|href)="https?://', "guide must not load external resources")
