@@ -20,7 +20,7 @@ New here? The [step-by-step guide](docs/guide.html) walks one sample project thr
 | `/pm:plan` | Record a request in the requester's exact words, with the cards or stages it touches | Queued item with a separate detail file |
 | `/pm:work` | Do any project work through an item: add it if missing, then hand it to its own worker session that claims, builds, commits, and gets it validated | Committed work, updated cards and item notes, a validation verdict, item Done |
 | `/pm:status` | See current work, owners, holds, what is ready, and sources to fix | Board and dependency-aware next items |
-| `/pm:map` | Understand the current codebase part by part | System map in `docs/pm/map/`: cards, change impact, generated index |
+| `/pm:map` | Understand the current codebase part by part | System map in `docs/pm/map/`: cards, change impact, generated index, committed |
 | `/pm:migrate` | Move an existing task system onto the board | Items with the original words kept, counts before and after, other knowledge routed |
 | `/pm:help` | See the short command guide | Skill and CLI reference |
 
@@ -85,7 +85,7 @@ The worker claims the item under your name, does the work inside the Where thing
 
 A worker cannot show you a permission prompt. Whatever its setting refuses comes back in its report; if you allow it, the coordinator continues that worker with the tool allowed (`pm.py worker answer --allow`). The plugin never picks a model, an effort, or a permission setting for you.
 
-Ready items that do not depend on each other run in their own worker sessions at the same time; one that depends on another waits until that one is Done. A lone worker runs in your checkout, so it sees files you left there. The claim is still the guard: a second claim of an item already in flight fails even under the same name, unless a worker continues its own claim with `claim --resume`. Without a remote, the board lives in the main checkout and every worktree reads and writes it there, so parallel workers see each other's claims. Each worker's session ID, checkout, and log are kept in the clone's Git directory (`.git/pm-workers/`), so a coordinating session that restarts or loses its context finds them again with `pm.py worker list`; the board stays the record of the work. Worker sessions need the `claude` command on `PATH` (or `PM_CLAUDE` set to it); nothing else is required.
+Ready items that do not depend on each other run in their own worker sessions at the same time; one that depends on another waits until that one is Done. A lone worker runs in your checkout, so it sees files you left there. Every item's branch starts from the branch the board lives on, never from another item's. The claim is still the guard: a second claim of an item already in flight fails even under the same name, unless a worker continues its own claim with `claim --resume`. Without a remote, the board lives in the main checkout and every worktree reads and writes it there, so parallel workers see each other's claims. Each worker's session ID, checkout, and log are kept in the clone's Git directory (`.git/pm-workers/`), so a coordinating session that restarts or loses its context finds them again with `pm.py worker list`; the board stays the record of the work. Worker sessions need the `claude` command (`PM_CLAUDE` when set, otherwise `claude` on `PATH` or the Claude Code running your session); nothing else is required.
 
 ## Collaboration and item flow
 

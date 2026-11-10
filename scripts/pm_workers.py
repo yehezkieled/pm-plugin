@@ -37,6 +37,14 @@ EFFORTS = ("low", "medium", "high", "xhigh", "max")
 # The Agent tool takes these model aliases for a subagent; "inherit" uses the worker session's model.
 VALIDATOR_MODELS = ("inherit", "fable", "opus", "sonnet", "haiku")
 INIT_WAIT_SECONDS = 90
+# Tools that schedule a later turn of the same session. A headless session with one pending stays open after
+# its final report until it fires, so a worker, whose turn ends with its report, never gets them.
+SCHEDULING_TOOLS = ("ScheduleWakeup", "CronCreate")
+# A worker's process normally exits within a second of its final report; one still open this long after it,
+# with nothing running, is stopped so nothing waits on it.
+IDLE_GRACE_SECONDS = 15
+# An update replaces the `claude` executable in place, so it can be missing for a few seconds.
+CLAUDE_WAIT_SECONDS = 30
 
 
 def now() -> str:
@@ -90,6 +98,15 @@ def save_state(root: Path, state: dict) -> None:
 
 def all_states(root: Path) -> list[dict]:
     return [json.loads(path.read_text(encoding="utf-8")) for path in sorted(sessions_dir(root).glob("*.json"))]
+
+
+def running_in(checkout: Path) -> str:
+    """The item whose worker session is working in this checkout right now, or ""."""
+    for state in all_states(checkout):
+        if Path(state["checkout"]).resolve() == checkout.resolve() and settle(checkout, state).get("running") \
+                and alive(state.get("pid")):
+            return state["item"]
+    return ""
 
 
 # --- the person's choices -------------------------------------------------------------------------------------
@@ -176,31 +193,56 @@ def alive(pid: int | None) -> bool:
     return True
 
 
-def ensure_worktree(root: Path, item_id: str) -> Path:
-    """The item's own worktree under .claude/worktrees/, detached at the current commit; reused when it exists."""
+def ensure_worktree(root: Path, item_id: str, base: str) -> Path:
+    """The item's own worktree under .claude/worktrees/, detached at the commit new work starts from (the tip of
+    the board's branch, whatever the coordinating checkout has checked out); reused when it exists."""
     path = root / WORKTREE_DIR / f"{WORKTREE_PREFIX}{item_id}"
     if path.exists():
         if not (path / ".git").exists():
             raise ValueError(f"{path} exists but is not a git worktree; move it aside first.")
         return path
     path.parent.mkdir(parents=True, exist_ok=True)
-    result = subprocess.run(["git", "-C", str(root), "worktree", "add", "--quiet", "--detach", str(path), "HEAD"],
+    result = subprocess.run(["git", "-C", str(root), "worktree", "add", "--quiet", "--detach", str(path), base],
                             text=True, capture_output=True)
     if result.returncode:
         raise ValueError(result.stderr.strip() or f"git worktree add {path} failed")
     return path
 
 
-def claude_binary() -> str:
-    found = shutil.which(os.environ.get("PM_CLAUDE", "claude"))
-    if not found:
-        raise ValueError("The `claude` command is not on PATH, so no worker session can start. Install the Claude Code "
-                         "CLI, or set PM_CLAUDE to its path.")
-    return found
+def claude_candidates() -> list[tuple[str, str]]:
+    """Where the `claude` executable is looked for, in order: (what it is, the name or path tried)."""
+    override = os.environ.get("PM_CLAUDE")
+    if override:  # the person's explicit choice is the only place looked
+        return [("PM_CLAUDE", override)]
+    places = [("`claude` on PATH", "claude")]
+    if os.environ.get("CLAUDE_CODE_EXECPATH"):
+        places.append(("CLAUDE_CODE_EXECPATH, the Claude Code running this session", os.environ["CLAUDE_CODE_EXECPATH"]))
+    home = Path.home()
+    places += [("the usual install path", str(home / ".local" / "bin" / "claude")),
+               ("the older local install path", str(home / ".claude" / "local" / "claude"))]
+    return places
 
 
-def worker_command(state: dict, prompt: str, plugin_root: Path, resume: bool) -> list[str]:
-    command = [claude_binary(), "-p", prompt, "--output-format", "stream-json", "--verbose"]
+def claude_binary(deadline: float | None = None) -> str:
+    """The `claude` executable for worker sessions. An update can remove it for a few seconds, so keep looking
+    until the deadline (CLAUDE_WAIT_SECONDS from now by default) before reporting it missing."""
+    deadline = time.time() + CLAUDE_WAIT_SECONDS if deadline is None else deadline
+    while True:
+        for _, tried in claude_candidates():
+            found = shutil.which(tried)
+            if found:
+                return found
+        if time.time() >= deadline:
+            break
+        time.sleep(0.5)
+    looked = "; ".join(f"{what} ({tried})" for what, tried in claude_candidates())
+    raise ValueError(f"No `claude` executable was found after looking for {CLAUDE_WAIT_SECONDS} seconds, so no worker "
+                     f"session can start or continue. Looked for: {looked}. PATH is {os.environ.get('PATH', '')!r}. "
+                     "Install the Claude Code CLI, or set PM_CLAUDE to its full path.")
+
+
+def worker_command(state: dict, prompt: str, plugin_root: Path, resume: bool, binary: str) -> list[str]:
+    command = [binary, "-p", prompt, "--output-format", "stream-json", "--verbose"]
     if resume:
         command += ["--resume", state["session"]]
     else:
@@ -211,6 +253,7 @@ def worker_command(state: dict, prompt: str, plugin_root: Path, resume: bool) ->
         command += ["--permission-mode", state["permission_mode"]]
     if state.get("allowed_tools"):
         command += ["--allowedTools", *state["allowed_tools"]]
+    command += ["--disallowedTools", *SCHEDULING_TOOLS]
     command += ["--model", state["model"], "--effort", state["effort"]]
     command += shlex.split(os.environ.get("PM_WORKER_EXTRA_ARGS", ""))  # for evals: e.g. --setting-sources project
     return command
@@ -229,10 +272,22 @@ def spawn(root: Path, state: dict, prompt: str, plugin_root: Path, resume: bool)
         env.pop(key, None)
     append_log(root, state["item"], {"event": "resume" if resume else "start", "prompt": prompt,
                                      "permission_mode": state["permission_mode"]})
+    deadline = time.time() + CLAUDE_WAIT_SECONDS
     with log_path(root, state["item"]).open("ab") as log:
-        process = subprocess.Popen(worker_command(state, prompt, plugin_root, resume), cwd=state["checkout"], env=env,
-                                   stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
+        while True:
+            binary = claude_binary(deadline)
+            try:
+                process = subprocess.Popen(worker_command(state, prompt, plugin_root, resume, binary), cwd=state["checkout"],
+                                           env=env, stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT,
+                                           start_new_session=True)
+                break
+            except OSError as exc:  # replaced between the lookup and the start: look again until the deadline
+                if time.time() >= deadline:
+                    raise ValueError(f"Could not run `claude` at {binary}: {exc}. Check that it is installed and runs, "
+                                     "or set PM_CLAUDE to its full path.")
+                time.sleep(0.5)
     state.update(pid=process.pid, running=True, turns=state.get("turns", 0) + 1, last_start=now(), exit_code=None)
+    state.pop("stopped_after_report", None)
     save_state(root, state)
     return process
 
@@ -258,7 +313,7 @@ def launch(root: Path, state: dict, prompt: str, plugin_root: Path, resume: bool
     if mode in (None, "auto"):
         return process
     # Auto mode is not available to this account or model: fall back to acceptEdits, as the person chose.
-    stop_process(process.pid)
+    stop_process(process.pid, process)
     note = (f"Auto mode was unavailable to worker sessions (the session started in {mode} mode), so this copy "
             f"falls back to {FALLBACK_MODE}, as chosen. Change it with `pm.py worker mode MODE`.")
     settings = local_settings(root)
@@ -272,15 +327,18 @@ def launch(root: Path, state: dict, prompt: str, plugin_root: Path, resume: bool
     return spawn(root, state, prompt, plugin_root, resume)
 
 
-def stop_process(pid: int) -> None:
-    """Stop the worker and what it started (its own process group, where the platform has them)."""
+def stop_process(pid: int, process: subprocess.Popen | None = None) -> None:
+    """Stop the worker and what it started (its own process group, where the platform has them).
+
+    Pass the process when this command started it: only its parent can tell for sure that it has ended.
+    """
     kill = getattr(os, "killpg", os.kill)
     try:
         kill(pid, signal.SIGTERM)
     except ProcessLookupError:
         return
     for _ in range(20):
-        if not alive(pid):
+        if process.poll() is not None if process is not None else not alive(pid):
             return
         time.sleep(0.5)
     try:
@@ -317,6 +375,61 @@ def last_result(events: list[dict]) -> dict | None:
     return results[-1] if results else None
 
 
+def reported(events: list[dict]) -> bool:
+    """True when the latest turn ended with its final report and the session has nothing left running.
+
+    A `result` event ends a turn. A later init, assistant, or user event means another turn began (a background
+    task or subagent came back), and a background task still listed means the session is waiting on it.
+    """
+    done, running = False, set()
+    for event in turn_events(events):
+        kind, subtype = event.get("type"), event.get("subtype")
+        if kind == "result":
+            done = True
+        elif kind in ("assistant", "user") or (kind == "system" and subtype == "init"):
+            done = False
+        elif kind == "system" and subtype == "background_tasks_changed":
+            running = {task.get("task_id") for task in event.get("tasks") or []}
+        elif kind == "system" and subtype == "task_started":
+            running.add(event.get("task_id"))
+        elif kind == "system" and (subtype == "task_notification" or (
+                subtype == "task_updated" and (event.get("patch") or {}).get("status") not in (None, "running", "pending"))):
+            running.discard(event.get("task_id"))
+    return done and not running
+
+
+_REPORTED: dict[tuple[str, int], bool] = {}
+
+
+def lingering(root: Path, item_id: str) -> bool:
+    """The worker reported, yet its process is still open with a quiet log: something it scheduled holds it open."""
+    path = log_path(root, item_id)
+    try:
+        stat = path.stat()
+    except OSError:
+        return False
+    if time.time() - stat.st_mtime < IDLE_GRACE_SECONDS:
+        return False
+    key = (str(path), stat.st_size)
+    if key not in _REPORTED:  # a quiet log is read once, not on every poll
+        _REPORTED.clear()
+        _REPORTED[key] = reported(log_events(root, item_id))
+    return _REPORTED[key]
+
+
+def settle(root: Path, state: dict, process: subprocess.Popen | None = None) -> dict:
+    """Stop a worker whose turn ended but whose process stayed open, and record the end of its turn."""
+    if not (state.get("running") and alive(state.get("pid")) and lingering(root, state["item"])):
+        return state
+    stop_process(state["pid"], process)
+    result = last_result(log_events(root, state["item"]))
+    append_log(root, state["item"], {"event": "stopped-after-report", "pid": state["pid"]})
+    state.update(running=False, exit_code=0 if result and not result.get("is_error") else 1, last_exit=now(),
+                 stopped_after_report=True)
+    save_state(root, state)
+    return state
+
+
 def short(text: str, limit: int = 100) -> str:
     text = " ".join(str(text).split())
     return text if len(text) <= limit else text[:limit - 1] + "…"
@@ -338,17 +451,22 @@ def activity(events: list[dict]) -> str:
 
 
 def wait_for(root: Path, item_id: str, process: subprocess.Popen | None) -> int:
-    if process is not None:
-        code = process.wait()
-    else:
-        while alive((load_state(root, item_id) or {}).get("pid")):
-            time.sleep(2)
-        result = last_result(log_events(root, item_id))
-        code = 0 if result and not result.get("is_error") else 1
-    state = load_state(root, item_id)
-    state.update(running=False, exit_code=code, last_exit=now())
-    save_state(root, state)
-    return code
+    """Wait until the worker's turn has ended: its process exited, or it reported and was stopped for staying open."""
+    while True:
+        state = load_state(root, item_id)
+        if process.poll() is not None if process is not None else not alive(state.get("pid")):
+            break
+        if not settle(root, state, process).get("running"):
+            break
+        time.sleep(1)
+    code = process.wait() if process is not None else None  # it exited, or it was stopped: reap it
+    if state.get("running"):  # it exited by itself; unwatched, its last report says how
+        if code is None:
+            result = last_result(log_events(root, item_id))
+            code = 0 if result and not result.get("is_error") else 1
+        state.update(running=False, exit_code=code, last_exit=now())
+        save_state(root, state)
+    return state["exit_code"]
 
 
 def session_facts(events: list[dict], item_id: str) -> list[str]:
@@ -392,6 +510,9 @@ def report(root: Path, item_id: str) -> str:
     result = last_result(events)
     lines = [f"Worker session for {item_id} ended its turn (exit {state.get('exit_code')}): session {state['session']}, "
              f"checkout {state['checkout']}, permission setting {state['permission_mode']}."]
+    if state.get("stopped_after_report"):
+        lines.append(f"Its process was still open {IDLE_GRACE_SECONDS} seconds after its final report with nothing running, "
+                     f"so it was stopped; its conversation is kept, and `pm.py worker answer {item_id}` continues it.")
     if result is None:
         tail = log_path(root, item_id).read_text(encoding="utf-8", errors="replace").strip().splitlines()[-5:]
         lines.append("It ended without a final report. Last output:")
@@ -416,14 +537,16 @@ def report(root: Path, item_id: str) -> str:
 def worker_prompt(state: dict, claim_resume: bool, note: str) -> str:
     claim = "resume the existing claim (claim --resume)" if claim_resume else "new claim"
     where = ("You run in the person's checkout." if not state["own_worktree"]
-             else f"You run in your own worktree {state['checkout']}, detached at the coordinating checkout's commit.")
+             else f"You run in your own worktree {state['checkout']}, detached at the tip of the board's branch.")
     validator = f"Validator: model {state['validator_model']}, effort {state['validator_effort']}"
     return "\n".join(filter(None, [f"Item: {state['item']}", f"Claim under: {state['person']}", f"Claim: {claim}", where,
                                    validator, note.strip()]))
 
 
-def cmd_start(root: Path, args, plugin_root: Path, config: dict, person: str, note: str) -> int:
+def cmd_start(root: Path, args, plugin_root: Path, config: dict, person: str, note: str, base: str = "HEAD") -> int:
     existing = load_state(root, args.id)
+    if existing:
+        existing = settle(root, existing)
     if existing and existing.get("running") and alive(existing.get("pid")):
         raise ValueError(f"A worker session for {args.id} is already running (pid {existing['pid']}). Wait for it with "
                          f"`pm.py worker wait {args.id}`, or stop it with `pm.py worker stop {args.id}`.")
@@ -443,7 +566,7 @@ def cmd_start(root: Path, args, plugin_root: Path, config: dict, person: str, no
     if chosen["validator_model"] not in VALIDATOR_MODELS:
         raise ValueError(f"Validator model must be one of {', '.join(VALIDATOR_MODELS)} (the models a subagent can run on).")
     mode = permission_mode(root)
-    checkout = root if args.here else ensure_worktree(root, args.id)
+    checkout = root if args.here else ensure_worktree(root, args.id, base)
     state = {"item": args.id, "session": str(uuid.uuid4()), "checkout": str(checkout), "person": person,
              "own_worktree": not args.here, "permission_mode": mode, "allowed_tools": [],
              "created": now(), "turns": 0, **chosen}
@@ -464,6 +587,7 @@ def cmd_answer(root: Path, args, plugin_root: Path, message: str) -> int:
     state = load_state(root, args.id)
     if not state:
         raise ValueError(f"{args.id} has no worker session yet; start one with `pm.py worker start {args.id}`.")
+    state = settle(root, state)
     if state.get("running") and alive(state.get("pid")):
         raise ValueError(f"The worker session for {args.id} is still working; wait for it with `pm.py worker wait {args.id}`.")
     if not Path(state["checkout"]).exists():
@@ -508,6 +632,7 @@ def cmd_list(root: Path, items: dict[str, dict]) -> int:
         print("No worker sessions.")
         return 0
     for state in states:
+        state = settle(root, state)
         item = items.get(state["item"], {})
         events = log_events(root, state["item"])
         if state.get("running") and alive(state.get("pid")):
@@ -526,6 +651,8 @@ def cmd_list(root: Path, items: dict[str, dict]) -> int:
 
 def cmd_remove(root: Path, args) -> int:
     state = load_state(root, args.id)
+    if state:
+        state = settle(root, state)
     if state and alive(state.get("pid")):
         raise ValueError(f"The worker session for {args.id} is still running; stop it first.")
     path = root / WORKTREE_DIR / f"{WORKTREE_PREFIX}{args.id}"
