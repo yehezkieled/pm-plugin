@@ -71,7 +71,7 @@ cat > docs/notes.md <<'EOF_FIXTURE'
 - Manager wants a one-page memo per distributor, not the raw CSV.
 EOF_FIXTURE
 cat > docs/pm/config.json <<'EOF_FIXTURE'
-{"mirror": "off"}
+{"mirror": "off", "workers": {"model": "sonnet", "effort": "medium"}, "validators": {"model": "sonnet", "effort": "medium"}}
 EOF_FIXTURE
 cat > data/README.md <<'EOF_FIXTURE'
 # Data
@@ -224,3 +224,5 @@ N90,General supply flat,Energy,All times,11.870,c/kWh
 N91,General supply TOU,Energy,Peak,29.400,c/kWh
 N91,General supply TOU,Energy,Off peak,4.410,c/kWh
 EOF_FIXTURE
+# The person's earlier choice for this clone: worker sessions run in auto mode.
+mkdir -p .git/pm-workers && printf '%s\n' '{"permission_mode": "auto"}' > .git/pm-workers/settings.json

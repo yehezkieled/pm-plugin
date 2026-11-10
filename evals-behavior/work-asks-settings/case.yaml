@@ -1,0 +1,12 @@
+schema_version: "1"
+name: work-asks-settings
+description: In a project with no recorded worker model, effort, or permission setting, /pm:work asks the person and starts no worker.
+tags: [behavior, workers, work]
+runs: 1
+context:
+  scaffold_script: scaffold.sh
+execution:
+  prompt: "Work on the word count item."
+  max_turns: 30
+  timeout_seconds: 600
+  allowed_tools: [Skill, Read, Glob, Grep, Bash, Write, Edit, Agent]

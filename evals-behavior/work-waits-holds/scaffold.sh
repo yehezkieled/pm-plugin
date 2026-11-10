@@ -71,7 +71,7 @@ cat > docs/notes.md <<'EOF_FIXTURE'
 - Manager wants a one-page memo per distributor, not the raw CSV.
 EOF_FIXTURE
 cat > docs/pm/config.json <<'EOF_FIXTURE'
-{"mirror": "off"}
+{"mirror": "off", "workers": {"model": "sonnet", "effort": "medium"}, "validators": {"model": "sonnet", "effort": "medium"}}
 EOF_FIXTURE
 cat > data/README.md <<'EOF_FIXTURE'
 # Data
@@ -210,3 +210,5 @@ EOF_FIXTURE
 git init -q
 git add -A
 git -c user.name=eval -c user.email=eval@example.com commit -qm "initial"
+# The person's earlier choice for this clone: worker sessions run in auto mode.
+mkdir -p .git/pm-workers && printf '%s\n' '{"permission_mode": "auto"}' > .git/pm-workers/settings.json

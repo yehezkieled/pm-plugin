@@ -58,7 +58,7 @@ def repo_files(root: Path) -> list[str]:
 
 def git_status(root: Path) -> list[tuple[str, str]]:
     """(XY status, path) for each changed or untracked file, renames by their new path; empty outside Git.
-    An untracked directory shown whole is another checkout, such as a worker's worktree in .claude/worktrees/: skipped."""
+    An untracked directory shown whole is another checkout, such as a worker's worktree in .claude/worktrees/ (pm-* or agent-*): skipped."""
     result = subprocess.run(["git", "-C", str(root), "status", "--porcelain=v1", "-z", "--untracked-files=all"],
                             capture_output=True)
     if result.returncode:
@@ -72,7 +72,7 @@ def git_status(root: Path) -> list[tuple[str, str]]:
             continue
         if entry[0] in "RC":
             index += 1  # -z puts a rename's original path in the next entry
-        if entry[:2] == "??" and entry[3:].startswith(".claude/worktrees/agent-") and entry.endswith("/"):
+        if entry[:2] == "??" and entry[3:].startswith((".claude/worktrees/agent-", ".claude/worktrees/pm-")) and entry.endswith("/"):
             continue
         found.append((entry[:2], entry[3:]))
     return found

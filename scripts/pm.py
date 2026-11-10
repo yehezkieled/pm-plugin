@@ -16,6 +16,7 @@ from pathlib import Path, PurePosixPath
 
 import pm_icm
 import pm_migrate
+import pm_workers
 
 try:
     import fcntl
@@ -658,6 +659,58 @@ def cmd_mirror(root: Path, args) -> None:
         print(publish(root, change))
 
 
+def read_config(root: Path) -> dict:
+    return json.loads(config_path(root).read_text(encoding="utf-8")) if config_path(root).exists() else {}
+
+
+def cmd_defaults(root: Path, args) -> None:
+    changes = {("workers", "model"): args.worker_model, ("workers", "effort"): args.worker_effort,
+               ("validators", "model"): args.validator_model, ("validators", "effort"): args.validator_effort}
+    changes = {key: value for key, value in changes.items() if value}
+    if not changes:
+        require_board(root)
+        config = read_config(root)
+        print(pm_workers.defaults_text(config))
+        missing = pm_workers.missing_defaults(config)
+        if missing:
+            print("Not recorded yet: " + ", ".join(missing) + ". Ask the person; do not pick them.")
+        return
+
+    def change(board: Path):
+        require_board(board)
+        config = read_config(board)
+        for (role, key), value in changes.items():
+            config.setdefault(role, {})[key] = value
+        config_path(board).write_text(json.dumps(config) + "\n", encoding="utf-8")
+        return [config_path(board)], "Recorded defaults.\n" + pm_workers.defaults_text(config)
+    with write_lock(root):
+        print(publish(root, change))
+
+
+PLUGIN_ROOT = Path(__file__).resolve().parent.parent
+
+
+def cmd_worker(root: Path, args) -> int:
+    action = args.action
+    if action == "mode":
+        return pm_workers.cmd_mode(root, args)
+    if action == "list":
+        return pm_workers.cmd_list(root, {item["id"]: item for item in read_items(board_checkout(root))})
+    if action == "start":
+        require_board(board_checkout(root))
+        person, _, note = read_literal_stdin().partition("\n")
+        if not person.strip():
+            raise ValueError("The person's name is required on the first stdin line; the worker claims under it.")
+        find_item(read_items(board_checkout(root)), args.id)
+        return pm_workers.cmd_start(root, args, PLUGIN_ROOT, read_config(board_checkout(root)), person.strip(), note)
+    if action == "answer":
+        message = read_literal_stdin()
+        if not message.strip():
+            raise ValueError("The message for the worker is required on stdin.")
+        return pm_workers.cmd_answer(root, args, PLUGIN_ROOT, message)
+    return {"wait": pm_workers.cmd_wait, "stop": pm_workers.cmd_stop, "remove": pm_workers.cmd_remove}[action](root, args)
+
+
 def cmd_sync(root: Path, args) -> None:
     created: dict[str, str] = {}
     failure: list[ValueError] = []
@@ -813,7 +866,7 @@ def cmd_migrate(root: Path, args) -> None:
 
 # Without a remote these read or write the main checkout's board from any worktree; finish stays on the work branch.
 BOARD_WRITES = {"add", "claim", "hold", "resume", "set", "correct"}
-SHARED_BOARD_COMMANDS = BOARD_WRITES | {"board", "next"}
+SHARED_BOARD_COMMANDS = BOARD_WRITES | {"board", "next", "defaults"}
 
 
 def parser() -> argparse.ArgumentParser:
@@ -851,6 +904,38 @@ def parser() -> argparse.ArgumentParser:
     mirror = sub.add_parser("mirror", help="configure the optional GitHub Issues mirror")
     mirror.add_argument("mode", choices=("show", "off", "github"))
     sub.add_parser("sync", help="sync items to GitHub Issues when enabled")
+    defaults = sub.add_parser("defaults", help="show or record the model and effort worker sessions and their validators use")
+    defaults.add_argument("--worker-model", help="model alias or full name for worker sessions")
+    defaults.add_argument("--worker-effort", choices=pm_workers.EFFORTS)
+    defaults.add_argument("--validator-model", choices=pm_workers.VALIDATOR_MODELS,
+                          help="model for the validator subagent; inherit uses the worker's")
+    defaults.add_argument("--validator-effort", choices=pm_workers.EFFORTS)
+    worker = sub.add_parser("worker", help="run board items in their own Claude Code worker sessions")
+    wactions = worker.add_subparsers(dest="action", required=True)
+    start = wactions.add_parser("start", help="start a worker session for an item and wait for its turn to end; "
+                                "stdin is the person's name, then an optional note")
+    start.add_argument("id")
+    start.add_argument("--here", action="store_true", help="run in this checkout instead of the item's own worktree")
+    start.add_argument("--resume", action="store_true", help="the worker continues an existing claim")
+    start.add_argument("--fresh", action="store_true", help="replace the item's earlier worker session with a new one")
+    start.add_argument("--model", help="the person's model for this worker, instead of the default")
+    start.add_argument("--effort", choices=pm_workers.EFFORTS, help="the person's effort for this worker")
+    start.add_argument("--validator-model", choices=pm_workers.VALIDATOR_MODELS)
+    start.add_argument("--validator-effort", choices=pm_workers.EFFORTS)
+    start.add_argument("--no-wait", action="store_true", help="return once started; `worker wait` reads the report")
+    answer = wactions.add_parser("answer", help="continue an item's worker session with a message, keeping its context; "
+                                 "stdin is the message")
+    answer.add_argument("id")
+    answer.add_argument("--allow", action="append", metavar="TOOL",
+                        help="a tool the person allowed for this worker, e.g. 'Bash(npm test)' (repeatable)")
+    answer.add_argument("--no-wait", action="store_true")
+    for name, text in (("wait", "wait for a running worker session and print its report"),
+                       ("stop", "stop a running worker session; its conversation is kept"),
+                       ("remove", "remove a finished item's worker worktree and session record; its branch is kept")):
+        wactions.add_parser(name, help=text).add_argument("id")
+    wactions.add_parser("list", help="each worker session: its item, what it is doing or waiting on")
+    mode = wactions.add_parser("mode", help="show or choose this clone's permission setting for worker sessions")
+    mode.add_argument("mode", nargs="?", choices=pm_workers.PERMISSION_MODES)
     migrate = sub.add_parser("migrate", help="move an existing task system onto the board; never deletes the old one")
     actions = migrate.add_subparsers(dest="action", required=True)
     actions.add_parser("scan", help="list the task systems found in this repository (read-only)")
@@ -877,12 +962,15 @@ def main() -> int:
                 note = (f"No remote, so the board is in the main checkout {shared}: saved on {there}; "
                         f"branch {here} shows it only after syncing with {there}.")
             root = shared
-        {"init": cmd_init, "board": cmd_board, "next": cmd_next, "add": cmd_add,
-         "claim": cmd_claim, "finish": cmd_finish, "validated": cmd_validated, "hold": cmd_hold, "resume": cmd_resume,
-         "set": cmd_set, "correct": cmd_correct, "walk": cmd_walk, "index": cmd_index, "places": cmd_places,
-         "refs": cmd_refs, "mirror": cmd_mirror, "sync": cmd_sync, "migrate": cmd_migrate}[args.command](root, args)
+        code = {"init": cmd_init, "board": cmd_board, "next": cmd_next, "add": cmd_add,
+                "claim": cmd_claim, "finish": cmd_finish, "validated": cmd_validated, "hold": cmd_hold, "resume": cmd_resume,
+                "set": cmd_set, "correct": cmd_correct, "walk": cmd_walk, "index": cmd_index, "places": cmd_places,
+                "refs": cmd_refs, "mirror": cmd_mirror, "sync": cmd_sync, "migrate": cmd_migrate,
+                "defaults": cmd_defaults, "worker": cmd_worker}[args.command](root, args)
         if note:
             print(note)
+        if isinstance(code, int):
+            return code
     except (ValueError, OSError) as exc:
         print(f"pm: {exc}", file=sys.stderr)
         return 1
