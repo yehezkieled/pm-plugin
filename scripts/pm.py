@@ -711,11 +711,6 @@ def cmd_worker(root: Path, args) -> int:
     return {"wait": pm_workers.cmd_wait, "stop": pm_workers.cmd_stop, "remove": pm_workers.cmd_remove}[action](root, args)
 
 
-def cmd_workers(root: Path, args) -> int:
-    args.action = "list"
-    return cmd_worker(root, args)
-
-
 def cmd_sync(root: Path, args) -> None:
     created: dict[str, str] = {}
     failure: list[ValueError] = []
@@ -941,7 +936,6 @@ def parser() -> argparse.ArgumentParser:
     wactions.add_parser("list", help="each worker session: its item, what it is doing or waiting on")
     mode = wactions.add_parser("mode", help="show or choose this clone's permission setting for worker sessions")
     mode.add_argument("mode", nargs="?", choices=pm_workers.PERMISSION_MODES)
-    sub.add_parser("workers", help="same as `worker list`")
     migrate = sub.add_parser("migrate", help="move an existing task system onto the board; never deletes the old one")
     actions = migrate.add_subparsers(dest="action", required=True)
     actions.add_parser("scan", help="list the task systems found in this repository (read-only)")
@@ -972,7 +966,7 @@ def main() -> int:
                 "claim": cmd_claim, "finish": cmd_finish, "validated": cmd_validated, "hold": cmd_hold, "resume": cmd_resume,
                 "set": cmd_set, "correct": cmd_correct, "walk": cmd_walk, "index": cmd_index, "places": cmd_places,
                 "refs": cmd_refs, "mirror": cmd_mirror, "sync": cmd_sync, "migrate": cmd_migrate,
-                "defaults": cmd_defaults, "worker": cmd_worker, "workers": cmd_workers}[args.command](root, args)
+                "defaults": cmd_defaults, "worker": cmd_worker}[args.command](root, args)
         if note:
             print(note)
         if isinstance(code, int):

@@ -186,18 +186,18 @@ class WorkerSessionTests(unittest.TestCase):
 
     def test_workers_shows_what_each_is_doing_or_waiting_on(self):
         self.ready()
-        self.assertIn("No worker sessions.", self.cli("workers").stdout)
+        self.assertIn("No worker sessions.", self.cli("worker", "list").stdout)
         env = dict(self.env, FAKE_CLAUDE_SLEEP="3")
         self.cli("worker", "start", self.item, "--no-wait", input_text="Ari", env=env)
         time.sleep(1)
-        listing = self.cli("workers").stdout
+        listing = self.cli("worker", "list").stdout
         self.assertIn(f"- {self.item} Count words: board queued", listing)
         self.assertIn("working: Agent: pm:validator", listing)  # its latest step, not its validator's
         waited = self.cli("worker", "wait", self.item)  # a restarted coordinator reattaches the same way
         self.assertIn("Report:\nResult: done", waited.stdout)
         self.cli("claim", self.item, input_text="Ari")
         self.cli("hold", self.item, input_text="Which file format?")
-        listing = self.cli("workers").stdout
+        listing = self.cli("worker", "list").stdout
         self.assertIn("board waiting, waiting on: Which file format?", listing)
         self.assertIn("turn ended: Result: done", listing)
 
@@ -210,7 +210,7 @@ class WorkerSessionTests(unittest.TestCase):
         self.assertIn("conversation is kept", self.cli("worker", "stop", self.item).stdout)
         self.cli("worker", "remove", self.item)
         self.assertFalse((self.root / ".claude/worktrees" / f"pm-{self.item}").exists())
-        self.assertIn("No worker sessions.", self.cli("workers").stdout)
+        self.assertIn("No worker sessions.", self.cli("worker", "list").stdout)
 
     def test_a_worker_sessions_start_hook_does_not_tell_it_to_stay_hands_off(self):
         env = dict(os.environ, CLAUDE_PROJECT_DIR=str(self.root), PM_WORKER=self.item)
