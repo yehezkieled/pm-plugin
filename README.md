@@ -18,7 +18,7 @@ New here? The [step-by-step guide](docs/guide.html) walks one sample project thr
 | --- | --- | --- |
 | `/pm:init` | Set up the board and the repository's structure: a small catalog `AGENTS.md` whose Where things go table fits the project's shape | Board, catalog, files in their places, walk test result |
 | `/pm:plan` | Record a request in the requester's exact words, with the cards or stages it touches | Queued item with a separate detail file |
-| `/pm:work` | Do any project work through an item: add it if missing, then hand it to a worker agent that claims, builds, commits, and gets it validated | Committed work, updated cards and item notes, a validation verdict, item Done |
+| `/pm:work` | Do any project work through an item: add it if missing, then hand it to its own worker session that claims, builds, commits, and gets it validated | Committed work, updated cards and item notes, a validation verdict, item Done |
 | `/pm:status` | See current work, owners, holds, what is ready, and sources to fix | Board and dependency-aware next items |
 | `/pm:map` | Understand the current codebase part by part | System map in `docs/pm/map/`: cards, change impact, generated index |
 | `/pm:migrate` | Move an existing task system onto the board | Items with the original words kept, counts before and after, other knowledge routed |
@@ -35,9 +35,10 @@ You only run `/pm:*` commands; each applies ICM (Interpretable Context Methodolo
    └─> walk test (pm.py walk + a cold walk)
 /pm:map ───> docs/pm/map/: catalog, one card per part, effects index ──> pm.py index ──> walk test
 /pm:plan ──> item records the requester's words + the cards or stages it touches (--touches)
-/pm:work ──> adds the item if missing ──> one pm:worker agent per item (ready items in parallel, each in its own worktree)
-   pm:worker ──> claims it ──> loads only what it touches ──> builds ──> Verify ──> commit
-               ──> pm:validator (a fresh agent) passes it ──> finish   or   findings ──> fix, re-validate (2 rounds) ──> hold
+/pm:work ──> adds the item if missing ──> one worker session per item (a separate Claude Code session; ready items at once, each in its own worktree)
+   worker ──> claims it ──> loads only what it touches ──> builds ──> Verify ──> commit
+            ──> pm:validator (a fresh subagent) passes it ──> finish   or   findings ──> fix, re-validate (2 rounds) ──> hold
+            └─> a question ──> the session you talk to asks you ──> your answer goes back into the same worker session
                └─> every new file goes where the table says; the Stop hook catches one that does not (pm.py places)
                └─> a correction is recorded (pm.py correct); the third of one kind says: fix the source
 ```
@@ -65,9 +66,26 @@ Files go where `AGENTS.md` › Where things go says for their kind ([icm/shapes.
 
 ## Coordinator and workers
 
-The session you talk to coordinates and never builds: `/pm:work` files or picks the item, then starts a `pm:worker` agent ([agents/worker.md](agents/worker.md)) for it. The worker claims the item under your name, does the work inside the Where things go table, commits it, and has a separate `pm:validator` agent ([agents/validator.md](agents/validator.md)) check it against your words, the cards it touches, the table, and the project's tests. The validator records its verdict with `pm.py validated ITEM_ID --verdict pass` or `--verdict findings`; the worker confirms the recorded result before finishing. `finish` requires a current recorded pass, so a changed commit must be validated again. This is a guardrail against forgetting validation, not protection against a worker deliberately faking a pass: the CLI cannot tell who called it, and the session trace shows each `pm:validator` launch. On findings the worker fixes them and asks a fresh validator again, at most two fix rounds; work that still fails, and any question only you can answer, parks the item in Waiting with the question, which the session relays to you. Your answer goes back through `pm.py resume --answer` and a new worker picks the item up.
+The session you talk to coordinates and never builds, and it is the only session you need to read. `/pm:work` files or picks the item, then starts a **worker session** for it: a separate Claude Code process (`claude -p` with the `pm:worker` agent, [agents/worker.md](agents/worker.md)) with its own context, in its own git worktree under `.claude/worktrees/pm-<item>/`. The coordinator starts it as a background command, so Claude Code tells it when the worker's turn ends, and it never uses a subagent to do ticket work.
 
-Ready items that do not depend on each other run in parallel workers, each in its own git worktree; one that depends on another waits until that one is Done. The claim is still the guard: a second claim of an item already in flight fails even under the same name, unless a worker continues its own claim with `claim --resume`. Without a remote, the board lives in the main checkout and every worktree reads and writes it there, so parallel workers see each other's claims.
+```text
+you ──▶ coordinating session ──▶ pm.py worker start ──▶ worker session (own process, own worktree)
+         ▲   files, relays, checks            claim ─▶ build ─▶ commit ─▶ validator subagent ─▶ finish
+         │                                                   │ question, or a refused permission
+         └──────── report ◀──────────────────────────────────┘
+you answer ──▶ pm.py resume --answer (board) ──▶ pm.py worker answer ──▶ same session continues
+```
+
+The worker claims the item under your name, does the work inside the Where things go table, commits it, and has a separate `pm:validator` subagent ([agents/validator.md](agents/validator.md)) check it against your words, the cards it touches, the table, and the project's tests. The validator records its verdict with `pm.py validated ITEM_ID --verdict pass` or `--verdict findings`; the worker confirms the recorded result before finishing. `finish` requires a current recorded pass, so a changed commit must be validated again. This is a guardrail against forgetting validation, not protection against a worker deliberately faking a pass: the CLI cannot tell who called it, and the worker's session log shows each `pm:validator` launch. On findings the worker fixes them and asks a fresh validator again, at most two fix rounds; work that still fails, and any question only you can answer, parks the item in Waiting with the question, which the coordinator relays to you. Your answer is saved on the item (`pm.py resume --answer`) and sent into the same worker session (`pm.py worker answer`), which continues with its context intact. `pm.py workers` shows what each worker is doing or waiting on.
+
+| Setting | Chosen by | Kept in |
+| --- | --- | --- |
+| Model and effort of worker sessions and of their validator subagents | you, asked once by `/pm:init` (or by `/pm:work` when a project has none yet); a model or effort you name for one item wins for that worker | `docs/pm/config.json` (`pm.py defaults`) |
+| Permission setting for unattended worker sessions: `auto` (recommended; falls back to `acceptEdits` where auto mode is unavailable), `acceptEdits`, `default`, or `bypassPermissions` | you, asked once by `/pm:work` the first time it starts a worker in a copy of the project | this clone only, not committed (`pm.py worker mode`) |
+
+A worker cannot show you a permission prompt. Whatever its setting refuses comes back in its report; if you allow it, the coordinator continues that worker with the tool allowed (`pm.py worker answer --allow`). The plugin never picks a model, an effort, or a permission setting for you.
+
+Ready items that do not depend on each other run in their own worker sessions at the same time; one that depends on another waits until that one is Done. A lone worker runs in your checkout, so it sees files you left there. The claim is still the guard: a second claim of an item already in flight fails even under the same name, unless a worker continues its own claim with `claim --resume`. Without a remote, the board lives in the main checkout and every worktree reads and writes it there, so parallel workers see each other's claims. Each worker's session ID, checkout, and log are kept in the clone's Git directory (`.git/pm-workers/`), so a coordinating session that restarts or loses its context finds them again with `pm.py workers`; the board stays the record of the work. Worker sessions need the `claude` command on `PATH` (or `PM_CLAUDE` set to it); nothing else is required.
 
 ## Collaboration and item flow
 
@@ -75,7 +93,7 @@ The item files are the only board state in git. The board is rendered on demand,
 
 GitHub Issues sync is off by default. Enabling it with `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/pm.py" mirror github` authorizes publishing each item's requester intent and current notes to this repository's GitHub Issues audience when `.../pm.py sync` runs. The command prints this disclosure when enabled, and the setting is stored in `docs/pm/config.json`. New issue numbers are saved in the item files and published to the shared default branch like other board updates, so other clones update the same issues. The local Markdown files remain the source of truth.
 
-Hooks print the board at session start, with a note that any project work goes through `/pm:work` and its workers, not edits in the session itself, work to add through `/pm:plan`, and every new file where `AGENTS.md` › Where things go says (and a one-line pointer to `/pm:init` while `AGENTS.md` has no such table, or to `/pm:map` while an old `docs/pm/CODEBASE.md` has no System map yet). At stop, a new file outside the table's places sends the agent back once to move it or ask for a row; otherwise the hook reminds the agent when code changed without an item detail update. Nothing else blocks a session.
+Hooks print the board at session start, with a note that any project work goes through `/pm:work` and its worker sessions, not edits in the session itself (a worker session gets a note naming its item instead), work to add through `/pm:plan`, and every new file where `AGENTS.md` › Where things go says (and a one-line pointer to `/pm:init` while `AGENTS.md` has no such table, or to `/pm:map` while an old `docs/pm/CODEBASE.md` has no System map yet). At stop, a new file outside the table's places sends the agent back once to move it or ask for a row; otherwise the hook reminds the agent when code changed without an item detail update. Nothing else blocks a session.
 
 ## Install
 

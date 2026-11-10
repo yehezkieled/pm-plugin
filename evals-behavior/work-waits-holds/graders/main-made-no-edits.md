@@ -2,7 +2,7 @@
 type: regex
 target: trace
 match: not_contains
-pattern: '"name":"(Edit|Write|NotebookEdit)","input":[^\n]*"parent_tool_use_id":null'
+pattern: '"name":"(Edit|Write|NotebookEdit)"'
 ---
 
-The coordinating session itself never edits or writes a file: only a subagent (a pm:worker) does. In the trace a main-session message has `"parent_tool_use_id":null`.
+The coordinating session never edits or writes a file. Since 1.4 the work happens in separate worker sessions, whose calls are in their own logs, not in this trace.

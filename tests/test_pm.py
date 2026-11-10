@@ -416,7 +416,7 @@ class ProjectBoardTests(unittest.TestCase):
         self.assertIn(f"Ready next: {item_id}", result.stdout)
         routing = result.stdout.strip().splitlines()[-1]
         self.assertIn("Any project work (code, data, a deliverable) goes through the pm:work skill", routing)
-        self.assertIn("adds the work to this board if it is not there and hands each item to a pm:worker agent", routing)
+        self.assertIn("adds the work to this board if it is not there and hands each item to its own worker session", routing)
         self.assertIn("separate validator", routing)
         self.assertIn("Do not edit project files in this session yourself", routing)
         self.assertIn("pm:plan skill", routing)

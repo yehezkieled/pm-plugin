@@ -386,15 +386,16 @@ create-short-links-b153d3 Create short links — docs/pm/items/create-short-link
   <span class="stepno">Step 6</span>
   <h2><code>/pm:work</code>: a worker claims first, then builds</h2>
   <div class="grid">
-    <div class="card"><h4>When to use</h4><p>For any project work, tracked or not yet: a request that is not on the board is added first with your exact words. The session you talk to only coordinates: it hands each item to a <strong>worker</strong> agent, which publishes the claim <em>before</em> any code is touched, so two people (or two workers) cannot grab the same item.</p></div>
+    <div class="card"><h4>When to use</h4><p>For any project work, tracked or not yet: a request that is not on the board is added first with your exact words. The session you talk to only coordinates: it hands each item to its own <strong>worker session</strong>, a separate Claude Code session in its own git worktree, which publishes the claim <em>before</em> any code is touched, so two people (or two workers) cannot grab the same item.</p></div>
     <div class="card"><h4>Say it like this</h4><p>“work on create short links”, “start the next task”, “analyse last week&#x27;s clicks and write it up”</p></div>
   </div>
   <div class="label">You type</div>
   <pre class="slash">/pm:work            <span style="color:var(--muted)"># takes the first ready item</span>
 /pm:work create-short-links-b153d3</pre>
-<pre class="ascii">you ──▶ session (/pm:work) ──▶ pm:worker: claim ─▶ build ─▶ commit ─▶ pm:validator ─▶ finish
-          ▲   files, relays        │                                    │ findings: fix, re-check (2 rounds)
-          └──── report ◀───────────┴──── question? item held ◀──────────┘</pre>
+<pre class="ascii">you ──▶ session (/pm:work) ──▶ worker session: claim ─▶ build ─▶ commit ─▶ validator subagent ─▶ finish
+          ▲   files, relays,        │                                         │ findings: fix, re-check (2 rounds)
+          │   answers the same      │                                         │
+          └──── report ◀────────────┴──── question? item held ◀───────────────┘</pre>
   <div class="label">Worker runs</div>
   <pre class="term"><span class="cmd">$ pm.py claim create-short-links-b153d3 &lt;&lt;&#x27;PM_END&#x27;
 Dana
@@ -436,14 +437,14 @@ Ready next: none</pre>
                      \
   pm/create-short-links-b153d3 ●── Add shorten() ── finish ──▶ PR</pre>
   <div class="note warn"><p><strong>If someone else owns it,</strong> the worker stops and <code>/pm:work</code> tells you who; it will not touch their work. If the push is rejected because someone claimed at the same moment, it re-checks and lets exactly one claim win.</p></div>
-  <div class="note"><p><strong>Several items at once.</strong> Ask for two ready items that do not depend on each other and the session starts two workers in parallel, each in its own git worktree under <code>.claude/worktrees/</code>. An item that depends on another waits until that one is Done. A single worker works in your checkout, so it sees files you dropped there, and leaves you on its branch when it finishes.</p></div>
+  <div class="note"><p><strong>Several items at once.</strong> Ask for two ready items that do not depend on each other and the session starts two worker sessions at once, each in its own git worktree under <code>.claude/worktrees/pm-&lt;item&gt;/</code>; <code>pm.py workers</code> shows what each is doing or waiting on, and your answer to a worker's question goes back into that same session, so it carries on where it stopped. The first time, the session asks you which permission setting unattended worker sessions use in this copy (auto is recommended). An item that depends on another waits until that one is Done. A single worker works in your checkout, so it sees files you dropped there, and leaves you on its branch when it finishes.</p></div>
 </section>
 
 <section class="step" id="finish">
   <span class="stepno">Step 7</span>
   <h2>Finishing through a PR</h2>
   <div class="grid">
-    <div class="card"><h4>When it happens</h4><p>At the end of a worker's run, when the work is complete and committed on the branch and a separate <strong>validator</strong> agent, one that did not do the work, has passed it: your exact words, the cards it touches, the Where things go table, and the project's tests. On findings the worker fixes them and asks a fresh validator again, at most twice; if it still fails, or anything waits on you, the item is held with the question and the session asks you.</p></div>
+    <div class="card"><h4>When it happens</h4><p>At the end of a worker's run, when the work is complete and committed on the branch and a separate <strong>validator</strong> subagent the worker starts, one that did not do the work, has passed it: your exact words, the cards it touches, the Where things go table, and the project's tests. On findings the worker fixes them and asks a fresh validator again, at most twice; if it still fails, or anything waits on you, the item is held with the question and the session asks you.</p></div>
     <div class="card"><h4>You do</h4><p>Push the branch and open a PR as usual. Merging the PR is what tells everyone else the item is Done.</p></div>
   </div>
   <div class="label">Worker runs: commit the work, have it validated, then finish</div>
@@ -819,7 +820,7 @@ Published to shared origin/main.</pre>
   <pre class="slash">/pm:help</pre>
   <pre class="term">/pm:init             Set up the board, the AGENTS.md catalog, and where things go
 /pm:plan &lt;request&gt;   Record a request verbatim, with what it touches
-/pm:work [item-id]   Any project work: a worker claims, builds, validates, commits
+/pm:work [item-id]   Any project work: a worker session claims, builds, validates, commits
 /pm:status           Show owners, waiting items, and what&#x27;s ready
 /pm:map [area]       Map the code as cards: what a change hits
 /pm:migrate          Move an existing task system onto the board
@@ -873,7 +874,7 @@ When a person corrects an agent&#x27;s output, record it with `pm.py correct ITE
 Before writing anywhere, check the file already covers the fact; update it instead of adding a duplicate. Mark claims you have not verified `[UNSURE]`.</pre>
   <h3>The hooks</h3>
   <ul class="tight">
-    <li><strong>Session start:</strong> prints the board (the same text as step 5), so every session begins knowing what is in flight and ready. It adds one line saying that any project work (code, data, a deliverable) goes through <code>/pm:work</code>, which adds it to the board if it is not there and hands each item to a worker that claims, builds, and validates it, so the session itself edits no project files; that work to add goes through <code>/pm:plan</code>; and that every new file goes where <code>AGENTS.md</code> says, so any model follows the board rules. In a project whose <code>AGENTS.md</code> has no Where things go table yet, it first adds a pointer to <code>/pm:init</code>; in one still on pm 1.0's <code>docs/pm/CODEBASE.md</code>, a pointer to <code>/pm:map</code> (<a href="#map">step 10</a>).</li>
+    <li><strong>Session start:</strong> prints the board (the same text as step 5), so every session begins knowing what is in flight and ready. It adds one line saying that any project work (code, data, a deliverable) goes through <code>/pm:work</code>, which adds it to the board if it is not there and hands each item to its own worker session that claims, builds, and validates it, so the session itself edits no project files; that work to add goes through <code>/pm:plan</code>; and that every new file goes where <code>AGENTS.md</code> says, so any model follows the board rules. In a project whose <code>AGENTS.md</code> has no Where things go table yet, it first adds a pointer to <code>/pm:init</code>; in one still on pm 1.0's <code>docs/pm/CODEBASE.md</code>, a pointer to <code>/pm:map</code> (<a href="#map">step 10</a>).</li>
     <li><strong>Stop:</strong> when the agent is about to end its turn with a new file outside the table's places, it sends the agent back once to move it or ask you for a row. Captured after dropping <code>clicks.csv</code> at the root of shortlink:</li>
   </ul>
   <pre class="term soft">{&quot;decision&quot;: &quot;block&quot;, &quot;reason&quot;: &quot;These new files are outside the places in AGENTS.md &gt; Where things go: clicks.csv. Move each to the place for its kind (git mv, then update anything that reads or writes it), or, if it is a new kind of thing, ask the owner once and add a row.&quot;}</pre>

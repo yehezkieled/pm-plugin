@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # textkit, a tiny Python library set up by /pm:init (app shape), with two independent ready items on the board.
-# No remote, so board writes stay local; parallel workers share the main checkout's board.
+# No remote, so board writes stay local; parallel workers share the main checkout's board. The person already
+# chose the worker and validator model and effort and this clone's permission setting.
 set -euo pipefail
 mkdir -p docs/pm/items src/textkit tests
 cat > README.md <<'EOF_FIXTURE'
@@ -51,7 +52,7 @@ out/
 __pycache__/
 EOF_FIXTURE
 cat > docs/pm/config.json <<'EOF_FIXTURE'
-{"mirror": "off"}
+{"mirror": "off", "workers": {"model": "sonnet", "effort": "medium"}, "validators": {"model": "sonnet", "effort": "medium"}}
 EOF_FIXTURE
 cat > src/textkit/__init__.py <<'EOF_FIXTURE'
 """Small text helpers."""
@@ -122,3 +123,5 @@ EOF_FIXTURE
 git init -q -b main
 git add -A
 git -c user.name=eval -c user.email=eval@example.com commit -qm "initial"
+# The person's earlier choice for this clone: worker sessions run in auto mode.
+mkdir -p .git/pm-workers && printf '%s\n' '{"permission_mode": "auto"}' > .git/pm-workers/settings.json

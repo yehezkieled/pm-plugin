@@ -1,7 +1,7 @@
 ---
 type: regex
 target: trace
-pattern: '"name":"Bash","input":\{"command":"[^\n]*pm\.py[^\n]*\bhold\s+[^-\s][^\n]*"parent_tool_use_id":"toolu_'
+pattern: 'Its board commands this turn: [^;"]*\bhold\b'
 ---
 
-The `pm.py hold` call comes from a worker (a subagent message, whose `parent_tool_use_id` is a tool use id), not from the coordinating session.
+The `pm.py hold` came from the worker's own session (read from its log by `pm.py worker`), not from the coordinating session.

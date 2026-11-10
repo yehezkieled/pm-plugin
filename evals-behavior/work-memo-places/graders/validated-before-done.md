@@ -1,12 +1,12 @@
 ---
-type: tool_used
-tool: Agent
-input_match: '"subagent_type":\s*"pm:validator"'
-min: 1
+type: regex
+target: trace
+pattern: 'validator subagents started: [1-9]'
 ---
 ---
-type: tool_used
-tool: Bash
-input_match: 'pm\.py validated .*--verdict pass'
-min: 1
+type: regex
+target: trace
+pattern: 'status done; validation pass at'
 ---
+
+The worker session started a validator subagent, and the item's branch records a pass with Done.
