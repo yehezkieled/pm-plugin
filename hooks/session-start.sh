@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # SessionStart: show the board and ready items without model-specific setup.
-cat >/dev/null  # hook input is not needed
+payload="$(cat)"  # the hook input: only used to tell a worker session from the one the person talks to
 root="${CLAUDE_PROJECT_DIR:-$PWD}"
 plugin="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 if ! command -v python3 >/dev/null 2>&1; then
@@ -26,9 +26,14 @@ if [ -f "$root/AGENTS.md" ] && ! grep -q '^## Where things go' "$root/AGENTS.md"
 fi
 (cd "$root" && python3 "$plugin/scripts/pm.py" board 2>/dev/null)
 echo
-if [ -n "${PM_WORKER:-}" ]; then
-  echo "This is the worker session for board item $PM_WORKER, started by the session the person talks to. Do only that item, as your pm:worker instructions say; report back in your final message, never to the person directly. Every new file goes where AGENTS.md > Where things go says for its kind."
+# A worker session is told so by how it was started (PM_WORKER), or is one the person opened in an item's copy.
+worker="${PM_WORKER:-}"
+if [ -z "$worker" ]; then
+  worker="$(cd "$root" && printf '%s' "$payload" | python3 "$plugin/scripts/pm.py" worker hook whoami 2>/dev/null)"
+fi
+if [ -n "$worker" ]; then
+  echo "This is the worker session for board item $worker, started for the session the person talks to. Do only that item, as your pm:worker instructions say; report back in your final message, never to the person directly. Every new file goes where AGENTS.md > Where things go says for its kind."
   exit 0
 fi
-echo "Any project work (code, data, a deliverable) goes through the pm:work skill: it adds the work to this board if it is not there and hands each item to its own worker session (a separate Claude Code session in its own worktree), which claims it, builds it, has it checked by a separate validator, and finishes it. Do not edit project files in this session yourself. When the user asks to add, track, or \"remember to\" do project work, use the pm:plan skill to put it on this board, not your memory. Every new file goes where AGENTS.md > Where things go says for its kind."
+echo "Any project work (code, data, a deliverable) goes through the pm:work skill: it adds the work to this board if it is not there and hands each item to its own worker session (a separate, full Claude Code session in its own copy of the project), which claims it, builds it, has it checked by a separate validator, and finishes it. Do not edit project files in this session yourself. When the user asks to add, track, or \"remember to\" do project work, use the pm:plan skill to put it on this board, not your memory. Every new file goes where AGENTS.md > Where things go says for its kind."
 exit 0
