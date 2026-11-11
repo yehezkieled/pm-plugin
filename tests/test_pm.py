@@ -368,7 +368,7 @@ class ProjectBoardTests(unittest.TestCase):
         (self.root / "AGENTS.md").write_text("# P\n\n## Where things go\n\n| Kind of thing | Place | Rule |\n| --- | --- | --- |\n"
                                             "| Project files at the root | `AGENTS.md`, `CLAUDE.md` | nothing else |\n")
         self.commit_all("table")
-        self.worker_worktree("agent-a")
+        self.worker_worktree("tidy-otter")
         self.assertEqual(self.run_cli("places", "--paths").stdout, "")
         self.run_cli("claim", item_id, input_text="Ari")
         self.finish_item(item_id, "Done")
@@ -385,6 +385,15 @@ class ProjectBoardTests(unittest.TestCase):
                               capture_output=True, check=True)
         self.assertIn('"decision": "block"', stop.stdout)
         self.assertIn("vendor/new-project/", stop.stdout)
+        notes = self.root / ".claude/worktrees/notes"
+        notes.mkdir(parents=True)
+        (notes / "draft.py").write_text("user notes\n")
+        stray = self.run_cli("places", "--paths").stdout
+        self.assertIn(".claude/worktrees/notes/draft.py", stray)
+        stop = subprocess.run(["bash", str(STOP_HOOK)], cwd=self.root, env=env, input="{}", text=True,
+                              capture_output=True, check=True)
+        self.assertIn('"decision": "block"', stop.stdout)
+        self.assertIn(".claude/worktrees/notes/draft.py", stop.stdout)
 
     def test_stop_hook_recognizes_slug_id_item_updates(self):
         with tempfile.TemporaryDirectory() as temp:

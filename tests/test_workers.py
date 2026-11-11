@@ -462,6 +462,19 @@ class WorkerSessionTests(unittest.TestCase):
         self.assertIn("The owner answered: yes.", self.turns()[1]["prompt"])
         self.assertEqual([call["kind"] for call in self.calls_made()], ["bg"], "only the refused start; nothing headless after it")
 
+    def test_fresh_start_refuses_to_replace_an_open_interactive_worker(self):
+        self.ready()
+        self.cli("worker", "start", self.item, "--handover", input_text="Ari")
+        self.open_session(self.worktree(self.item), "--agent", "pm:worker")
+        self.cli("worker", "wait", self.item)
+        before = self.state(self.item)
+        session = before["session"]
+        refused = self.cli("worker", "start", self.item, "--fresh", input_text="Ari", ok=False)
+        self.assertIn(session, refused.stderr)
+        self.assertIn("close it in its open terminal session first", refused.stderr)
+        self.assertEqual(self.state(self.item), before)
+        self.assertEqual(len(self.sessions()), 1)
+
     def test_a_worker_can_be_handed_over_on_request(self):
         self.ready()
         started = self.cli("worker", "start", self.item, "--handover", input_text="Ari")

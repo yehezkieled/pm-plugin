@@ -720,7 +720,13 @@ def refuse_second_session(root: Path, item_id: str, fresh: bool) -> dict | None:
         raise ValueError(f"{item_id} already has a worker session ({existing.get('session') or 'not opened yet'}). "
                          f"Continue it with `pm.py worker answer {item_id}` so it keeps its context, or pass --fresh to "
                          "start a new one.")
-    close_session(root, existing)
+    still_open = close_session(root, existing)
+    if still_open:
+        session = existing.get("session") or existing.get("job")
+        close_it = ("close it in the Claude app first" if existing["started_by"] == APP else
+                    "close it in its open terminal session first" if existing["started_by"] == HANDOVER else
+                    f"run `pm.py worker stop {item_id}` first")
+        raise ValueError(f"Worker session {session} {still_open}; {close_it}.")
     for file in (mail_path(root, item_id), listening_path(root, item_id)):
         try:
             file.unlink()
