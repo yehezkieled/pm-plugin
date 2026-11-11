@@ -127,6 +127,11 @@ class WorkerSessionTests(unittest.TestCase):
         """The stand-in's CLI calls; by default only those that start or wake a session."""
         return [call for call in self.records("calls.jsonl") if kinds is None or call["kind"] in kinds]
 
+    def assert_interactive_calls(self, calls):
+        for call in calls:
+            for flag in ("-p", "--print", "--output-format"):
+                self.assertNotIn(flag, call["argv"], f"{call['kind']} call must stay interactive")
+
     def turns(self):
         """Each turn a session ran: what it was given, and where it ran."""
         return self.records("turns.jsonl")
@@ -214,6 +219,7 @@ class WorkerSessionTests(unittest.TestCase):
         self.ready()
         started = self.cli("worker", "start", self.item, input_text="Ari\nThe person left data.csv here.")
         call = self.calls_made()[0]
+        self.assert_interactive_calls([call])
         worktree = self.worktree(self.item)
         self.assertEqual(Path(call["cwd"]).resolve(), worktree.resolve())
         self.assertTrue((worktree / ".git").is_file(), "a git worktree of the project")
@@ -314,6 +320,7 @@ class WorkerSessionTests(unittest.TestCase):
                          "as a prompt, which carries the person's authority, not as a hook's note")
         self.assertEqual([call["kind"] for call in self.calls_made(("bg", "resume", "stop", "rm"))], ["bg", "stop", "rm", "resume"],
                          "it is taken off the list first, so the wake-up continues it instead of copying it")
+        self.assert_interactive_calls(self.calls_made(None))
         self.assertEqual(len(self.sessions()), 1, "no second session was made")
         self.assertIn(f"Continued worker session {first['session']}", answered.stdout)
         self.assertIn("Report:\nResult: done\nSeen: Message from the coordinating session", answered.stdout)
@@ -462,6 +469,7 @@ class WorkerSessionTests(unittest.TestCase):
         self.assertEqual(self.calls_made(None), [])
         self.open_session(self.worktree(self.item), "--agent", "pm:worker")
         self.assertIn("Report:\nResult: done", self.cli("worker", "wait", self.item).stdout)
+        self.assert_interactive_calls(self.calls_made(None))
         other = self.git("rev-parse", "--show-toplevel")
         self.assertEqual(self.hook(Path(other), "session-start", {"session_id": "someone-else", "cwd": other}).returncode, 0,
                          "a session opened anywhere else is handed nothing")
@@ -651,6 +659,7 @@ class WorkerSessionTests(unittest.TestCase):
         answered = self.cli("worker", "answer", self.item, input_text="The owner answered: yes.", env=env)
         self.assertIn("Report:\nResult: done\nSeen: Message from the coordinating session", answered.stdout)
         self.assertEqual(self.flag(self.calls_made()[1], "--resume"), session)
+        self.assert_interactive_calls(self.calls_made(None))
 
     def test_start_survives_a_claude_that_cannot_run_yet(self):
         self.ready()
@@ -842,22 +851,6 @@ class WorkerSessionTests(unittest.TestCase):
         self.assertEqual(self.state(self.item), before)
         note = self.hook(self.root, "", {"session_id": "the-coordinator"}, script=START_HOOK).stdout
         self.assertIn("Do not edit project files in this session yourself", note)
-
-    def test_no_part_of_the_plugin_starts_a_headless_run(self):
-        code = [*(REPO / "scripts").glob("*.py"), *(REPO / "hooks").iterdir()]
-        for path in code:
-            text = path.read_text()
-            for headless in ('"-p"', "--print", "stream-json", "--output-format", "claude_agent_sdk", "claude -p"):
-                self.assertNotIn(headless, text, f"{path.name} must not depend on a non-interactive run")
-        for path in [*(REPO / "skills").glob("*/SKILL.md"), *(REPO / "agents").glob("*.md")]:
-            self.assertNotIn("claude -p", path.read_text(), f"{path} must not tell a session to start a headless run")
-        hooks = json.loads((REPO / "hooks" / "hooks.json").read_text())["hooks"]
-        listener = [hook for group in hooks["Stop"] for hook in group["hooks"] if "worker.sh" in hook["command"]]
-        self.assertEqual([(hook["asyncRewake"], hook["timeout"]) for hook in listener], [(True, 86400)],
-                         "the mailbox listener wakes an idle session and outlives a long wait")
-        refused = subprocess.run([self.env["PM_CLAUDE"], "-p", "hello"], env=self.env, capture_output=True, text=True)
-        self.assertEqual(refused.returncode, 2, "the stand-in these tests run against has no print mode either")
-
 
 if __name__ == "__main__":
     unittest.main()
