@@ -386,7 +386,7 @@ create-short-links-b153d3 Create short links — docs/pm/items/create-short-link
   <span class="stepno">Step 6</span>
   <h2><code>/pm:work</code>: a worker claims first, then builds</h2>
   <div class="grid">
-    <div class="card"><h4>When to use</h4><p>For any project work, tracked or not yet: a request that is not on the board is added first with your exact words. The session you talk to only coordinates: it hands each item to its own <strong>worker session</strong>, a separate Claude Code session in its own git worktree, which publishes the claim <em>before</em> any code is touched, so two people (or two workers) cannot grab the same item.</p></div>
+    <div class="card"><h4>When to use</h4><p>For any project work, tracked or not yet: a request that is not on the board is added first with your exact words. The session you talk to only coordinates: it hands each item to its own <strong>worker session</strong>, a full Claude Code session in its own copy of the project that you can open and talk to, which publishes the claim <em>before</em> any code is touched, so two people (or two workers) cannot grab the same item.</p></div>
     <div class="card"><h4>Say it like this</h4><p>“work on create short links”, “start the next task”, “analyse last week&#x27;s clicks and write it up”</p></div>
   </div>
   <div class="label">You type</div>
@@ -437,7 +437,7 @@ Ready next: none</pre>
                      \
   pm/create-short-links-b153d3 ●── Add shorten() ── finish ──▶ PR</pre>
   <div class="note warn"><p><strong>If someone else owns it,</strong> the worker stops and <code>/pm:work</code> tells you who; it will not touch their work. If the push is rejected because someone claimed at the same moment, it re-checks and lets exactly one claim win.</p></div>
-  <div class="note"><p><strong>Several items at once.</strong> Ask for two ready items that do not depend on each other and the session starts two worker sessions at once, each in its own git worktree under <code>.claude/worktrees/pm-&lt;item&gt;/</code>; <code>pm.py worker list</code> shows what each is doing or waiting on, and your answer to a worker's question goes back into that same session, so it carries on where it stopped. The first time, the session asks you which permission setting unattended worker sessions use in this copy (auto is recommended). An item that depends on another waits until that one is Done. A single worker works in your checkout, so it sees files you dropped there, and leaves you on its branch when it finishes.</p></div>
+  <div class="note"><p><strong>Several items at once.</strong> Ask for two ready items that do not depend on each other and the session starts two worker sessions at once, each in its own git worktree under <code>.claude/worktrees/pm-&lt;item&gt;/</code>; <code>pm.py worker list</code> shows what each is doing or waiting on, and your answer to a worker's question goes back into that same session, so it carries on where it stopped. In a terminal each worker is a background session you open with <code>claude attach</code>; in the Claude app the session starts it with the app's own tool and it shows in your session list. The first time, the session asks you which permission setting worker sessions use in this copy (auto is recommended). When an item is Done, its worker's copy is removed and its branch kept. An item that depends on another waits until that one is Done. A single worker works in your checkout, so it sees files you dropped there, and leaves you on its branch when it finishes.</p></div>
 </section>
 
 <section class="step" id="finish">
@@ -982,7 +982,7 @@ Ready next: dark-mode-07343f Dark mode, export-to-csv-f078b1 Export to CSV, orph
     <tr><th>Command</th><th>Reads / writes</th><th>Result</th></tr>
     <tr><td><code>/pm:init</code></td><td>writes <code>docs/pm/config.json</code>, <code>AGENTS.md</code> with its Where things go table (and for the skill shape, the skill's stages); moves files only after your yes</td><td>board exists, files in their places, walk test passes</td></tr>
     <tr><td><code>/pm:plan &lt;request&gt;</code></td><td>writes an item file</td><td>Queued item, optional dependency, hold, or touched cards</td></tr>
-    <tr><td><code>/pm:work [id]</code></td><td>adds the item if missing and starts a worker per item (in parallel when ready); the worker claims it, loads only what it touches, edits code and cards, commits, and has a validator check it</td><td>In flight, validated against your words, then Done on the branch, or held with a question</td></tr>
+    <tr><td><code>/pm:work [id]</code></td><td>adds the item if missing and starts a full worker session per item (in parallel when ready) that you can open and talk to; the worker claims it, loads only what it touches, edits code and cards, commits, and has a validator check it</td><td>In flight, validated against your words, then Done on the branch, or held with a question</td></tr>
     <tr><td><code>/pm:status</code></td><td>read only</td><td>board, ready items, sources to fix</td></tr>
     <tr><td><code>/pm:map [area]</code></td><td>writes <code>docs/pm/map/</code>; retires an old <code>CODEBASE.md</code> on your yes</td><td>cards with citations and change impact, generated index</td></tr>
     <tr><td><code>/pm:migrate</code></td><td>reads the old system; writes items, only after your yes</td><td>items, counts before and after, other knowledge routed</td></tr>
@@ -999,6 +999,11 @@ Ready next: dark-mode-07343f Dark mode, export-to-csv-f078b1 Export to CSV, orph
     <tr><td><code>pm.py claim ID [--resume]</code></td><td>the person's name</td><td>In flight, owned; refuses an item already in flight unless <code>--resume</code> continues your own claim</td></tr>
     <tr><td><code>pm.py validated ID --verdict pass|findings</code></td><td>validator summary</td><td>record the verdict against committed work on the work branch</td></tr>
     <tr><td><code>pm.py finish ID</code></td><td>completion note</td><td>Done on the work branch only with a current pass and no uncommitted work</td></tr>
+    <tr><td><code>pm.py defaults [--worker-model M …]</code></td><td>none</td><td>show or record the model (an exact version) and effort of workers and validators</td></tr>
+    <tr><td><code>pm.py worker start ID</code></td><td>the person's name, then notes</td><td>start the item's worker as a full background session in its own worktree; returns its report when its turn ends</td></tr>
+    <tr><td><code>pm.py worker brief ID</code></td><td>the same</td><td>in the Claude app: print the model and first message for the app's own session-starting tool</td></tr>
+    <tr><td><code>pm.py worker answer ID</code></td><td>the message</td><td>continue the same worker session with the owner's answer or a correction</td></tr>
+    <tr><td><code>pm.py worker wait|list|stop|remove [ID]</code></td><td>none</td><td>bring back a report, show what each worker is doing or waiting on, stop one, or remove a copy that was kept</td></tr>
     <tr><td><code>pm.py board</code></td><td>none</td><td>render the board</td></tr>
     <tr><td><code>pm.py next</code></td><td>none</td><td>list ready items</td></tr>
     <tr><td><code>pm.py mirror show|off|github</code></td><td>none</td><td>configure the GitHub Issues mirror</td></tr>

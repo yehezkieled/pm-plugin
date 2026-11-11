@@ -58,7 +58,7 @@ Earlier results, before `migrate` (47 cases): Haiku 35/37 tuning and 8/10 held-o
 | `validate-catches-bad` | ask `pm:validator` to check a work branch whose `word_count` fails its own tests and leaves a notes file at the root | the verdict is findings naming both problems; nothing is edited |
 | `validate-passes-good` | the same check on a correct branch | the verdict is a pass with no invented findings; nothing is edited |
 
-Since 1.4 each item is done by a separate worker session, a `claude -p` process whose calls are not in the coordinating session's trace. The work cases grade that the session started it (`tool_used: Bash` matching `pm.py ... worker start`), made no edit and started no subagent (`main-made-no-edits.md`, `no-subagent-work.md`, `regex` on the trace), and read the worker's side from what the CLI keeps: `work-two-workers` reads each worker's session record and log in `.git/pm-workers/sessions/` (`regex` with a file target), and every case reads the report `pm.py worker` prints into the trace, whose `Its board commands this turn:` and `On branch pm/<id>:` lines come from the worker's session log and git, not from the worker's own words. The scaffolds of the work cases record the person's earlier choices (worker and validator defaults in `docs/pm/config.json`, `auto` in `.git/pm-workers/settings.json`); `work-asks-settings` has none.
+Each item is done by a separate worker session (since 1.5 a full background session started with `claude --bg`), whose calls are not in the coordinating session's trace. The work cases grade that the session started it (`tool_used: Bash` matching `pm.py ... worker start`), made no edit and started no subagent (`main-made-no-edits.md`, `no-subagent-work.md`, `regex` on the trace), and read the worker's side from what the CLI keeps: `work-two-workers` reads each worker's session record in `.git/pm-workers/sessions/` (`regex` with a file target), and every case reads the report `pm.py worker` prints into the trace, whose `Its board commands this turn:` and `On branch pm/<id>:` lines come from the worker's session transcript and git, not from the worker's own words. The scaffolds record exact model versions, as the CLI requires since 1.5. The scaffolds of the work cases record the person's earlier choices (worker and validator defaults in `docs/pm/config.json`, `auto` in `.git/pm-workers/settings.json`); `work-asks-settings` has none.
 
 Run them with:
 
@@ -101,3 +101,16 @@ Results on 2026-11-10/11 for 1.4 (worker sessions), Sonnet 5.5 for the session, 
 | `validate-passes-good` | pass: `VERDICT: pass`, 4 tests OK, no invented findings; nothing edited |
 
 The same round was also driven by hand through an interactive session in a terminal, the way a person uses it: on first `/pm:work` the session asked the three choices through its question prompt and recorded them, ran two items in two worker sessions at once, and reported both. In the hold case, the session relayed the worker's question, saved the answer with `resume --answer`, and sent it with `pm.py worker answer`: the same session ID (`claude -p --resume`) took up the work with its context and finished it after a validator pass. That session first tried `worker start --resume`, which the CLI refused with a pointer to `worker answer`; `/pm:work` step 4 now says `worker start` is only for an item with no session.
+
+1.5 (interactive worker sessions) has not been run through these cases yet. On 2026-11-11 its terminal path was run with real sessions in a throwaway repository with no remote (Claude Code 2.1.322, Haiku 5.5 workers, `auto`):
+
+| Run | Result |
+| --- | --- |
+| `worker start` on one item | background session started in its own worktree; report recorded with `claim, finish; validator subagents started: 1`; Done on `pm/<id>`; worktree removed, session closed |
+| `worker answer` to that finished worker | worktree put back on the branch; same session ID continued and recalled its first turn |
+| A worker told to stop first, then given the go-ahead | go-ahead handed over by the Stop hook: `auto` refused the claim. Sent as the session's next prompt: claimed, built, validated, Done |
+| Validator set to another exact version than the family's newest | the validator subagent ran on that exact version (`CLAUDE_CODE_SUBAGENT_MODEL` in the session's settings) |
+| A handed-over item, its session opened by hand in a terminal | the first message arrived by itself (SessionStart hook); claimed, built, validated, Done; a later message was delivered into the open session; its copy was kept until that session closed |
+| The worker commands under Windows Python and Windows git, no session | board, defaults, handover with backslash paths, the hooks, the mailbox, and remove all worked |
+
+Not run: the Claude app path (checklist in `docs/manual.md` › 2.6).

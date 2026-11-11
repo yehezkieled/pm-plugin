@@ -1,5 +1,5 @@
 {
-  "description": "Show project status at session start; at stop, keep new files in the places AGENTS.md names and remind agents to update item notes after code changes.",
+  "description": "Show project status at session start; at stop, keep new files in the places AGENTS.md names and remind agents to update item notes after code changes. In a worker session: hand over its ticket, save its report, deliver its next message, and note a permission it waits for.",
   "hooks": {
     "SessionStart": [
       {
@@ -8,6 +8,12 @@
           {
             "type": "command",
             "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/session-start.sh\""
+          },
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/worker.sh\" session-start",
+            "asyncRewake": true,
+            "timeout": 600
           }
         ]
       }
@@ -18,6 +24,22 @@
           {
             "type": "command",
             "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/stop.sh\""
+          },
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/worker.sh\" stop",
+            "asyncRewake": true,
+            "timeout": 86400
+          }
+        ]
+      }
+    ],
+    "PermissionRequest": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/worker.sh\" permission"
           }
         ]
       }

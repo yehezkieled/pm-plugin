@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import re
 import secrets
 import subprocess
@@ -719,6 +720,9 @@ def cmd_defaults(root: Path, args) -> None:
     changes = {("workers", "model"): args.worker_model, ("workers", "effort"): args.worker_effort,
                ("validators", "model"): args.validator_model, ("validators", "effort"): args.validator_effort}
     changes = {key: value for key, value in changes.items() if value}
+    for (role, key), value in changes.items():
+        if key == "model":
+            pm_workers.check_model(role[:-1], value)
     if not changes:
         require_board(root)
         config = read_config(root)
@@ -742,13 +746,38 @@ def cmd_defaults(root: Path, args) -> None:
 PLUGIN_ROOT = Path(__file__).resolve().parent.parent
 
 
+def worker_hook(root: Path, event: str) -> int:
+    """The plugin's hooks inside a session: they act only when the session is a worker's, and never fail it."""
+    try:
+        payload = json.loads(sys.stdin.read() or "{}")
+    except json.JSONDecodeError:
+        payload = {}
+    if not isinstance(payload, dict):
+        payload = {}
+
+    def places_block() -> bool:
+        # The Stop hook's places check (hooks/stop.sh) sends the session back once when new files are out of place.
+        project = Path(os.environ.get("CLAUDE_PROJECT_DIR") or root)
+        if payload.get("stop_hook_active") is True or not config_path(project).exists():
+            return False
+        return bool(pm_icm.strays(project))
+    try:
+        return pm_workers.cmd_hook(root, event, payload, PLUGIN_ROOT, places_block)
+    except Exception:  # a hook must never break the session it runs in
+        return 0
+
+
 def cmd_worker(root: Path, args) -> int:
     action = args.action
+    if action == "hook":
+        return worker_hook(root, args.event)
     if action == "mode":
         return pm_workers.cmd_mode(root, args)
+    if action == "join":
+        return pm_workers.cmd_join(root, args, PLUGIN_ROOT)
     if action == "list":
         return pm_workers.cmd_list(root, {item["id"]: item for item in read_items(board_checkout(root))})
-    if action == "start":
+    if action in ("start", "brief"):
         board = board_checkout(root)
         require_board(board)
         person, _, note = read_literal_stdin().partition("\n")
@@ -756,11 +785,16 @@ def cmd_worker(root: Path, args) -> int:
             raise ValueError("The person's name is required on the first stdin line; the worker claims under it.")
         # The item's branch starts from the branch the board lives on, never from another item's: the checkout the
         # claim is saved in (no remote) and the one a lone worker works in go back from a finished item's branch.
-        for checkout in dict.fromkeys(([board] if local_board(root) else []) + ([root] if args.here else [])):
+        here = action == "start" and args.here
+        for checkout in dict.fromkeys(([board] if local_board(root) else []) + ([root] if here else [])):
             moved = leave_item_branch(checkout, args.id)
             if moved:
                 print(moved, flush=True)
-        find_item(read_items(board), args.id)
+        items = read_items(board)
+        find_item(items, args.id)
+        pm_workers.prune(root, {item["id"]: item for item in items})
+        if action == "brief":
+            return pm_workers.cmd_brief(root, args, PLUGIN_ROOT, read_config(board), person.strip(), note)
         remote = remote_default(root)
         base = fetch_default(root, *remote) if remote else git(board, "rev-parse", "HEAD").stdout.strip()
         return pm_workers.cmd_start(root, args, PLUGIN_ROOT, read_config(board), person.strip(), note, base)
@@ -966,35 +1000,44 @@ def parser() -> argparse.ArgumentParser:
     mirror.add_argument("mode", choices=("show", "off", "github"))
     sub.add_parser("sync", help="sync items to GitHub Issues when enabled")
     defaults = sub.add_parser("defaults", help="show or record the model and effort worker sessions and their validators use")
-    defaults.add_argument("--worker-model", help="model alias or full name for worker sessions")
+    defaults.add_argument("--worker-model", help="exact model version for worker sessions, such as claude-sonnet-5-5")
     defaults.add_argument("--worker-effort", choices=pm_workers.EFFORTS)
-    defaults.add_argument("--validator-model", choices=pm_workers.VALIDATOR_MODELS,
-                          help="model for the validator subagent; inherit uses the worker's")
+    defaults.add_argument("--validator-model",
+                          help="exact model version for the validator subagent; inherit uses the worker's")
     defaults.add_argument("--validator-effort", choices=pm_workers.EFFORTS)
-    worker = sub.add_parser("worker", help="run board items in their own Claude Code worker sessions")
+    worker = sub.add_parser("worker", help="run board items in their own full Claude Code worker sessions")
     wactions = worker.add_subparsers(dest="action", required=True)
-    start = wactions.add_parser("start", help="start a worker session for an item and wait for its turn to end; "
-                                "stdin is the person's name, then an optional note")
-    start.add_argument("id")
+    start = wactions.add_parser("start", help="start a background worker session for an item and wait for its turn to "
+                                "end; stdin is the person's name, then an optional note")
+    brief = wactions.add_parser("brief", help="print the first message for a worker the Claude app starts with its own "
+                                "session tool; stdin is the person's name, then an optional note")
+    for starts in (start, brief):
+        starts.add_argument("id")
+        starts.add_argument("--resume", action="store_true", help="the worker continues an existing claim")
+        starts.add_argument("--fresh", action="store_true", help="replace the item's earlier worker session with a new one")
+        starts.add_argument("--model", help="the person's exact model version for this worker, instead of the default")
+        starts.add_argument("--effort", choices=pm_workers.EFFORTS, help="the person's effort for this worker")
+        starts.add_argument("--validator-model", help="exact model version, or inherit")
+        starts.add_argument("--validator-effort", choices=pm_workers.EFFORTS)
     start.add_argument("--here", action="store_true", help="run in this checkout instead of the item's own worktree")
-    start.add_argument("--resume", action="store_true", help="the worker continues an existing claim")
-    start.add_argument("--fresh", action="store_true", help="replace the item's earlier worker session with a new one")
-    start.add_argument("--model", help="the person's model for this worker, instead of the default")
-    start.add_argument("--effort", choices=pm_workers.EFFORTS, help="the person's effort for this worker")
-    start.add_argument("--validator-model", choices=pm_workers.VALIDATOR_MODELS)
-    start.add_argument("--validator-effort", choices=pm_workers.EFFORTS)
+    start.add_argument("--handover", action="store_true",
+                       help="do not start a session: the person opens one in the item's worktree and it gets the ticket")
     start.add_argument("--no-wait", action="store_true", help="return once started; `worker wait` reads the report")
-    answer = wactions.add_parser("answer", help="continue an item's worker session with a message, keeping its context; "
+    wactions.add_parser("join", help="a worker's first step: record this session, its copy, and its branch as the "
+                        "item's worker, and print its ticket").add_argument("id")
+    answer = wactions.add_parser("answer", help="send an item's worker session a message, keeping its context; "
                                  "stdin is the message")
     answer.add_argument("id")
-    answer.add_argument("--allow", action="append", metavar="TOOL",
-                        help="a tool the person allowed for this worker, e.g. 'Bash(npm test)' (repeatable)")
     answer.add_argument("--no-wait", action="store_true")
-    for name, text in (("wait", "wait for a running worker session and print its report"),
-                       ("stop", "stop a running worker session; its conversation is kept"),
-                       ("remove", "remove a finished item's worker worktree and session record; its branch is kept")):
+    for name, text in (("wait", "wait for a worker session's turn to end and print its report; removes its copy once "
+                        "the item is Done"),
+                       ("stop", "stop a background worker session; its conversation is kept"),
+                       ("remove", "close a worker session, remove its copy when nothing in it is lost, and drop its "
+                        "record; its branch is kept")):
         wactions.add_parser(name, help=text).add_argument("id")
-    wactions.add_parser("list", help="each worker session: its item, what it is doing or waiting on")
+    wactions.add_parser("list", help="each worker session: its item, how it was started, what it is doing or waiting on")
+    hook = wactions.add_parser("hook", help="called by the plugin's hooks; the hook's input is on stdin")
+    hook.add_argument("event", choices=("session-start", "stop", "permission", "whoami"))
     mode = wactions.add_parser("mode", help="show or choose this clone's permission setting for worker sessions")
     mode.add_argument("mode", nargs="?", choices=pm_workers.PERMISSION_MODES)
     migrate = sub.add_parser("migrate", help="move an existing task system onto the board; never deletes the old one")

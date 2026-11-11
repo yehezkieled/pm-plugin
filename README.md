@@ -66,26 +66,35 @@ Files go where `AGENTS.md` › Where things go says for their kind ([icm/shapes.
 
 ## Coordinator and workers
 
-The session you talk to coordinates and never builds, and it is the only session you need to read. `/pm:work` files or picks the item, then starts a **worker session** for it: a separate Claude Code process (`claude -p` with the `pm:worker` agent, [agents/worker.md](agents/worker.md)) with its own context, in its own git worktree under `.claude/worktrees/pm-<item>/`. The coordinator starts it as a background command, so Claude Code tells it when the worker's turn ends, and it never uses a subagent to do ticket work.
+The session you talk to coordinates and never builds, and it is the only session you need to read. `/pm:work` files or picks the item, then gives it to a **worker session**: a full, interactive Claude Code session (the `pm:worker` agent, [agents/worker.md](agents/worker.md)) with its own context in its own copy of the project. It runs on the sign-in you already use; you can open it, watch it, and talk to it. Nothing in the plugin starts a print-mode or SDK run, and the coordinator never uses a subagent for ticket work.
+
+| Where you work | Who starts the worker | You open it with | Its copy and branch |
+| --- | --- | --- | --- |
+| Terminal | the plugin: `pm.py worker start` runs `claude --bg` | `claude attach <id>` | `.claude/worktrees/pm-<item>/`, branch `pm/<item>` |
+| Claude app | the coordinating session, with the app's own session-starting tool; `pm.py worker brief` prints the model and the one-line first message | the app's session list | made by the app; the worker records them |
+| Background sessions blocked | you: open a session in the folder the plugin names, and it gets its first message by itself | that window | `.claude/worktrees/pm-<item>/`, branch `pm/<item>` |
+
+The Claude app row follows what an app session reported about its own tools and has not been run on a real app session yet; the [manual](docs/manual.md) has the checklist.
 
 ```text
-you ──▶ coordinating session ──▶ pm.py worker start ──▶ worker session (own process, own worktree)
-         ▲   files, relays, checks            claim ─▶ build ─▶ commit ─▶ validator subagent ─▶ finish
-         │                                                   │ question, or a refused permission
-         └──────── report ◀──────────────────────────────────┘
+you ──▶ coordinating session ──▶ worker session (full session, own copy of the project)
+         ▲   files, relays, checks        join ─▶ claim ─▶ build ─▶ commit ─▶ validator subagent ─▶ finish
+         │                                                  │ question, or something its permission setting refused
+         └──────── report ◀─────────────────────────────────┘
 you answer ──▶ pm.py resume --answer (board) ──▶ pm.py worker answer ──▶ same session continues
+item Done on its branch ──▶ the worker's copy is removed (never with uncommitted work in it); the branch stays
 ```
 
 The worker claims the item under your name, does the work inside the Where things go table, commits it, and has a separate `pm:validator` subagent ([agents/validator.md](agents/validator.md)) check it against your words, the cards it touches, the table, and the project's tests. The validator records its verdict with `pm.py validated ITEM_ID --verdict pass` or `--verdict findings`; the worker confirms the recorded result before finishing. `finish` requires a current recorded pass, so a changed commit must be validated again. This is a guardrail against forgetting validation, not protection against a worker deliberately faking a pass: the CLI cannot tell who called it, and the worker's session log shows each `pm:validator` launch. On findings the worker fixes them and asks a fresh validator again, at most two fix rounds; work that still fails, and any question only you can answer, parks the item in Waiting with the question, which the coordinator relays to you. Your answer is saved on the item (`pm.py resume --answer`) and sent into the same worker session (`pm.py worker answer`), which continues with its context intact. `pm.py worker list` shows what each worker is doing or waiting on.
 
 | Setting | Chosen by | Kept in |
 | --- | --- | --- |
-| Model and effort of worker sessions and of their validator subagents | you, asked once by `/pm:init` (or by `/pm:work` when a project has none yet); a model or effort you name for one item wins for that worker | `docs/pm/config.json` (`pm.py defaults`) |
-| Permission setting for unattended worker sessions: `auto` (recommended; falls back to `acceptEdits` where auto mode is unavailable), `acceptEdits`, `default`, or `bypassPermissions` | you, asked once by `/pm:work` the first time it starts a worker in a copy of the project | this clone only, not committed (`pm.py worker mode`) |
+| Model and effort of worker sessions and of their validator subagents. Models are exact versions such as `claude-sonnet-5-5` (an alias like `sonnet` is refused); the validator's may be `inherit` | you, asked once by `/pm:init` (or by `/pm:work` when a project has none yet); a model or effort you name for one item wins for that worker | `docs/pm/config.json` (`pm.py defaults`) |
+| Permission setting for the worker sessions the plugin starts: `auto` (recommended; falls back to `acceptEdits` where auto mode is unavailable), `acceptEdits`, `default`, or `bypassPermissions`. A worker the Claude app starts uses the app's setting | you, asked once by `/pm:work` the first time it starts a worker in a copy of the project | this clone only, not committed (`pm.py worker mode`) |
 
-A worker cannot show you a permission prompt. Whatever its setting refuses comes back in its report; if you allow it, the coordinator continues that worker with the tool allowed (`pm.py worker answer --allow`). The plugin never picks a model, an effort, or a permission setting for you.
+A worker that reaches a permission prompt waits for you: the coordinator says what it asks and how to open that session, and you answer there. What `auto` refuses comes back in the worker's report; if you allow it, the coordinator tells that worker so (`pm.py worker answer`). Under `acceptEdits` a worker's own `pm.py` and `git` commands also wait for your yes unless your allow rules cover them, which is why `auto` is recommended. The plugin never picks a model, an effort, or a permission setting for you.
 
-Ready items that do not depend on each other run in their own worker sessions at the same time; one that depends on another waits until that one is Done. A lone worker runs in your checkout, so it sees files you left there. Every item's branch starts from the branch the board lives on, never from another item's. The claim is still the guard: a second claim of an item already in flight fails even under the same name, unless a worker continues its own claim with `claim --resume`. Without a remote, the board lives in the main checkout and every worktree reads and writes it there, so parallel workers see each other's claims. Each worker's session ID, checkout, and log are kept in the clone's Git directory (`.git/pm-workers/`), so a coordinating session that restarts or loses its context finds them again with `pm.py worker list`; the board stays the record of the work. Worker sessions need the `claude` command (`PM_CLAUDE` when set, otherwise `claude` on `PATH` or the Claude Code running your session); nothing else is required.
+Ready items that do not depend on each other run in their own worker sessions at the same time; one that depends on another waits until that one is Done. A lone worker runs in your checkout, so it sees files you left there. Every item's branch starts from the branch the board lives on, never from another item's. The claim is still the guard: a second claim of an item already in flight fails even under the same name, unless a worker continues its own claim with `claim --resume`. Without a remote, the board lives in the main checkout and every worktree reads and writes it there, so parallel workers see each other's claims. Each worker's session, copy, branch, and last report are kept in the clone's Git directory (`.git/pm-workers/`), so a coordinating session that restarts or loses its context finds them again with `pm.py worker list`; the board stays the record of the work. When an item is Done on its branch, the worker's copy is removed and its background session closed; a copy with anything uncommitted is kept and named, and `pm.py worker answer` puts a removed copy back when that session is needed again. Worker sessions the plugin starts need the `claude` command (`PM_CLAUDE` when set, otherwise `claude` on `PATH` or the Claude Code running your session); nothing else is required.
 
 ## Collaboration and item flow
 

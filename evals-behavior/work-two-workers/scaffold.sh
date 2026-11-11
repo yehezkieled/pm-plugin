@@ -52,7 +52,7 @@ out/
 __pycache__/
 EOF_FIXTURE
 cat > docs/pm/config.json <<'EOF_FIXTURE'
-{"mirror": "off", "workers": {"model": "sonnet", "effort": "medium"}, "validators": {"model": "sonnet", "effort": "medium"}}
+{"mirror": "off", "workers": {"model": "claude-sonnet-5-5", "effort": "medium"}, "validators": {"model": "claude-sonnet-5-5", "effort": "medium"}}
 EOF_FIXTURE
 cat > src/textkit/__init__.py <<'EOF_FIXTURE'
 """Small text helpers."""
