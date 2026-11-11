@@ -472,6 +472,7 @@ class WorkerSessionTests(unittest.TestCase):
         refused = self.cli("worker", "start", self.item, "--fresh", input_text="Ari", ok=False)
         self.assertIn(session, refused.stderr)
         self.assertIn("close it in its open terminal session first", refused.stderr)
+        self.assertNotIn("close it first; close it", refused.stderr)
         self.assertEqual(self.state(self.item), before)
         self.assertEqual(len(self.sessions()), 1)
 

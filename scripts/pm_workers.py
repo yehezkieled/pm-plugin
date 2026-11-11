@@ -704,7 +704,7 @@ def close_session(root: Path, state: dict) -> str:
         return ""
     entry = session_entry(sessions_listed(root), state)
     if running(entry) or (state.get("session") and listener_fresh(root, state["item"])):
-        return "its session is still open; close it first"
+        return "its session is still open"
     return ""
 
 
