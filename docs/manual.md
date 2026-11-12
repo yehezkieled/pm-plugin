@@ -63,7 +63,7 @@ Links keep the structure from going stale. Every Markdown file the plugin create
 | a stage's `CONTEXT.md` | its inputs and references | its `SKILL.md` |
 | the map's `AGENTS.md`, `CONTEXT.md`, `effects/CONTEXT.md`, cards | the cards and the index | the map's `AGENTS.md`, which links the root one |
 
-`AGENTS.md` › When you finish a task says which file a change updates: a new folder, its row and a new linked `README.md`; the first file in a place, make it a link; a folder's contents, its `README.md`; how to run the project, `README.md`; a part with a card, the card. Workers follow it before validation; the validator checks it and runs `pm.py walk`, which fails on a broken or missing link. `/pm:init` on a project set up earlier adds the missing links and the table without rewriting what is there.
+`AGENTS.md` › When you finish a task says which file a change updates: a new folder, its row and a new linked `README.md`; the first file in a place, make it a link; a folder's contents, its `README.md`; how to run the project, `README.md`; a part with a card, the card. Workers follow it before validation; the validator checks it and runs `pm.py walk`, which fails on a broken or missing link. `/pm:init` on a project set up earlier adds the table and the missing links (turning a plain-path place that holds a file into a link) and changes nothing else.
 
 ### 2.2 The System map (optional)
 
