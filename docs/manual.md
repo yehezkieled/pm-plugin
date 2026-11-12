@@ -184,7 +184,7 @@ Item IDs are a short title slug plus a random suffix, checked against existing I
 
 | Hook | What it does |
 | --- | --- |
-| Session start | Prints the board, then one note: any project work goes through `/pm:work` and its worker sessions, not edits in this session; work to add goes through `/pm:plan`; every new file goes where `AGENTS.md` › Where things go says. A worker session gets a note naming its item instead. One-line pointers: to `/pm:init` while `AGENTS.md` has no Where things go table, to `/pm:map` while an old `docs/pm/CODEBASE.md` has no System map, and to pm 1.5.1 for a pm 0.x board. Without `python3` it only says where the items are. |
+| Session start | Prints the board, then one note: any project work goes through `/pm:work` and its worker sessions, not edits in this session; work to add goes through `/pm:plan`; every new file goes where `AGENTS.md` › Where things go says. A worker session gets a note naming its item instead. One-line pointers: to `/pm:init` while `AGENTS.md` has no Where things go table or no When you finish a task table, to `/pm:map` while an old `docs/pm/CODEBASE.md` has no System map, and to pm 1.5.1 for a pm 0.x board. Without `python3` it only says where the items are. |
 | Stop | A new file outside the table's places sends the agent back once (never when `stop_hook_active`) to move it or ask for a row; otherwise it reminds the agent when code changed without an item update. Nothing else blocks a session. |
 | Worker hooks (`hooks/worker.sh`) | Act only inside a worker session: the Stop hook saves the turn's report and listens on the item's mailbox; a PermissionRequest hook records what a prompt asks. |
 

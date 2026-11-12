@@ -21,6 +21,9 @@ fi
 # A board from before pm 1.2 has no Where things go table in AGENTS.md; point at init once per session.
 if [ -f "$root/AGENTS.md" ] && ! grep -q '^## Where things go' "$root/AGENTS.md"; then
   echo "This project's AGENTS.md has no Where things go table, so new files have no agreed place. Run /pm:init to add one from the project's shape; it moves nothing without the owner's yes."
+# A structure from before pm 1.7 has no When you finish a task table and names its places without links.
+elif [ -f "$root/AGENTS.md" ] && ! grep -q '^## When you finish a task' "$root/AGENTS.md"; then
+  echo "This project's AGENTS.md has no When you finish a task table, so finished work can leave its structure stale. Run /pm:init to add the table and link each place; it rewrites nothing that is there."
 fi
 (cd "$root" && python3 "$plugin/scripts/pm.py" board 2>/dev/null)
 echo

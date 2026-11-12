@@ -539,6 +539,12 @@ class IcmTests(unittest.TestCase):
                    + "## Every session\n")
         (self.root / "reports/2026-11-13-prices.md").unlink()
         self.assertIn("WARN  AGENTS.md has no `## When you finish a task` table", self.walk())
+        env = dict(os.environ, CLAUDE_PROJECT_DIR=str(self.root))
+        start = subprocess.run(["bash", str(START_HOOK)], cwd=self.root, env=env, input="{}", text=True, capture_output=True, check=True).stdout
+        self.assertIn("has no When you finish a task table", start)
+        self.write("AGENTS.md", agents)
+        start = subprocess.run(["bash", str(START_HOOK)], cwd=self.root, env=env, input="{}", text=True, capture_output=True, check=True).stdout
+        self.assertNotIn("When you finish a task", start)
 
     # ---- session start points an old architecture file at the System map
 
