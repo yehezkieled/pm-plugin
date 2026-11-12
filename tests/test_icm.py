@@ -501,17 +501,27 @@ class IcmTests(unittest.TestCase):
         self.write("out/summary.csv", "x\n")
 
     def test_templates_link_every_file_they_create_to_its_catalog(self):
-        root_template = (TEMPLATES / "root-AGENTS.md").read_text()
-        self.assertIn("## When you finish a task", root_template)
-        self.assertIn("[`{path}`]({path})", root_template)
-        for name, up in (("folder-README.md", "(../AGENTS.md)"), ("stage-CONTEXT.md", "(../../SKILL.md)"),
-                         ("map-AGENTS.md", "(../../../AGENTS.md)"), ("map-CONTEXT.md", "(AGENTS.md)"),
-                         ("effects-CONTEXT.md", "(../AGENTS.md)"), ("object.md", "(../../AGENTS.md)"), ("process.md", "(../AGENTS.md)")):
-            self.assertIn(up, (TEMPLATES / name).read_text(), f"{name} must link up to the file that routes to it")
         self.linked_project()
+        self.write("AGENTS.md", (self.root / "AGENTS.md").read_text()
+                   + "| understanding the code | [docs/pm/map/AGENTS.md](docs/pm/map/AGENTS.md) |\n")
+        for rel, name in (("AGENTS.md", "map-AGENTS.md"), ("CONTEXT.md", "map-CONTEXT.md"),
+                          ("effects/CONTEXT.md", "effects-CONTEXT.md"), ("objects/core/link.md", "object.md"),
+                          ("processes/link.md", "process.md")):
+            self.write(f"{MAP}/{rel}", fill((TEMPLATES / name).read_text()))
+        self.write(f"{MAP}/CLAUDE.md", "@AGENTS.md\n")
+        for name in ("object.md", "process.md"):
+            self.write(f"{MAP}/_templates/{name}", (TEMPLATES / name).read_text())
+        self.cli("index")
+        skill = ".claude/skills/brief"
+        self.write(f"{skill}/SKILL.md", fill((TEMPLATES / "workflow-SKILL.md").read_text()))
+        self.write(f"{skill}/_shared/rules.md", "# Rules\n")
+        for stage in ("01_research", "02_research"):
+            self.write(f"{skill}/stages/{stage}/CONTEXT.md", fill((TEMPLATES / "stage-CONTEXT.md").read_text()))
+            self.write(f"{skill}/stages/{stage}/references/guide.md", "# Guide\n")
         out = self.walk()
+        self.assertIn("Every link in the 12 routing files and cards resolves.", out)
         self.assertIn("ok    AGENTS.md links every place that exists, each file it routes to links back", out)
-        self.assertIn("Every link in the 3 routing files and cards resolves.", out)  # data/README.md is checked too
+        self.assertIn("ok    Workflow .claude/skills/brief/ has 2 numbered stages", out)
 
     def test_walk_fails_on_a_broken_link_in_a_folder_readme(self):
         self.linked_project()
