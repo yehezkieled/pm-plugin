@@ -524,7 +524,10 @@ def cmd_finish(root: Path, args) -> None:
                              "belong to it), then run finish again; the board says Done only for committed work.")
         validation_line = verdict.group(0)
         completion = note.strip() or "Work complete."
-        item.update(status="done", owner="", notes=f"{completion}\n{validation_line}",
+        # The owner's answers (`resume --answer`) stay in the Done item, so what was decided can be seen later.
+        decisions = "".join(f"\n\n{found}" for found in re.findall(r'^Decision on ".*?(?=\n\n|\nValidation: |\Z)', item.get("notes", ""),
+                                                                     re.M | re.S) if found.strip() not in completion)
+        item.update(status="done", owner="", notes=f"{completion}{decisions}\n{validation_line}",
                     done_at=datetime.now(timezone.utc).isoformat(timespec="microseconds"))
         save_item(item)
         path = item["path"].relative_to(root).as_posix()

@@ -234,8 +234,6 @@ class WorkerSessionTests(unittest.TestCase):
         self.assertEqual(Path(self.flag(call, "--plugin-dir")), REPO)
         settings = self.settings(call)
         self.assertEqual(settings["env"]["PM_WORKER"], self.item)
-        self.assertEqual(settings["env"]["CLAUDE_CODE_SUBAGENT_MODEL"], "claude-haiku-5-5",
-                         "its validator, the only subagent it starts, runs on the exact version the person chose")
         self.assertEqual(settings["worktree"], {"bgIsolation": "none"}, "it stays in the copy it was started in")
         self.assertIsNone(call["session_env"], "the coordinator's session identity is not passed on")
         prompt = call["argv"][1]
@@ -257,8 +255,9 @@ class WorkerSessionTests(unittest.TestCase):
         self.assertIn(f"Started worker session {state['session']}", started.stdout)
         self.assertIn(f"`claude attach {state['job']}` opens it", started.stdout)
         self.assertIn("Report:\nResult: done", started.stdout)
-        self.assertIn("Its board commands this turn: claim; validator subagents started: 1.", started.stdout,
-                      "read from the worker's own session transcript, not its report")
+        self.assertIn("Its board commands this turn: claim; validator subagents started: 1, ran on claude-haiku-5-5.",
+                      started.stdout, "read from the worker's own session transcript, not its report: the validator ran "
+                      "on the exact version the person chose, not the worker's claude-sonnet-5-5")
         self.assertIn(f"No branch pm/{self.item} with the item on it.", started.stdout)
         self.assertEqual(self.cli("places", "--paths").stdout, "", "the worktree is not a stray file")
         self.assertEqual([call["kind"] for call in self.calls_made(None) if call["kind"] not in ("bg", "agents")], [])
@@ -281,7 +280,20 @@ class WorkerSessionTests(unittest.TestCase):
         call = self.calls_made()[1]
         self.assertIn("Validator: model inherit (your own model: pass the Agent tool no model), effort low",
                       self.join(second, self.worktree(second), self.state(second)["session"]))
-        self.assertEqual(list(self.settings(call)["env"]), ["PM_WORKER", "PM_COORDINATOR_ROOT"])
+        self.assertEqual(self.settings(call)["env"]["CLAUDE_CODE_SUBAGENT_MODEL"], "claude-sonnet-5-5",
+                         "inherit is the worker's own model, whatever subagent model is set elsewhere")
+        self.assertIn("validator subagents started: 1, ran on claude-sonnet-5-5.", self.cli("worker", "wait", second).stdout)
+
+    def test_a_validator_on_another_model_than_the_chosen_one_is_named(self):
+        transcript = self.home / "transcripts" / "worker.jsonl"
+        folder = transcript.with_suffix("") / "subagents"
+        folder.mkdir(parents=True)
+        transcript.write_text("")
+        (folder / "agent-1.meta.json").write_text(json.dumps({"agentType": "pm:validator", "pickedEffortModel": "claude-sonnet-5-5"}))
+        (folder / "agent-2.meta.json").write_text(json.dumps({"agentType": "general-purpose"}))
+        facts = pm_workers.transcript_facts(str(transcript), self.item, 0, "claude-haiku-5-5")
+        self.assertIn("validator subagents started: 0, ran on claude-sonnet-5-5 (not the chosen validator model "
+                      "claude-haiku-5-5).", facts)
 
     def test_two_items_run_in_two_sessions_at_once(self):
         self.ready()
@@ -609,6 +621,21 @@ class WorkerSessionTests(unittest.TestCase):
         self.git("merge", "-q", branch)
         self.assertIn("No worker sessions.", self.cli("worker", "list").stdout)
         self.assertEqual(list((self.root / ".git/pm-workers/sessions").iterdir()), [])
+
+    def test_a_done_item_nothing_waited_for_points_to_wait_which_tidies_it(self):
+        self.ready()
+        self.cli("worker", "start", self.item, "--no-wait", input_text="Ari", env=dict(self.env, FAKE_CLAUDE_WORK="finish"))
+        deadline = time.time() + 20
+        while self.state(self.item).get("state") != "reported" and time.time() < deadline:
+            time.sleep(0.2)
+        listing = self.cli("worker", "list").stdout
+        self.assertIn("turn ended: Result: done", listing)
+        self.assertIn(f"it is Done on its branch: run `pm.py worker wait {self.item}` to close its session and remove its "
+                      "copy", listing)
+        self.assertTrue(self.worktree(self.item).exists(), "listing changes nothing")
+        self.assertIn("was removed and its worker session closed", self.cli("worker", "wait", self.item).stdout)
+        self.assertFalse(self.worktree(self.item).exists())
+        self.assertIn("finished; its copy was removed", self.cli("worker", "list").stdout)
 
     def test_a_copy_with_work_that_is_not_committed_is_kept(self):
         self.ready()

@@ -281,6 +281,17 @@ class ProjectBoardTests(unittest.TestCase):
         self.assertIn("Implemented and checked\nValidation: pass at ", notes)
         self.assertIn(": Checks passed after fix", notes)
 
+    def test_finish_keeps_the_owners_decision_in_the_done_item(self):
+        item_id = self.add("Farewell", "Add a farewell")
+        self.run_cli("claim", item_id, input_text="Ari")
+        self.run_cli("hold", item_id, input_text="Which language?")
+        self.run_literal_cli("resume", item_id, "--answer", input_text="Spanish.\nUse adiós.")
+        self.run_cli("validated", item_id, "--verdict", "pass", input_text="Checks passed")
+        self.run_cli("finish", item_id, input_text="Added farewell()")
+        notes = self.item_file(item_id).read_text().split("## Current notes\n", 1)[1]
+        self.assertRegex(notes, r'^Added farewell\(\)\n\nDecision on "Which language\?": Spanish\.\nUse adiós\.\n'
+                                r"Validation: pass at [0-9a-f]{40}: Checks passed\n$")
+
     def test_validated_refuses_uncommitted_non_board_work(self):
         item_id = self.add("Dirty validation", "Commit first")
         self.run_cli("claim", item_id, input_text="Ari")
@@ -644,7 +655,9 @@ class SkillDescriptionTests(unittest.TestCase):
         for name in ("worker", "validator"):
             fields = self.frontmatter(self.AGENTS / f"{name}.md")
             self.assertEqual(fields.get("name"), name)
-            self.assertEqual(fields.get("model"), "inherit")
+            # A validator `model:` (even `inherit`) outranks the subagent model its worker session is set to, so the
+            # validator model the person chose would never run.
+            self.assertEqual(fields.get("model"), "inherit" if name == "worker" else None)
             text = json.loads(fields["description"])
             self.assertLessEqual(len(text), 300, f"{name} description is too long")
             self.assertIn("Use when", text)
