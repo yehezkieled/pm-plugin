@@ -12,7 +12,7 @@ Ask a few at a time, not all at once:
 - What leaves at the end, and what does done look like?
 - Who else touches it, and what must they find without asking?
 
-Their pauses become stage boundaries. "I always check X before Y" becomes a Human check. "It always has to follow Z" becomes factory reference material. If the whole job fits in one saved prompt, make it a single `SKILL.md` without stages and say so. If the unit is not a run (records that accumulate, several pipelines sharing one voice), read [forms.md](forms.md) before choosing.
+Their pauses become stage boundaries. "I always check X before Y" becomes a Human check. "It always has to follow Z" becomes factory reference material. If the whole job fits in one saved prompt, make it a single `SKILL.md` without stages and say so. If the unit is not a run (records that accumulate, several pipelines sharing one voice), it is not the skill shape: pick its shape from [shapes.md](shapes.md).
 
 ## 2. The tree
 

@@ -21,8 +21,8 @@ stopped or its copy was removed); a session that is mid-turn, or one the person 
 Each worker's record (session, copy, branch, settings, last report) lives in the clone's Git common directory
 (`pm-workers/`), next to the board lock, so every worktree and a restarted coordinating session find it; the board
 items stay the durable record of the work itself. The permission setting for worker sessions is chosen once per
-clone by the person and kept there too; the default model and effort for workers and their validators are the
-project's, in `docs/pm/config.json`.
+clone by the person and kept there too; the default model and effort for workers are the project's, in
+`docs/pm/config.json`, and their validators use the same unless the person set them apart there.
 """
 from __future__ import annotations
 
@@ -330,31 +330,32 @@ def recorded_defaults(config: dict) -> dict:
 
 
 def missing_defaults(config: dict) -> list[str]:
+    """Only the worker's model and effort must be recorded; the validator follows the worker unless set apart."""
     found = recorded_defaults(config)
-    return [f"{role} {key}" for role in ("workers", "validators") for key in ("model", "effort") if not found[role].get(key)]
+    return [f"workers {key}" for key in ("model", "effort") if not found["workers"].get(key)]
 
 
 def defaults_text(config: dict) -> str:
     found = recorded_defaults(config)
-    lines = []
-    for role, label in (("workers", "Worker sessions"), ("validators", "Validator subagents")):
-        model, effort = found[role].get("model"), found[role].get("effort")
-        lines.append(f"{label}: model {model or 'not set'}, effort {effort or 'not set'}.")
-    return "\n".join(lines)
+    worker, validator = found["workers"], found["validators"]
+    return (f"Worker sessions: model {worker.get('model') or 'not set'}, effort {worker.get('effort') or 'not set'}.\n"
+            "Validator subagents: model " + (validator.get("model") or "inherit (the worker's)")
+            + ", effort " + (validator.get("effort") or "the worker's") + ".")
 
 
 def choices(config: dict, args) -> dict:
     """The model and effort for this worker and its validator: the person's for this item, else the project's."""
     found = recorded_defaults(config)
-    chosen = {"model": args.model or found["workers"].get("model"), "effort": args.effort or found["workers"].get("effort"),
-              "validator_model": args.validator_model or found["validators"].get("model"),
-              "validator_effort": args.validator_effort or found["validators"].get("effort")}
-    unset = [name.replace("_", " ") for name, value in chosen.items() if not value]
+    chosen = {"model": args.model or found["workers"].get("model"), "effort": args.effort or found["workers"].get("effort")}
+    unset = [f"worker {name}" for name, value in chosen.items() if not value]
     if unset:
-        raise ValueError("No default model and effort are recorded for worker sessions and their validators ("
-                         + ", ".join(unset) + " missing). Ask the person once, then record them with `pm.py defaults "
-                         "--worker-model M --worker-effort E --validator-model M --validator-effort E`; do not pick them "
-                         "yourself. A model or effort the person names for this item goes on this start instead.")
+        raise ValueError("No default model and effort are recorded for worker sessions (" + ", ".join(unset)
+                         + " missing). Ask the person once, then record them with `pm.py defaults --worker-model M "
+                         "--worker-effort E`; do not pick them yourself. A model or effort the person names for this "
+                         "item goes on this start instead.")
+    # The validator runs on the worker's model and effort unless the person set it apart, for the project or this item.
+    chosen["validator_model"] = args.validator_model or found["validators"].get("model") or "inherit"
+    chosen["validator_effort"] = args.validator_effort or found["validators"].get("effort") or chosen["effort"]
     for role, key, flag, given in (("worker", "model", "--worker-model", args.model),
                                    ("validator", "validator_model", "--validator-model", args.validator_model)):
         try:

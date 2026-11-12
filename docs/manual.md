@@ -1,6 +1,6 @@
-# Setup and migration manual
+# pm manual
 
-How to install the plugin, set it up on a new project, and move a project that already tracks work somewhere else (an older pm board, a `TODO.md`, a tasks folder, Beads, GitHub Issues, a Linear export) onto the pm board. For what the board is, see the [README](../README.md); for where knowledge goes, [placement.md](placement.md).
+The one manual for the pm plugin: install it, set up a project, run work through worker sessions, share the board, and how the plugin itself is built. The [README](../README.md) is the short overview; where each kind of knowledge goes is in [placement.md](placement.md).
 
 ## 1. Install and update
 
@@ -16,21 +16,22 @@ claude plugin marketplace update pm-plugin
 claude plugin update pm@pm-plugin
 ```
 
-For local development of the plugin itself: `claude --plugin-dir /path/to/pm-plugin`. The helper CLI needs Python 3 and Git; nothing else is installed. `gh` is needed only for the GitHub mirror and for reading GitHub Issues during a migration.
+For local development of the plugin itself: `claude --plugin-dir /path/to/pm-plugin`. The helper CLI needs Python 3's standard library and Git; nothing else is installed. Without Python, the skills can still guide a manual edit of the item files, except atomic claiming, which needs the CLI.
 
-Each project keeps its own board in `docs/pm/`, so installing the plugin once covers every project; setting up a project is a separate step (below).
+A project still on a pm 0.x board (`docs/pm/tickets/`) is not read by this version, and session start says so in one line. Move it with the previous version first: install pm 1.5.1, run `/pm:migrate` there, then update.
+
+Each project keeps its own board in `docs/pm/`, so installing the plugin once covers every project; setting up a project is a separate step (below). `/pm:help` prints the short command guide in any session.
 
 ## 2. A fresh project
 
 Open Claude Code in the repository and run `/pm:init`. It:
 
 1. Looks at the repository and runs the walk test (`pm.py walk`, read-only) to see where the structure stands.
-2. Creates `docs/pm/config.json` (board writes publish through the shared board flow when a remote is configured).
+2. Creates `docs/pm/config.json` with `pm.py init` (board writes publish through the shared board flow when a remote is configured).
 3. Tells you the project's shape (2.1) in one line, and asks only when two shapes fit equally.
 4. Gives the repository its structure: a small catalog `AGENTS.md` with a `## Where things go` table for that shape, and a one-line `CLAUDE.md` containing `@AGENTS.md` when absent; for the skill shape, the skill folder with its stages. Files outside the table's places are moved into them after one yes, with `out/` gitignored (a generated output already in Git leaves Git as it moves there) and, for an analysis, a `data/README.md`. An existing file is never replaced or moved without your yes (2.4).
-5. Scans for an existing system (next section). On a fresh project it reports none.
-6. Runs the walk test again and fixes the structure until it passes.
-7. Shows the board and the three commands to use next: `/pm:plan` to add work, `/pm:work` to build an item, `/pm:status` to see the board.
+5. Runs the walk test again and fixes the structure until it passes.
+6. Shows the board and the three commands to use next: `/pm:plan` to add work, `/pm:work` to build an item, `/pm:status` to see the board.
 
 After you approve the setup and both halves of the walk test pass, `/pm:init` commits the setup changes together on their own. With no Git remote, it commits on the current branch. With a remote, it commits on a separate setup branch (such as `pm/setup`) and asks you to open a PR; it does not commit setup changes to the default branch.
 
@@ -114,12 +115,12 @@ The session you talk to is the coordinator, and the only session you need to rea
 
 Each worker claims its item under your name, builds it, has a `pm:validator` subagent check it, confirms the validator's recorded verdict, then finishes it or parks it with a question. `finish` refuses if there is no pass, the verdict is findings, or non-board work changed after the pass. The CLI cannot identify who recorded a verdict; this guardrail prevents forgetting validation, while the worker's session shows each `pm:validator` launch. The coordinator checks each worker's report against the board and the branch (the report also lists the board commands the worker's session ran, the model each validator actually ran on (and says so when it is not the one you chose), and the item's state on its branch, read from the session's transcript and git rather than from the worker's own words), then tells you the result. Your answer to a worker's question goes into that same session, as its next message.
 
-Before the first worker starts, the coordinator needs three choices that are yours, and asks for any that are missing; it never picks them:
+Before the first worker starts, the coordinator needs two choices that are yours, and asks for any that are missing; it never picks them. The validator subagent runs on the worker's model and effort unless you set it apart:
 
 | Choice | Asked by | Stored | Change it with |
 | --- | --- | --- | --- |
 | Model and effort of worker sessions. The model is an exact version such as `claude-sonnet-5-5`; an alias like `sonnet` is refused, because it means another model once a new one ships | `/pm:init`, or `/pm:work` on a project that has none or has an alias recorded | `docs/pm/config.json` › `workers` | `pm.py defaults --worker-model M --worker-effort E` |
-| Model and effort of the validator subagent: an exact version, or `inherit` for the worker's model | the same | `docs/pm/config.json` › `validators` | `pm.py defaults --validator-model M --validator-effort E` |
+| Optional: another model or effort for the validator subagent (an exact version, or `inherit`, the default, for the worker's) | only when you ask for it | `docs/pm/config.json` › `validators` | `pm.py defaults --validator-model M --validator-effort E` |
 | Permission setting for the worker sessions the plugin starts (a worker the Claude app starts uses the app's) | `/pm:work`, the first time in a copy of the project | `.git/pm-workers/settings.json`, this clone only | `pm.py worker mode auto` (recommended), `acceptEdits`, `default`, or `bypassPermissions` |
 
 Name another model or effort for one item when you ask for the work, and that worker uses it (`--model`, `--effort`, `--validator-model`, `--validator-effort` on `worker start` or `worker brief`). In `auto`, a safety check approves routine edits and commands and blocks risky ones; where auto mode is unavailable, the CLI switches this clone to `acceptEdits` for the next workers and says so. Under `acceptEdits` or `default`, expect about 5 permission prompts per item: a worker's own `pm.py` and `git` commands wait for your yes, and allow rules such as `Bash(python3:*)` do not cover the shapes they take (a heredoc, a chain of commands). A worker at a permission prompt waits: the coordinator tells you what it asks and how to open that session, and you answer there. What `auto` refuses comes back in the worker's report; if you allow it, the coordinator tells that worker so.
@@ -155,173 +156,78 @@ When an item is Done on its branch, its worker's copy is removed and its backgro
 | 5 | Give an item that must ask you something | your answer reaches the same session as a follow-up message |
 | 6 | `python3 --version` in the app's shell | if missing, `python` or `py` works for `pm.py`; the session-start and stop hooks need Git for Windows (Git Bash) and `python3` |
 
-## 3. A project that already has a system
+## 3. The board and how it is shared
 
-Run `/pm:init` (or `/pm:migrate` directly). The agent detects what is there, shows you what it found and how it will map, and only then writes items.
+The item files in `docs/pm/items/` are the only board state in Git. `pm.py board` renders In flight, Queued, Waiting, and the latest ten Done items on demand (older Done items are counted); no generated file is committed. `pm.py next` lists queued items with no hold whose dependencies are all Done.
 
-```text
-scan ──> plan ──> you confirm ──> apply ──> route other knowledge ──> verify counts ──> you confirm removal
-(read)   (read)                   (writes     (AGENTS.md, README,                       (git rm, only on yes)
-                                   items)      System map)
+- **Publishing.** With a remote, `add`, `set`, `hold`, `resume`, `claim`, and `correct` commit the item file and push it to the default branch, so every clone sees the same items. Each write takes a file lock in the Git common directory (shared by every worktree of a clone), fetches the default branch, changes the item in a temporary checkout, and pushes without force; a rejected push is fetched and re-checked. A checked-out default branch is fast-forwarded afterwards. `validated` and `finish` stay on the work branch; its merge publishes Done.
+- **No remote.** The board is the main checkout's (the first entry of `git worktree list`): board commands run there from any worktree and say which branch they saved on, so parallel workers see each other's claims.
+- **Claims.** Claiming moves a queued item to In flight under the person's name. A second claim of an item in flight fails, even under the same name; `claim --resume` continues one's own claim after a hold or in a new session. Claim works from any branch and says which branch the work branch should start from.
+- **Holds and decisions.** `hold` parks an item in Waiting with its question and keeps its owner; `resume` returns a claimed item to its owner In flight and an unclaimed one to Queued. `resume --answer` appends the decider's exact words to the item's `## Decisions`, which the worker never rewrites and `finish` keeps in the Done item, in the same commit (a hand edit of the item on the default branch would block the CLI's fast-forward). Items from before 1.5.1 keep their `Decision on` lines in the notes. Lasting decisions go where [placement.md](placement.md) says.
+- **Done.** `validated` records a verdict against the full `HEAD` SHA and refuses while non-board work is uncommitted. `finish` needs `Validation: pass at <sha>:`, refuses if non-board commits followed that SHA or anything outside the board is uncommitted, and records a UTC completion time.
+- **Merging.** Each change touches only its own item file, so parallel work branches merge without board conflicts.
+
+Item IDs are a short title slug plus a random suffix, checked against existing IDs; the file is named after the ID. `touches` and `corrections` are written only when set, so other items keep their exact format.
+
+## 4. Hooks
+
+| Hook | What it does |
+| --- | --- |
+| Session start | Prints the board, then one note: any project work goes through `/pm:work` and its worker sessions, not edits in this session; work to add goes through `/pm:plan`; every new file goes where `AGENTS.md` › Where things go says. A worker session gets a note naming its item instead. One-line pointers: to `/pm:init` while `AGENTS.md` has no Where things go table, to `/pm:map` while an old `docs/pm/CODEBASE.md` has no System map, and to pm 1.5.1 for a pm 0.x board. Without `python3` it only says where the items are. |
+| Stop | A new file outside the table's places sends the agent back once (never when `stop_hook_active`) to move it or ask for a row; otherwise it reminds the agent when code changed without an item update. Nothing else blocks a session. |
+| Worker hooks (`hooks/worker.sh`) | Act only inside a worker session: the Stop hook saves the turn's report and listens on the item's mailbox; a PermissionRequest hook records what a prompt asks. |
+
+## 5. How the plugin is built
+
+Skills hold the conversational workflow, a Python standard-library CLI does every board write and runs worker sessions, and the project's own Markdown holds the state. There is no scheduled runner.
+
+```mermaid
+flowchart LR
+  U[User request] --> S[skills/*/SKILL.md]
+  S --> C[scripts/pm.py<br/>board operations]
+  C --> I[docs/pm/items/ID.md<br/>intent, status, owner, notes]
+  C --> K[docs/pm/config.json<br/>board marker, model defaults]
+  S -. read .-> PG[docs/placement.md]
+  S -. read .-> ICM[icm/<br/>method guides, templates]
+  C --> W[scripts/pm_icm.py<br/>walk, index, refs, places]
+  C --> WS[scripts/pm_workers.py<br/>one full session per item]
+  WS --> WT[.claude/worktrees/pm-ITEM/<br/>one git worktree per item]
+  WS --> ST[.git/pm-workers/<br/>records, mailbox, permission setting]
+  W -. read only .-> R[AGENTS.md table, CONTEXT.md contracts,<br/>docs/pm/map/, workflow skills]
+  H[hooks/hooks.json] --> SH[session-start.sh, stop.sh, worker.sh]
+  SH --> C
 ```
 
-What is guaranteed, whatever the source:
-
-| Guarantee | How |
+| File | Role |
 | --- | --- |
-| Nothing changes before you say yes | `scan` and `plan` only read; the plan is saved outside the repository |
-| Your words are not rewritten | The original text of each task is copied verbatim into `## Requester intent` |
-| Open work becomes items | Queued, in flight (with its owner), or waiting on a decision (a hold); dependencies and issue numbers are kept |
-| Finished work does not clutter the board | It stays in git history and is not imported; the counts say how much |
-| Knowledge that is not a task is not dropped | Roadmaps, epics, decisions, and settings are listed with the file they should go to, per [placement.md](placement.md); the agent proposes each edit and you approve it |
-| The old system is never deleted without your yes | The CLI never deletes; after you confirm, the agent runs `git rm` on exactly the paths the plan lists, so history keeps them |
-| Counts add up | The plan and the apply output show entries before, items imported, entries left in history, and the board now |
-| Re-running is safe | Each item id ends in a hash of the source and the old key, so a second `apply` skips what is already there, even after a title was edited |
+| [`skills/`](../skills/) | `/pm:init`, `plan`, `work`, `status`, `map`, `help` |
+| [`agents/worker.md`](../agents/worker.md), [`validator.md`](../agents/validator.md) | The worker session's instructions; the read-only check before Done |
+| [`scripts/pm.py`](../scripts/pm.py) | Board commands, defaults, and the `worker` commands' entry point |
+| [`scripts/pm_workers.py`](../scripts/pm_workers.py) | Starting, answering, and tidying worker sessions |
+| [`scripts/pm_icm.py`](../scripts/pm_icm.py) | `walk`, `index`, `refs`, `places` |
+| [`icm/`](../icm/README.md) | The ICM method, the project shapes, the templates the skills follow |
+| [`hooks/`](../hooks/) | The hooks in section 4 |
 
-Steps the agent follows (`skills/migrate/SKILL.md`):
+### Worker sessions inside
 
-1. **Scan**: `pm.py migrate scan` lists each system it recognises, with counts and the importer to use. GitHub Issues and tracker exports are checked with `gh` or by reading the export.
-2. **Plan**: `pm.py migrate plan --from pm-0x --out PLAN.json` (or `--from checklist --file TODO.md`). For any other system the agent writes the plan itself (section 4.3).
-3. **Review with you**: counts before and after, the field mapping, items that need a decision, what is not carried over, where non-task knowledge goes. You answer questions and the agent edits `PLAN.json`.
-4. **Apply**: `pm.py migrate apply PLAN.json` creates `docs/pm/config.json` if needed and the items, records every old key the plan accounted for (imported or left in history) under `migrated_from` in that file, keeping its other settings, committing and pushing them to the default branch the same way `/pm:plan` does. `--dry-run` shows the items without writing.
-5. **Route other knowledge**: with your approval, lasting rules and the test command go to `AGENTS.md`, product goals to `README.md`, architecture to the System map (`/pm:map`, 2.2).
-6. **Verify**: `pm.py board` and the counts.
-7. **Retire**: you decide whether the old files go. On a yes, they are removed with `git rm`.
+`worker start` (run by the coordinator as a background Bash command, so Claude Code wakes it when the worker's turn ends) adds the worktree detached at the tip of the branch the board lives on (`origin/<default>` after a fetch; without a remote, the branch checked out in the main checkout), and runs `claude --bg` there with `--agent pm:worker`, `--plugin-dir` set to this plugin (a `--plugin-dir` copy replaces an installed one of the same name), the exact model and effort, this clone's permission setting, and a settings file that names the item (`PM_WORKER`), keeps the session in that worktree, and runs its subagents on the validator's model: the worker's own for `inherit` (`CLAUDE_CODE_SUBAGENT_MODEL`; `agents/validator.md` names no `model:`, which would outrank it). The started session is found by its name in `claude agents --json`. On every path (background, app, handover) the first message is one line naming `pm.py worker join ITEM_ID`, which records the session, its copy, and its branch and prints the ticket.
 
-### Rolling out to several projects
+Records live in `.git/pm-workers/` (the Git common directory, so every worktree and a restarted coordinator see them): `sessions/ITEM_ID.json` with an event log beside it, `launch/` (settings files), and `mail/` (the mailbox). The Stop hook's report adds the board commands and validator launches read from the session's transcript and the model each validator ran on from its subagent transcript, so a wrong self-report shows. `worker answer` continues the same conversation: a background session is taken off Claude Code's session list and woken with the message as its next prompt (`claude --resume SESSION --bg`), which also works after its process stopped or its copy was removed; a message is a prompt rather than a hook note because a prompt carries the person's authority for the permission setting. The mailbox serves a session mid-turn or one the person opened. Worker sessions run without `ScheduleWakeup` and `CronCreate`, so a turn ends with its report. In `auto`, when a session reports another permission mode, the CLI switches the clone to `acceptEdits` for later workers and says so.
 
-Do the plugin install or update once, then per project: open Claude Code there and run `/pm:init`, review the plan, say yes, approve the knowledge edits, decide on removal. Each project is independent. Once the plugin is updated, a project still on an old pm-plugin 0.x board prints a one-line reminder at session start while any of its tickets is missing from the `migrated_from` record in `docs/pm/config.json`, whether or not `/pm:init` already ran there, so a project that was missed shows itself. Once applied, keeping the old `docs/pm/tickets` folder or finishing the migrated items does not bring the reminder back; a ticket added to the old folder later does.
+Before `add`, a new `claim`, or `worker start` saves or starts anything in a checkout left on another item's finished `pm/ITEM_ID` branch, the CLI returns it to the branch it was on before (from the checkout's reflog) and says so; when that item is not finished there, or a worker is working there, it stops with the reason. A `pm/` branch that is not an item's (such as `pm/setup`) is left alone. Git status skips only embedded worktrees under `.claude/worktrees/`.
 
-## 4. Source systems
+### Structure checks
 
-| Source | Detected by `scan` | How it is converted |
-| --- | --- | --- |
-| pm-plugin 0.x | `docs/pm/tickets/T*.md` | Built-in importer `pm-0x`, exact (4.1) |
-| Markdown checklist: `TODO.md`, `ROADMAP.md`, `BACKLOG.md`, `TASKS.md`, `PLAN.md` in the root or `docs/` | Checkbox lines `- [ ]` / `- [x]` | Built-in importer `checklist` (4.2) |
-| Task files with plain bullets or prose | Listed as a notes file, no checkboxes | Hand-made plan (4.3) |
-| `tasks/`, `backlog/`, `.taskmaster/`, `.beads/`, `issues/` folders | Folder of text or data files (a folder of code is ignored) | Hand-made plan (4.3) |
-| GitHub Issues only | A GitHub remote | Hand-made plan from `gh issue list` (4.3) |
-| Linear or other tracker export (CSV, JSON) | A `.csv` named like an issues export | Hand-made plan (4.3) |
+`places` reads the `## Where things go` table of the root `AGENTS.md`: each backticked path in its Place column, cut at its first placeholder (`<`, `{`, `*`, `YYYY`), is a place; `docs/pm/`, root dotfiles and dot-folders, and the files a tool expects at the root (`LICENSE`, dependency and lock files) always pass. It lists files Git reports as untracked, added, or renamed outside every place; the Stop hook runs it with `--paths`. `walk` reads only what Git tracks or would track. It fails on a missing or oversized entry file, two hand-maintained entry files in one folder, broken links, a numbered stage or map contract without its five sections, an oversized `CONTEXT.md`, a workflow skill that would not package, map cards with bad frontmatter or unverified evidence, a map of two or more cards without its change-impact index, unfilled template lines, citations past the end of a file, a stale `_index.md`, a `touches` path that no longer exists on an item not done, and one walk over about 8,000 tokens; softer findings are warnings. `index` renders `_index.md` from card frontmatter. `refs` lists what points at a file before a move and refuses a destination already taken when names are compared case-folded. `correct` counts corrections by kind and source across items; a `fixed` entry resets that count.
 
-### 4.1 pm-plugin 0.x, exactly
+The CLI uses OS file locking (`fcntl`, or `msvcrt` on Windows) and only Python's standard library. To check a change to the plugin: `python3 -m unittest discover -s tests -v`; for skill routing on real models, [`evals/README.md`](../evals/README.md).
 
-0.x kept `docs/pm/tickets/Txxx-slug.md` with frontmatter, plus `epics/`, `roadmap.md`, `decisions.md`, and a `## pm` settings block in `CONTEXT.md`. 1.x does not read that layout, so nothing on the old board shows until it is migrated.
-
-| 0.x ticket | 1.x item |
-| --- | --- |
-| `status: todo` | Queued. A `ready: no` ticket (not yet clarified) gets a hold saying so, so it shows under Waiting |
-| `status: in progress` or `review` | In flight, with its `owner`. With no owner it becomes Queued and a warning says so, because 1.x needs an owner to be in flight |
-| `status: done` | Left in git history |
-| `status: dismissed` | Left in git history; it was closed without being done, so it is never imported |
-| An unknown status | Queued, with a warning |
-| `owner` on a todo ticket | Kept as the item's owner, which reserves it the way a claim does |
-| `depends_on: [T001]` | The matching item. A dependency on finished work is dropped (already satisfied); a dismissed or unknown one is dropped with a warning |
-| `issue: 12`, `#12`, or `.../issues/12` | `github_issue: "12"`. Any other value goes into the notes |
-| `pr` | Noted in the item's notes |
-| `epic`, `milestone`, `priority` | Noted in the notes (`Migrated from pm-plugin 0.x ticket T002 (epic E01 Login, milestone M1, priority P1)`), with the epic's goal. 1.x has no hierarchy or priority |
-| Body, except `## Plan`, `## Notes`, `## Proposed changes` | `## Requester intent`, verbatim (the title when the body is empty) |
-| `## Plan` (unless an empty template), `## Notes`, `## Proposed changes` | `## Current notes`, labelled `(0.x)` |
-| `auto`, `plan`, `tests`, `confidence` | Not carried over; the plan lists them |
-| Roadmap `## Backlog` lines | One Queued item each, with the line as the requester's words |
-| Roadmap milestones | Not items. Routed to `README.md` if they still describe the product |
-| `decisions.md` entries | Not items. Decisions that shape future work go to `AGENTS.md` (architectural ones to the System map card they govern); one that only explains a past change stays in git history |
-| `CONTEXT.md` `## pm` block | The `check:` command goes to `AGENTS.md`; the block is then removed, the rest of the file stays. A `mirror: on` setting is not carried over: enabling the 1.x mirror is a separate choice (`pm.py mirror github`) |
-| Files under `docs/pm/` this importer does not know | Left alone and listed in the warnings |
-
-Retire list: `docs/pm/tickets`, `docs/pm/epics`, `docs/pm/roadmap.md`, `docs/pm/decisions.md`. The `docs/pm/` folder itself stays, since the 1.x board lives there too.
-
-### 4.2 Markdown checklist
-
-Each top-level checkbox line, with everything indented under it (including nested checkboxes), becomes one item. The text is the requester's words exactly; the title is its first line, shortened to about 80 characters. `- [ ]` is Queued; `- [x]` goes to git history. The nearest heading is recorded in the notes. Text that is not a checklist item is counted and listed as knowledge to route, and then the file is not offered for removal: delete the migrated lines by hand.
-
-Owners, dates, labels, and `#123` references stay inside the intent text. If you want them mapped (an assignee as `owner`, an issue number as `github_issue`), the agent edits the plan.
-
-### 4.3 Anything else: a hand-made plan
-
-The agent reads the source, proposes a mapping, you confirm it, and the agent writes the plan JSON (section 5). The mapping rules are the same for every system:
-
-| Source concept | Plan field |
-| --- | --- |
-| The requester's text: description, body, or the line itself | `intent`, copied verbatim. Never a summary; if there is only a title, use it |
-| Its identifier | `key`. It makes the item id stable, so re-running is safe |
-| Short name | `title` |
-| Open / to do / backlog | `status: "queued"` |
-| In progress / started / assigned | `status: "in-flight"` with an `owner` (required), or `queued` if nobody holds it |
-| Blocked on a question or decision | `hold` with the question, optionally `hold_until` |
-| Blocked on another task | `depends_on` with that task's key |
-| Closed / done | Leave out of `items` and list in `history` |
-| Cancelled / won't do | `history` |
-| Issue number in GitHub | `github_issue`, digits only |
-| Labels, priority, estimate, parent, sprint | The `notes`: one short line each, since 1.x has no such fields |
-| Comments with decisions or progress | `notes` if current; lasting decisions are routed per placement.md |
-
-Hints per system. The field names of third-party tools are from their documented formats and have not been checked against current versions here, so the agent confirms them against the export in front of it [UNSURE].
-
-- **GitHub Issues**: `gh issue list --state open --limit 200 --json number,title,body,labels,assignees`. Title to `title`, body to `intent`, number to `github_issue` and `key` (`#12`), assignee on an in-progress issue to `owner`, labels to `notes`. "Blocked by #N" to `depends_on` only when you confirm it. Closed issues stay on GitHub, so they go in `history`. Enabling the mirror later makes `sync` rewrite these issues' bodies, so decide that on purpose.
-- **Beads** (`.beads/`): export with the tool's own list command (for example `bd list --json`) rather than reading its database files [UNSURE]. Map open, in progress, and closed as above, dependency links to `depends_on`, and priority to the notes.
-- **Backlog.md-style `backlog/` and Task Master `.taskmaster/`**: each task is a file or a JSON record with a title, description, status, assignee, and dependencies [UNSURE]. The same table applies; the status names differ (`To Do` is queued, `In Progress` is in flight, `Done` is history).
-- **Linear or another tracker export**: columns such as identifier, title, description, status, assignee, and priority [UNSURE]. Identifier to `key`, description to `intent`, and the workflow state names are mapped to the three statuses with your confirmation, since each team names them differently.
-- **`TODO.md` with plain bullets**: each bullet is one item with the bullet text as `intent`. Section headings (`## Next up`, `## Someday`) go in the notes. Ask whether "Someday" items should be queued at all.
-
-For a large source, the agent reads it in pieces and builds the plan file incrementally, but shows you the finished plan once and applies it once.
-
-## 5. The plan file
-
-`plan` writes it and `apply` reads it, so a hand-made plan uses the same shape. It is plain JSON, saved outside the repository (a temp directory):
-
-```json
-{
-  "source": "beads",
-  "before": {"total": 3, "by_status": {"open": 2, "closed": 1}},
-  "items": [
-    {"key": "bd-1", "title": "Fix login", "intent": "login is broken\non mobile", "status": "queued"},
-    {"key": "bd-2", "title": "Fix signup", "intent": "signup too", "status": "in-flight", "owner": "Ari",
-     "depends_on": ["bd-1"], "github_issue": "7", "hold": "Which provider?", "hold_until": "2026-12-01",
-     "notes": "Labels: auth. Priority: high."}
-  ],
-  "history": [{"key": "bd-0", "title": "Old task", "status": "closed", "why": "closed"}],
-  "knowledge": [{"from": "docs/roadmap.md", "what": "3 milestones", "route": "README.md"}],
-  "warnings": ["bd-3 had no description; its title is the intent."],
-  "retire": ["docs/old-tasks.md"]
-}
-```
-
-| Field | Meaning |
-| --- | --- |
-| `source` (required) | Names the old system; with each item's `key` it makes the item id, so the same plan never creates an item twice |
-| `items[].key`, `title`, `intent` (required) | The old identifier, a short name, and the requester's exact words |
-| `items[].status` | `queued` (default) or `in-flight` (needs `owner`); finished work goes in `history`, not `items` |
-| `items[].hold`, `hold_until` | A question that parks the item under Waiting; a date to revisit it |
-| `items[].depends_on` | Keys of other items in the plan, with no cycles |
-| `items[].github_issue`, `owner`, `notes` | Optional strings; the issue number as digits, the person, a short current-state note |
-| `before` | Entries in the old system by status; used to check the counts add up |
-| `history` | Old entries not imported, each with a `key` and a reason; counted in "accounted for" and recorded with the item keys under `migrated_from` in `docs/pm/config.json` |
-| `knowledge`, `warnings`, `retire` | Shown to the owner. `retire` lists the paths removed after confirmation, and `apply` never touches them |
-
-`pm.py migrate apply` refuses a plan with an unknown status (including `done`), an in-flight item without an owner, a missing intent, a title longer than one line, an optional field that is not a string (leave it out rather than writing `null`), a duplicate key, a `history` entry without a `key`, a dependency that is not in the plan, a dependency cycle, or an issue that is not a number. Nothing is written when a plan is refused.
-
-## 6. Adding a new source system
-
-Do this when a source is common enough that a hand-made plan each time is wasteful.
-
-1. Write a reader in `scripts/pm_migrate.py`: a function `read_<name>(root, file=None, **_) -> dict` that only reads and returns a plan (section 5). Fill `before` and `history` so the counts add up, put everything the board has no field for in `notes`, and list every non-task file in `knowledge` with its destination from [placement.md](placement.md). Raise `ValueError` with a plain message for input it cannot read.
-2. Register it in `SOURCES` (this makes `--from <name>` available) and add a detector for it in `scan`, with the command to run.
-3. Add a fixture under `tests/fixtures/<name>/` that covers every status, a dependency, a missing or odd value, and non-task files. In `tests/test_migrate.py` assert the plan, then apply it and assert the board, that the intent matches the source's text character for character, that nothing in the old system was changed, and that a second apply adds nothing.
-4. Document the mapping as a table in section 4, add the source to the detection table there, and re-run the routing evals if a skill description changed (`evals/README.md`).
-5. Run `python3 -m unittest discover -s tests -v`.
-
-## 7. When something looks wrong
+## 6. When something looks wrong
 
 | Symptom | Cause and fix |
 | --- | --- |
-| The board is empty after updating from 0.x | 1.x does not read `docs/pm/tickets/`. Run `/pm:init` and migrate |
-| `scan` says nothing found but you have a backlog | It is somewhere `scan` does not look (a wiki, a Notion page, a differently named file). Point the agent at it; it builds a plan by hand |
-| `plan` fails with "not a file inside this repository" | `--file` must be a path inside the repository |
-| `apply` refuses the plan | The message lists each problem; fix `PLAN.json` and run it again |
-| The same plan was applied twice | Safe: existing items are skipped and left as they were |
-| `apply` says the local default branch cannot fast-forward | Sync the default branch with the remote first; a migration is published like any other board change |
-| An item shows as claimed by someone | The old system had an owner on it. The owner keeps the claim; nobody else can claim it |
-| You regret removing the old files | `git log --diff-filter=D --name-only` finds them; `git checkout <commit>^ -- <path>` restores them |
+| A board command says the local default branch cannot fast-forward | Sync the default branch with the remote first; every board change is published the same way |
+| Session start mentions a pm 0.x board | This version does not read `docs/pm/tickets/`. Install pm 1.5.1, run `/pm:migrate` there, then update |
 | `pm.py walk` fails | Each FAIL line names the file and what to fix; WARN lines do not fail it. Fix and run it again; `/pm:init` and `/pm:map` do this themselves |
 | "_index.md is missing or out of date" | A card was added, renamed, or changed status. Run `pm.py index`; never edit `_index.md` by hand |
 | "Item ... touches paths that do not exist" | A card or stage folder an item that is not done points at moved. Update the item with `pm.py set ITEM_ID --touches PATH,PATH` |

@@ -175,13 +175,15 @@ class WorkerSessionTests(unittest.TestCase):
         self.assertIn("No default model and effort are recorded", refused.stderr)
         self.assertIn("Ask the person once", refused.stderr)
         self.assertIn("do not pick them yourself", refused.stderr)
-        self.assertIn("Not recorded yet: workers model, workers effort, validators model, validators effort",
-                      self.cli("defaults").stdout)
-        self.cli("defaults", "--worker-model", "claude-opus-5-5", "--worker-effort", "high",
-                 "--validator-model", "inherit", "--validator-effort", "medium")
+        shown = self.cli("defaults").stdout
+        self.assertIn("Not recorded yet: workers model, workers effort.", shown, "the validator's are never asked")
+        self.cli("defaults", "--worker-model", "claude-opus-5-5", "--worker-effort", "high")
         config = json.loads((self.root / "docs/pm/config.json").read_text())
         self.assertEqual(config["workers"], {"model": "claude-opus-5-5", "effort": "high"})
-        self.assertEqual(config["validators"], {"model": "inherit", "effort": "medium"})
+        self.assertNotIn("validators", config)
+        shown = self.cli("defaults").stdout
+        self.assertIn("Validator subagents: model inherit (the worker's), effort the worker's.", shown)
+        self.assertNotIn("Not recorded yet", shown)
         log = subprocess.check_output(["git", "log", "--format=%s", "-1"], cwd=self.root, text=True)
         self.assertIn("pm: Recorded defaults.", log)
         refused = self.cli("worker", "start", self.item, input_text="Ari", ok=False)
@@ -192,6 +194,24 @@ class WorkerSessionTests(unittest.TestCase):
         self.assertIn("permission setting: acceptEdits", self.cli("worker", "mode").stdout)
         self.assertFalse((self.root / "docs/pm/config.json").read_text().count("acceptEdits"),
                          "the permission setting is the person's, kept in this clone, not committed")
+
+    def test_the_validator_runs_on_the_workers_model_and_effort_unless_set_apart(self):
+        self.cli("defaults", "--worker-model", "claude-haiku-5-5", "--worker-effort", "medium")
+        self.cli("worker", "mode", "auto")
+        self.cli("worker", "start", self.item, "--no-wait", input_text="Ari")
+        call = self.calls_made()[0]
+        self.assertEqual(self.settings(call)["env"]["CLAUDE_CODE_SUBAGENT_MODEL"], "claude-haiku-5-5")
+        ticket = self.join(self.item, self.worktree(self.item), self.state(self.item)["session"], **self.settings(call)["env"])
+        self.assertIn("Validator: model inherit (this session runs its subagents on it: pass the Agent tool no model), "
+                      "effort medium", ticket)
+        second = self.add("Count lines", "Add a line count")
+        self.cli("defaults", "--validator-model", "claude-sonnet-5-5")  # still changeable for the project
+        self.cli("worker", "start", second, "--no-wait", "--validator-effort", "high", input_text="Ari")  # or one item
+        call = self.calls_made()[1]
+        self.assertEqual(self.settings(call)["env"]["CLAUDE_CODE_SUBAGENT_MODEL"], "claude-sonnet-5-5")
+        ticket = self.join(second, self.worktree(second), self.state(second)["session"], **self.settings(call)["env"])
+        self.assertIn("Validator: model claude-sonnet-5-5 (this session runs its subagents on it: pass the Agent tool "
+                      "no model), effort high", ticket)
 
     def test_models_are_exact_versions_never_aliases(self):
         for flag, alias in (("--worker-model", "sonnet"), ("--worker-model", "opus[1m]"), ("--worker-model", "inherit"),

@@ -1,6 +1,6 @@
 # Project shapes: where every kind of file goes
 
-Every project gets the same spine, plus the rows of its shape (or shapes). `/pm:init` stamps these rows into the `## Where things go` table of the root `AGENTS.md` ([template](templates/root-AGENTS.md)). From then on that table is the one place an agent looks before it creates a file, and `pm.py places` and the Stop hook check new files against it. Each shape is an ICM form ([forms.md](forms.md)) that keeps the factory (code, rules, reference data) apart from the product (generated outputs, deliverables).
+Every project gets the same spine, plus the rows of its shape (or shapes). `/pm:init` stamps these rows into the `## Where things go` table of the root `AGENTS.md` ([template](templates/root-AGENTS.md)). From then on that table is the one place an agent looks before it creates a file, and `pm.py places` and the Stop hook check new files against it. Each shape is an ICM form that keeps the factory (code, rules, reference data) apart from the product (generated outputs, deliverables).
 
 Pick by the project's repeating unit of work. A project can be two shapes, such as an analysis that also runs daily; then take the union of their rows. A path the project already uses for a kind of thing stays: the table records `sources/` rather than moving it to `data/raw/`. The table in `AGENTS.md` wins over this file.
 

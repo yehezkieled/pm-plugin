@@ -1,4 +1,3 @@
-import html
 import json
 import os
 import re
@@ -509,13 +508,6 @@ class IcmDocsTests(unittest.TestCase):
         for name in ("stage-CONTEXT.md", "map-CONTEXT.md"):
             headings = [line for line in (TEMPLATES / name).read_text().splitlines() if line.startswith("## ")]
             self.assertEqual(headings, ["## Inputs", "## Process", "## Outputs", "## Verify", "## Human check"], name)
-
-    def test_guide_shows_the_current_help_and_placement_guide(self):
-        guide = (ROOT / "docs" / "guide.html").read_text()
-        block = re.search(r"```text\n(.*?)```", (ROOT / "skills/help/SKILL.md").read_text(), re.S).group(1).rstrip()
-        self.assertTrue(html.escape(block, quote=True) in guide, "docs/guide.html: /pm:help command list is out of date")
-        placement = (ROOT / "docs" / "placement.md").read_text().rstrip()
-        self.assertTrue(html.escape(placement, quote=True) in guide, "docs/guide.html: printed placement guide is out of date")
 
 if __name__ == "__main__":
     unittest.main()

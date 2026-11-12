@@ -16,7 +16,6 @@ from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 
 import pm_icm
-import pm_migrate
 import pm_workers
 
 try:
@@ -91,7 +90,7 @@ def read_items(root: Path) -> list[dict]:
 
 
 def item_text(item: dict) -> str:
-    keys = ("id", "status", "owner", "depends_on", "hold", "hold_until", "done_at", "intent_length", "github_issue")
+    keys = ("id", "status", "owner", "depends_on", "hold", "hold_until", "done_at", "intent_length")
     lines = ["---"]
     lines.extend(f"{key}: {json.dumps(item.get(key, [] if key == 'depends_on' else 0 if key == 'intent_length' else ''), ensure_ascii=False)}" for key in keys)
     # Later list fields are written only when set, so older item files stay unchanged and merge cleanly.
@@ -116,10 +115,8 @@ def read_literal_stdin() -> str:
     return value[:-1] if value.endswith("\n") else value
 
 
-def mirror_setting(root: Path) -> str:
-    if not config_path(root).exists():
-        return "off"
-    return json.loads(config_path(root).read_text(encoding="utf-8")).get("mirror", "off")
+def slugify(text: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")
 
 
 def render_board(root: Path, items: list[dict]) -> str:
@@ -399,7 +396,7 @@ def cmd_init(root: Path, args) -> None:
         if config.exists():
             raise ValueError(f"{config.relative_to(board).as_posix()} already exists.")
         config.parent.mkdir(parents=True, exist_ok=True)
-        config.write_text(json.dumps({"mirror": "off"}) + "\n", encoding="utf-8")
+        config.write_text("{}\n", encoding="utf-8")
         return [config], "Initialized docs/pm. Add the first item with /pm:plan."
     with write_lock(root):
         print(publish(root, change))
@@ -407,7 +404,7 @@ def cmd_init(root: Path, args) -> None:
 
 def item_slug(title: str) -> str:
     """The title slug used inside the item ID; the item's file is named after the ID alone."""
-    return pm_migrate.slugify(title)[:32].rstrip("-") or "item"
+    return slugify(title)[:32].rstrip("-") or "item"
 
 
 def cmd_add(root: Path, args) -> None:
@@ -428,7 +425,7 @@ def cmd_add(root: Path, args) -> None:
             if item_id.casefold() not in existing_ids:
                 break
         item = {"id": item_id, "title": title, "status": "queued", "owner": "",
-                "depends_on": [], "hold": "", "hold_until": "", "github_issue": "",
+                "depends_on": [], "hold": "", "hold_until": "",
                 "intent": intent, "intent_length": len(intent), "notes": "", "done_at": "", "touches": touches,
                 "path": item_dir(board) / f"{item_id}.md"}
         save_item(item)
@@ -628,7 +625,7 @@ def cmd_correct(root: Path, args) -> None:
     note = read_literal_stdin().strip()
     if not note:
         raise ValueError("Describe the correction on stdin (with --fixed, the source change that fixes it).")
-    kind = pm_migrate.slugify(args.kind)
+    kind = slugify(args.kind)
     if not kind:
         raise ValueError("--kind needs a short name for this kind of correction, such as missing-tests.")
     where = (repo_paths(root, args.where) or [""])[0]
@@ -705,24 +702,6 @@ def cmd_refs(root: Path, args) -> None:
     print(report, flush=True)
     if collisions:
         raise ValueError(f"{collisions} destination{'s are' if collisions > 1 else ' is'} already taken; pick another name first.")
-
-
-def cmd_mirror(root: Path, args) -> None:
-    if args.mode == "show":
-        print(f"GitHub Issues mirror: {mirror_setting(root)}")
-        return
-
-    def change(board: Path):
-        require_board(board)
-        config = json.loads(config_path(board).read_text(encoding="utf-8"))
-        config["mirror"] = args.mode
-        config_path(board).write_text(json.dumps(config) + "\n", encoding="utf-8")
-        if args.mode == "github":
-            return [config_path(board)], ("GitHub Issues mirror enabled: syncing publishes item requester intent "
-                                          "and current notes to this repository's GitHub Issues audience.")
-        return [config_path(board)], "GitHub Issues mirror: off"
-    with write_lock(root):
-        print(publish(root, change))
 
 
 def read_config(root: Path) -> dict:
@@ -819,160 +798,6 @@ def cmd_worker(root: Path, args) -> int:
     return {"wait": pm_workers.cmd_wait, "stop": pm_workers.cmd_stop, "remove": pm_workers.cmd_remove}[action](root, args)
 
 
-def cmd_sync(root: Path, args) -> None:
-    created: dict[str, str] = {}
-    failure: list[ValueError] = []
-
-    def change(board: Path):
-        if mirror_setting(board) != "github":
-            raise ValueError("GitHub Issues mirror is off. Enable it with `pm.py mirror github` first.")
-        failure.clear()
-        items = read_items(board)
-        recorded = {item["id"]: item.get("github_issue", "") for item in items}
-        lines = []
-        try:
-            for item in items:
-                item["github_issue"] = recorded[item["id"]] or created.get(item["id"], "")
-                lines.append(sync_issue(root, item, created))
-        except ValueError as exc:
-            failure.append(exc)
-        paths = []
-        for item in items:
-            if item["id"] in created and not recorded[item["id"]]:
-                item["github_issue"] = created[item["id"]]
-                save_item(item)
-                paths.append(item["path"])
-        return paths, "\n".join([f"Synced {len(lines)} items to GitHub Issues", *lines])
-    with write_lock(root):
-        print(publish(root, change))
-    if failure:
-        raise failure[0]
-
-
-def sync_issue(root: Path, item: dict, created: dict[str, str]) -> str:
-    decisions = f"Decisions:\n\n{item['decisions']}\n\n" if item.get("decisions") else ""
-    body = f"Requester intent (verbatim):\n\n{item['intent']}\n\n{decisions}Current notes:\n\n{item.get('notes', '')}\n\nStatus: {item.get('status')}"
-    if item.get("github_issue"):
-        number = str(item["github_issue"])
-        command = ["gh", "issue", "edit", number, "--title", item["title"], "--body", body]
-    else:
-        number = ""
-        command = ["gh", "issue", "create", "--title", item["title"], "--body", body]
-    result = subprocess.run(command, cwd=root, text=True, capture_output=True)
-    if result.returncode:
-        raise ValueError(result.stderr.strip() or "gh issue sync failed")
-    issue_url = result.stdout.strip().splitlines()[-1] if result.stdout.strip() else ""
-    number_match = re.search(r"/(\d+)$", issue_url)
-    if number_match and not number:
-        number = number_match.group(1)
-        created[item["id"]] = number
-    if number:
-        details = subprocess.run(["gh", "issue", "view", number, "--json", "url,state"], cwd=root, text=True, capture_output=True)
-        if details.returncode:
-            raise ValueError(details.stderr.strip() or f"could not read GitHub issue {number}")
-        issue = json.loads(details.stdout)
-        issue_url = issue["url"]
-        desired_state = "closed" if item.get("status") == "done" else "open"
-        if issue["state"].lower() != desired_state:
-            verb = "close" if desired_state == "closed" else "reopen"
-            changed = subprocess.run(["gh", "issue", verb, number], cwd=root, text=True, capture_output=True)
-            if changed.returncode:
-                raise ValueError(changed.stderr.strip() or f"could not {verb} GitHub issue {number}")
-    return f"{item['id']} -> {issue_url}"
-
-
-def count_line(items: list[dict]) -> str:
-    counts = pm_migrate.status_counts(item.get("status", "queued") for item in items)
-    return f"{len(items)} items ({pm_migrate.format_counts(counts)})"
-
-
-def cmd_migrate(root: Path, args) -> None:
-    if args.action == "scan":
-        remote = git(root, "remote", "get-url", "origin", check=False).stdout.strip()
-        findings = pm_migrate.scan(root, remote)
-        if config_path(root).exists():
-            print(f"A 1.x board already exists here: {count_line(read_items(root))}.")
-        if not findings:
-            print("No existing project-management system found." if not config_path(root).exists() else "No other system found.")
-            return
-        print("Existing systems found:")
-        for number, found in enumerate(findings, 1):
-            print(f"{number}. {found['label']}: {found['detail']}")
-            print("   " + (f"Importer: {found['importer']}. Next: {found['command']}" if found["importer"]
-                           else "No built-in importer: map it by hand with the owner (docs/manual.md)."))
-        return
-    if args.action == "plan":
-        reader = pm_migrate.SOURCES[args.source]
-        plan = reader(root, file=args.file)
-        problems = pm_migrate.validate_plan(plan)
-        if problems:
-            raise ValueError("The generated plan is invalid:\n" + "\n".join(f"  - {p}" for p in problems))
-        Path(args.out).write_text(json.dumps(plan, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-        print(pm_migrate.render_plan(plan))
-        print(f"\nPlan saved to {args.out}. Nothing was changed. Edit it if the owner asks, then run: pm.py migrate apply {args.out}")
-        return
-    try:
-        plan = json.loads(Path(args.plan).read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
-        raise ValueError(f"Cannot read plan {args.plan}: {exc}")
-    problems = pm_migrate.validate_plan(plan)
-    if problems:
-        raise ValueError("The plan is not safe to apply:\n" + "\n".join(f"  - {p}" for p in problems))
-    source = plan["source"].strip()
-    planned = []
-    for entry in plan["items"]:
-        digest = hashlib.sha256(f"{source}:{entry['key']}".encode()).hexdigest()[:6]
-        planned.append((entry, digest, f"{item_slug(entry['title'])}-{digest}"))
-
-    def board_ids(board: Path) -> tuple[dict[str, str], dict[str, str]]:
-        existing = {item["id"].rsplit("-", 1)[-1].casefold(): item["id"] for item in read_items(board)}
-        return {entry["key"]: existing.get(digest, item_id) for entry, digest, item_id in planned}, existing
-
-    if args.dry_run:
-        ids, existing = board_ids(root)
-        print(f"Dry run: {sum(digest not in existing for _, digest, _ in planned)} items would be created from {source}; nothing written.")
-        for entry, digest, _ in planned:
-            print(f"  {entry['key']} -> {ids[entry['key']]} ({'already on the board' if digest in existing else pm_migrate.plan_status(entry)})")
-        return
-
-    def change(board: Path):
-        paths = []
-        config = json.loads(config_path(board).read_text(encoding="utf-8")) if config_path(board).exists() else {"mirror": "off"}
-        record = config.setdefault("migrated_from", {})
-        accounted = sorted({entry["key"] for entry in plan["items"]} | {entry["key"] for entry in plan.get("history", [])}
-                           | set(record.get(source, [])))
-        if record.get(source) != accounted:
-            record[source] = accounted
-            config_path(board).parent.mkdir(parents=True, exist_ok=True)
-            config_path(board).write_text(json.dumps(config) + "\n", encoding="utf-8")
-            paths.append(config_path(board))
-        ids, existing = board_ids(board)
-        created = skipped = 0
-        for entry, digest, item_id in planned:
-            if digest in existing:
-                skipped += 1
-                continue
-            item = {"id": item_id, "title": entry["title"].strip(), "owner": entry.get("owner", ""),
-                    "status": pm_migrate.plan_status(entry),
-                    "depends_on": [ids[dep] for dep in entry.get("depends_on", [])], "hold": entry.get("hold", ""),
-                    "hold_until": entry.get("hold_until", ""), "github_issue": entry.get("github_issue", ""),
-                    "intent": entry["intent"], "intent_length": len(entry["intent"]), "notes": entry.get("notes", ""),
-                    "done_at": "", "path": item_dir(board) / f"{item_id}.md"}
-            save_item(item)
-            paths.append(item["path"])
-            created += 1
-        after = read_items(board)
-        history = plan.get("history", [])
-        lines = [f"Migrated {created} items from {source}" + (f" ({skipped} already on the board, left as they were)" if skipped else ""),
-                 f"Before: {plan.get('before', {}).get('total', 'unknown')} entries in the old system.",
-                 f"Imported {len(planned)}, left in git history {len(history)}; accounted for {len(planned) + len(history)}.",
-                 f"Board now: {count_line(after)}.",
-                 "Nothing in the old system was deleted. Remove it only after the owner confirms."]
-        return paths, "\n".join(lines)
-    with write_lock(root):
-        print(publish(root, change))
-
-
 # Without a remote these read or write the main checkout's board from any worktree; finish stays on the work branch.
 BOARD_WRITES = {"add", "claim", "hold", "resume", "set", "correct"}
 SHARED_BOARD_COMMANDS = BOARD_WRITES | {"board", "next", "defaults"}
@@ -1010,14 +835,11 @@ def parser() -> argparse.ArgumentParser:
     places.add_argument("--paths", action="store_true", help="print only the paths, one per line, and always exit 0")
     refs = sub.add_parser("refs", help="before moving files: what points at each path, and whether its destination is free (read-only)")
     refs.add_argument("paths", nargs="+", metavar="OLD[=NEW]")
-    mirror = sub.add_parser("mirror", help="configure the optional GitHub Issues mirror")
-    mirror.add_argument("mode", choices=("show", "off", "github"))
-    sub.add_parser("sync", help="sync items to GitHub Issues when enabled")
-    defaults = sub.add_parser("defaults", help="show or record the model and effort worker sessions and their validators use")
+    defaults = sub.add_parser("defaults", help="show or record the model and effort worker sessions use; their validators use the same unless set here")
     defaults.add_argument("--worker-model", help="exact model version for worker sessions, such as claude-sonnet-5-5")
     defaults.add_argument("--worker-effort", choices=pm_workers.EFFORTS)
     defaults.add_argument("--validator-model",
-                          help="exact model version for the validator subagent; inherit uses the worker's")
+                          help="exact model version for the validator subagent; inherit (the default) uses the worker's")
     defaults.add_argument("--validator-effort", choices=pm_workers.EFFORTS)
     worker = sub.add_parser("worker", help="run board items in their own full Claude Code worker sessions")
     wactions = worker.add_subparsers(dest="action", required=True)
@@ -1054,16 +876,6 @@ def parser() -> argparse.ArgumentParser:
     hook.add_argument("event", choices=("session-start", "stop", "permission", "whoami"))
     mode = wactions.add_parser("mode", help="show or choose this clone's permission setting for worker sessions")
     mode.add_argument("mode", nargs="?", choices=pm_workers.PERMISSION_MODES)
-    migrate = sub.add_parser("migrate", help="move an existing task system onto the board; never deletes the old one")
-    actions = migrate.add_subparsers(dest="action", required=True)
-    actions.add_parser("scan", help="list the task systems found in this repository (read-only)")
-    plan = actions.add_parser("plan", help="read the old system and save a migration plan (read-only)")
-    plan.add_argument("--from", dest="source", required=True, choices=sorted(pm_migrate.SOURCES))
-    plan.add_argument("--file", help="the file to read, for --from checklist")
-    plan.add_argument("--out", required=True, help="where to save the plan JSON, outside the repository")
-    apply = actions.add_parser("apply", help="create the items a confirmed plan describes")
-    apply.add_argument("plan", help="plan JSON from `migrate plan`, or one written by hand")
-    apply.add_argument("--dry-run", action="store_true", help="validate and list the items without writing")
     return p
 
 
@@ -1088,7 +900,7 @@ def main() -> int:
         code = {"init": cmd_init, "board": cmd_board, "next": cmd_next, "add": cmd_add,
                 "claim": cmd_claim, "finish": cmd_finish, "validated": cmd_validated, "hold": cmd_hold, "resume": cmd_resume,
                 "set": cmd_set, "correct": cmd_correct, "walk": cmd_walk, "index": cmd_index, "places": cmd_places,
-                "refs": cmd_refs, "mirror": cmd_mirror, "sync": cmd_sync, "migrate": cmd_migrate,
+                "refs": cmd_refs,
                 "defaults": cmd_defaults, "worker": cmd_worker}[args.command](root, args)
         if note:
             print(note)

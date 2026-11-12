@@ -51,7 +51,7 @@ out/
 __pycache__/
 EOF_FIXTURE
 cat > docs/pm/config.json <<'EOF_FIXTURE'
-{"mirror": "off"}
+{}
 EOF_FIXTURE
 cat > src/textkit/__init__.py <<'EOF_FIXTURE'
 """Small text helpers."""
@@ -89,7 +89,6 @@ hold: ""
 hold_until: ""
 done_at: ""
 intent_length: 97
-github_issue: ""
 ---
 # Word count
 
