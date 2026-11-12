@@ -568,10 +568,15 @@ def validator_line(state: dict) -> str:
     """What the worker passes when it starts its validator, said from inside its session. A session the plugin
     started runs its subagents on the exact validator model already; the Agent tool itself takes only a family."""
     model = state["validator_model"]
-    if model == "inherit":
+    target = state["model"] if model == "inherit" else model
+    session = os.environ.get(SUBAGENT_MODEL)
+    if model == "inherit" and not session:
         how = "your own model: pass the Agent tool no model"
-    elif os.environ.get(SUBAGENT_MODEL) == model:
+    elif session == target:
         how = "this session runs its subagents on it: pass the Agent tool no model"
+    elif model == "inherit":
+        how = (f"your own model {target}, but this session runs its subagents on {session}: pass the Agent tool the "
+               f"model {model_family(target)}, the nearest it takes")
     else:
         how = f"this session is not set to it: pass the Agent tool the model {model_family(model)}, the nearest it takes"
     return f"Validator: model {model} ({how}), effort {state['validator_effort']}"
@@ -1069,7 +1074,7 @@ def transcript_facts(path: str, item_id: str, since: float, chosen: str = "") ->
     ran = validator_models(path, since)
     if ran:
         text += f", ran on {', '.join(ran)}"
-        if chosen and any(model != chosen for model in ran):
+        if chosen and any(model not in (chosen, "unknown") for model in ran):
             text += f" (not the chosen validator model {chosen})"
     return text + "."
 

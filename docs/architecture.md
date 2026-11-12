@@ -69,7 +69,7 @@ sequenceDiagram
   CLI->>CLI: item Done on its branch: remove the worker's copy, keep the branch
 ```
 
-`init`, `plan`, `work`, `map`, and `help` read the single [placement guide](placement.md) instead of restating it. For decisions, `hold` stores the question on the item and takes it to Waiting; `resume --answer` saves the decider's exact words at the top of `## Current notes` in the same commit as the resume, which matters because a notes edit made by hand on the default branch would block the CLI's fast-forward. Lasting decisions go on the card or contract they govern, or `AGENTS.md`, through the normal change.
+`init`, `plan`, `work`, `map`, and `help` read the single [placement guide](placement.md) instead of restating it. For decisions, `hold` stores the question on the item and takes it to Waiting; `resume --answer` appends the decider's exact words to the item's `## Decisions`, which the worker never rewrites and `finish` keeps in the Done item, in the same commit as the resume, which matters because a notes edit made by hand on the default branch would block the CLI's fast-forward. Lasting decisions go on the card or contract they govern, or `AGENTS.md`, through the normal change.
 
 The coordinating session never edits project files or claims, and never uses a subagent for ticket work; each item gets its own worker session. A worker is a full interactive Claude Code session on the person's own sign-in; no path uses print mode or the SDK. It starts one of three ways, and all three keep the same record (`scripts/pm_workers.py`):
 

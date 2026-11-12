@@ -295,6 +295,21 @@ class WorkerSessionTests(unittest.TestCase):
         facts = pm_workers.transcript_facts(str(transcript), self.item, 0, "claude-haiku-5-5")
         self.assertIn("validator subagents started: 0, ran on claude-sonnet-5-5 (not the chosen validator model "
                       "claude-haiku-5-5).", facts)
+        (folder / "agent-1.jsonl").write_text(json.dumps({"type": "assistant", "message": {"model": "claude-haiku-5-5"}}) + "\n")
+        (folder / "agent-3.meta.json").write_text(json.dumps({"agentType": "pm:validator"}))  # failed before any reply
+        facts = pm_workers.transcript_facts(str(transcript), self.item, 0, "claude-haiku-5-5")
+        self.assertRegex(facts, r"ran on (claude-haiku-5-5, unknown|unknown, claude-haiku-5-5)\.$",
+                         "a model nobody read is not reported as a mismatch")
+
+    def test_an_inherit_validator_is_not_left_to_a_subagent_model_set_elsewhere(self):
+        self.cli("defaults", "--worker-model", "claude-sonnet-5-5", "--worker-effort", "medium",
+                 "--validator-model", "inherit", "--validator-effort", "low")
+        self.cli("worker", "brief", self.item, input_text="Ari")
+        copy = self.root / ".claude" / "worktrees" / "calm-wren"
+        self.git("worktree", "add", "-q", "-b", "claude/calm-wren", str(copy))
+        ticket = self.join(self.item, copy, "app-session-1", CLAUDE_CODE_SUBAGENT_MODEL="claude-haiku-5-5")
+        self.assertIn("Validator: model inherit (your own model claude-sonnet-5-5, but this session runs its subagents on "
+                      "claude-haiku-5-5: pass the Agent tool the model sonnet, the nearest it takes), effort low", ticket)
 
     def test_two_items_run_in_two_sessions_at_once(self):
         self.ready()

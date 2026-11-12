@@ -535,7 +535,7 @@ Ready next: redirect-a-short-link-9bbffa Redirect a short link</pre>
   <pre class="term"><span class="cmd">$ pm.py next</span>
 redirect-a-short-link-9bbffa Redirect a short link — docs/pm/items/redirect-a-short-link-9bbffa.md</pre>
   <h3>Answer the decision, then resume: <code>pm.py resume</code></h3>
-  <p>Dana decides expired links should return <strong>410 Gone</strong>. Resuming the hold puts C back in the queue, and <code>--answer</code> saves Dana's exact words at the top of the item's current notes in the same commit, so the next person to pick it up sees what was decided and why. (Since nobody had claimed C, it returns to Queued; a claimed item would return In flight to its owner.)</p>
+  <p>Dana decides expired links should return <strong>410 Gone</strong>. Resuming the hold puts C back in the queue, and <code>--answer</code> saves Dana's exact words in the item's Decisions section in the same commit, so the next person to pick it up sees what was decided and why. (Since nobody had claimed C, it returns to Queued; a claimed item would return In flight to its owner.)</p>
   <div class="label">You type</div>
   <pre class="slash">/pm:plan link expiry: Dana says expired links should return 410 Gone. Resume it.</pre>
   <div class="label">Skill runs</div>
@@ -841,7 +841,7 @@ Files that are not knowledge (code, data, notebooks, outputs, deliverables) go w
 | Domain vocabulary; product words versus code names | The Names table in `docs/pm/map/AGENTS.md` |
 | How a working folder&#x27;s job is done: inputs, process, outputs, verify, human check | That folder&#x27;s `CONTEXT.md`. A `CONTEXT.md` is always a folder&#x27;s contract or router, never a glossary or overview. |
 | A workflow being built (the skill shape) | Its skill folder, `.claude/skills/&lt;name&gt;/`: `SKILL.md` routes, `stages/NN_&lt;step&gt;/CONTEXT.md` are the contracts, `_shared/` and `references/` the stable material. Each run&#x27;s files go in `runs/&lt;run&gt;/`, outside the skill. |
-| One task: the requester&#x27;s exact words, the cards or stages it touches, progress, decisions, corrections | `docs/pm/items/&lt;id&gt;.md`: intent under `## Requester intent`, `touches` and `corrections` in its frontmatter, the rest under `## Current notes`. |
+| One task: the requester&#x27;s exact words, the cards or stages it touches, progress, decisions, corrections | `docs/pm/items/&lt;id&gt;.md`: intent under `## Requester intent`, the owner&#x27;s answers under `## Decisions`, `touches` and `corrections` in its frontmatter, the rest under `## Current notes`. |
 | Where a dataset or source came from, when it arrived, what reads it | `data/README.md` (or `sources/README.md`), one line each |
 | Generated lists: the board, the map&#x27;s card index | Rebuilt by `pm.py board` and `pm.py index`; never edited by hand. |
 
@@ -850,7 +850,7 @@ Files that are not knowledge (code, data, notebooks, outputs, deliverables) go w
 | Stage | What to do |
 | --- | --- |
 | Question is open | `pm.py hold ITEM_ID` with the question on stdin. The item moves to Waiting and keeps its owner. |
-| Answer arrives | Resume with the decider&#x27;s exact words: `pm.py resume ITEM_ID --answer` with the answer on stdin. They are saved at the top of the item&#x27;s `## Current notes`, in the same commit as the resume. Do not paraphrase them. |
+| Answer arrives | Resume with the decider&#x27;s exact words: `pm.py resume ITEM_ID --answer` with the answer on stdin. They are appended to the item&#x27;s `## Decisions`, which the worker never rewrites and `finish` keeps, in the same commit as the resume. Do not paraphrase them. |
 | Decision shapes future work (a convention, a constraint, a design choice) | Put it on the card or contract of the part it governs, or in `AGENTS.md` if every session needs it, through the normal change for the item. |
 | Decision only explains this change | Leave it in the item&#x27;s notes and in the PR description. |
 
@@ -995,7 +995,7 @@ Ready next: dark-mode-07343f Dark mode, export-to-csv-f078b1 Export to CSV, orph
     <tr><td><code>pm.py add [--touches PATH,PATH]</code></td><td>title line, then exact words</td><td>new Queued item, optionally naming the cards or stages it touches</td></tr>
     <tr><td><code>pm.py set ID --depends A,B --touches PATH,PATH</code></td><td>none</td><td>set dependencies, touched paths, or both (an empty value clears)</td></tr>
     <tr><td><code>pm.py hold ID [--until YYYY-MM-DD]</code></td><td>the question</td><td>move to Waiting</td></tr>
-    <tr><td><code>pm.py resume ID [--answer]</code></td><td>with <code>--answer</code>: the decider's exact words</td><td>back to Queued, or In flight for the claimer; the answer is saved in the item's current notes</td></tr>
+    <tr><td><code>pm.py resume ID [--answer]</code></td><td>with <code>--answer</code>: the decider's exact words</td><td>back to Queued, or In flight for the claimer; the answer is saved in the item's Decisions</td></tr>
     <tr><td><code>pm.py claim ID [--resume]</code></td><td>the person's name</td><td>In flight, owned; refuses an item already in flight unless <code>--resume</code> continues your own claim</td></tr>
     <tr><td><code>pm.py validated ID --verdict pass|findings</code></td><td>validator summary</td><td>record the verdict against committed work on the work branch</td></tr>
     <tr><td><code>pm.py finish ID</code></td><td>completion note</td><td>Done on the work branch only with a current pass and no uncommitted work</td></tr>

@@ -13,7 +13,7 @@ Files that are not knowledge (code, data, notebooks, outputs, deliverables) go w
 | Domain vocabulary; product words versus code names | The Names table in `docs/pm/map/AGENTS.md` |
 | How a working folder's job is done: inputs, process, outputs, verify, human check | That folder's `CONTEXT.md`. A `CONTEXT.md` is always a folder's contract or router, never a glossary or overview. |
 | A workflow being built (the skill shape) | Its skill folder, `.claude/skills/<name>/`: `SKILL.md` routes, `stages/NN_<step>/CONTEXT.md` are the contracts, `_shared/` and `references/` the stable material. Each run's files go in `runs/<run>/`, outside the skill. |
-| One task: the requester's exact words, the cards or stages it touches, progress, decisions, corrections | `docs/pm/items/<id>.md`: intent under `## Requester intent`, `touches` and `corrections` in its frontmatter, the rest under `## Current notes`. |
+| One task: the requester's exact words, the cards or stages it touches, progress, decisions, corrections | `docs/pm/items/<id>.md`: intent under `## Requester intent`, the owner's answers under `## Decisions`, `touches` and `corrections` in its frontmatter, the rest under `## Current notes`. |
 | Where a dataset or source came from, when it arrived, what reads it | `data/README.md` (or `sources/README.md`), one line each |
 | Generated lists: the board, the map's card index | Rebuilt by `pm.py board` and `pm.py index`; never edited by hand. |
 
@@ -22,7 +22,7 @@ Files that are not knowledge (code, data, notebooks, outputs, deliverables) go w
 | Stage | What to do |
 | --- | --- |
 | Question is open | `pm.py hold ITEM_ID` with the question on stdin. The item moves to Waiting and keeps its owner. |
-| Answer arrives | Resume with the decider's exact words: `pm.py resume ITEM_ID --answer` with the answer on stdin. They are saved at the top of the item's `## Current notes`, in the same commit as the resume. Do not paraphrase them. |
+| Answer arrives | Resume with the decider's exact words: `pm.py resume ITEM_ID --answer` with the answer on stdin. They are appended to the item's `## Decisions`, which the worker never rewrites and `finish` keeps, in the same commit as the resume. Do not paraphrase them. |
 | Decision shapes future work (a convention, a constraint, a design choice) | Put it on the card or contract of the part it governs, or in `AGENTS.md` if every session needs it, through the normal change for the item. |
 | Decision only explains this change | Leave it in the item's notes and in the PR description. |
 

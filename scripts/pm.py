@@ -71,7 +71,13 @@ def read_items(root: Path) -> list[dict]:
                 intent_start = start + len(section)
                 intent_length = meta["intent_length"]
                 intent_text = body[intent_start:intent_start + intent_length]
-                notes_header = body.find("## Current notes\n", intent_start + intent_length)
+                after_intent = intent_start + intent_length
+                decisions_header = body.find("## Decisions\n", after_intent)
+                if decisions_header >= 0 and isinstance(meta.get("decisions_length"), int):
+                    decisions_start = decisions_header + len("## Decisions\n")
+                    meta["decisions"] = body[decisions_start:decisions_start + meta["decisions_length"]]
+                    after_intent = decisions_start + meta["decisions_length"]
+                notes_header = body.find("## Current notes\n", after_intent)
                 notes_text = body[notes_header + len("## Current notes\n"):] if notes_header >= 0 else ""
             else:
                 intent = re.search(r"^## Requester intent\n(.*?)(?=^## Current notes\n|\Z)", body, re.M | re.S)
@@ -90,7 +96,12 @@ def item_text(item: dict) -> str:
     lines.extend(f"{key}: {json.dumps(item.get(key, [] if key == 'depends_on' else 0 if key == 'intent_length' else ''), ensure_ascii=False)}" for key in keys)
     # Later list fields are written only when set, so older item files stay unchanged and merge cleanly.
     lines.extend(f"{key}: {json.dumps(item[key], ensure_ascii=False)}" for key in ("touches", "corrections") if item.get(key))
-    lines.extend(("---", f"# {item['title']}", "", "## Requester intent", item["intent"], "", "## Current notes", item.get("notes", ""), ""))
+    if item.get("decisions"):
+        lines.append(f"decisions_length: {len(item['decisions'])}")
+    lines.extend(("---", f"# {item['title']}", "", "## Requester intent", item["intent"], ""))
+    if item.get("decisions"):
+        lines.extend(("## Decisions", item["decisions"], ""))
+    lines.extend(("## Current notes", item.get("notes", ""), ""))
     return "\n".join(lines)
 
 
@@ -130,7 +141,7 @@ def render_board(root: Path, items: list[dict]) -> str:
             continue
         for item in selected:
             notes = []
-            current_note = " ".join((item.get("notes") or item.get("intent", "")).split())
+            current_note = " ".join((item.get("notes") or item.get("decisions") or item.get("intent", "")).split())
             if current_note:
                 notes.append(current_note if len(current_note) <= 120 else current_note[:119] + "…")
             if item.get("owner"):
@@ -524,10 +535,7 @@ def cmd_finish(root: Path, args) -> None:
                              "belong to it), then run finish again; the board says Done only for committed work.")
         validation_line = verdict.group(0)
         completion = note.strip() or "Work complete."
-        # The owner's answers (`resume --answer`) stay in the Done item, so what was decided can be seen later.
-        decisions = "".join(f"\n\n{found}" for found in re.findall(r'^Decision on ".*?(?=\n\n|\nValidation: |\Z)', item.get("notes", ""),
-                                                                     re.M | re.S) if found.strip() not in completion)
-        item.update(status="done", owner="", notes=f"{completion}{decisions}\n{validation_line}",
+        item.update(status="done", owner="", notes=f"{completion}\n{validation_line}",
                     done_at=datetime.now(timezone.utc).isoformat(timespec="microseconds"))
         save_item(item)
         path = item["path"].relative_to(root).as_posix()
@@ -566,8 +574,8 @@ def cmd_resume(root: Path, args) -> None:
             raise ValueError(f"{item['id']} is not waiting on a decision.")
         status = "in-flight" if item.get("owner") else "queued"
         if answer:
-            old = item.get("notes", "")
-            item["notes"] = f'Decision on "{item["hold"]}": {answer}' + (f"\n\n{old}" if old else "")
+            decision = f'Decision on "{item["hold"]}": {answer}'
+            item["decisions"] = f'{item["decisions"]}\n\n{decision}' if item.get("decisions") else decision
         item.update(status=status, hold="", hold_until="")
         save_item(item)
         return [item["path"]], f"Returned {item['id']} to {'In flight' if item.get('owner') else 'Queued'}."
@@ -840,7 +848,8 @@ def cmd_sync(root: Path, args) -> None:
 
 
 def sync_issue(root: Path, item: dict, created: dict[str, str]) -> str:
-    body = f"Requester intent (verbatim):\n\n{item['intent']}\n\nCurrent notes:\n\n{item.get('notes', '')}\n\nStatus: {item.get('status')}"
+    decisions = f"Decisions:\n\n{item['decisions']}\n\n" if item.get("decisions") else ""
+    body = f"Requester intent (verbatim):\n\n{item['intent']}\n\n{decisions}Current notes:\n\n{item.get('notes', '')}\n\nStatus: {item.get('status')}"
     if item.get("github_issue"):
         number = str(item["github_issue"])
         command = ["gh", "issue", "edit", number, "--title", item["title"], "--body", body]
@@ -984,7 +993,7 @@ def parser() -> argparse.ArgumentParser:
     validated.add_argument("--verdict", choices=("pass", "findings"), required=True)
     resume = sub.add_parser("resume", help="release a hold; a claimed item returns to its owner In flight, others to queue")
     resume.add_argument("id")
-    resume.add_argument("--answer", action="store_true", help="stdin is the decider's exact words; saved at the top of the item's current notes")
+    resume.add_argument("--answer", action="store_true", help="stdin is the decider's exact words; appended to the item's ## Decisions")
     hold = sub.add_parser("hold", help="park an item for a decision; stdin is the question")
     hold.add_argument("id"); hold.add_argument("--until", default="")
     update = sub.add_parser("set", help="set dependencies and the map cards or stage folders an item touches")

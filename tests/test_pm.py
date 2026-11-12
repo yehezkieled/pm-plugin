@@ -156,7 +156,7 @@ class ProjectBoardTests(unittest.TestCase):
         self.run_cli("hold", item_id, input_text="Café: 404 or 410?")
         self.run_literal_cli("resume", item_id, "--answer", input_text="Dana: use $HOME 410 Gone")
         detail = self.item_file(item_id).read_text()
-        self.assertIn('## Current notes\nDecision on "Café: 404 or 410?": Dana: use $HOME 410 Gone', detail)
+        self.assertIn('## Decisions\nDecision on "Café: 404 or 410?": Dana: use $HOME 410 Gone\n\n## Current notes\n', detail)
         self.assertIn("## Queued", self.board().split("## Waiting")[0])
         self.run_cli("hold", item_id, input_text="Again?")
         self.run_cli("resume", item_id, "--answer", ok=False, input_text=" ")
@@ -281,16 +281,33 @@ class ProjectBoardTests(unittest.TestCase):
         self.assertIn("Implemented and checked\nValidation: pass at ", notes)
         self.assertIn(": Checks passed after fix", notes)
 
-    def test_finish_keeps_the_owners_decision_in_the_done_item(self):
+    def test_finish_keeps_the_owners_decisions_word_for_word_in_the_done_item(self):
         item_id = self.add("Farewell", "Add a farewell")
         self.run_cli("claim", item_id, input_text="Ari")
         self.run_cli("hold", item_id, input_text="Which language?")
-        self.run_literal_cli("resume", item_id, "--answer", input_text="Spanish.\nUse adiós.")
+        self.run_literal_cli("resume", item_id, "--answer", input_text="Spanish.\n\nAlso keep the English fallback.")
+        self.run_cli("hold", item_id, input_text="Which greeting?")
+        self.run_literal_cli("resume", item_id, "--answer", input_text="Adiós.")
+        path = self.item_file(item_id)
+        # The worker rewrites its notes with a progress line right after the decisions.
+        path.write_text(path.read_text().replace("## Current notes\n", "## Current notes\nWrote farewell(); checks pass.\n"))
         self.run_cli("validated", item_id, "--verdict", "pass", input_text="Checks passed")
         self.run_cli("finish", item_id, input_text="Added farewell()")
-        notes = self.item_file(item_id).read_text().split("## Current notes\n", 1)[1]
-        self.assertRegex(notes, r'^Added farewell\(\)\n\nDecision on "Which language\?": Spanish\.\nUse adiós\.\n'
-                                r"Validation: pass at [0-9a-f]{40}: Checks passed\n$")
+        decisions, notes = path.read_text().split("## Decisions\n", 1)[1].split("\n## Current notes\n")
+        self.assertEqual(decisions, 'Decision on "Which language?": Spanish.\n\nAlso keep the English fallback.\n\n'
+                                    'Decision on "Which greeting?": Adiós.\n')
+        self.assertRegex(notes, r"^Added farewell\(\)\nValidation: pass at [0-9a-f]{40}: Checks passed\n$")
+        self.assertIn(f"[{item_id}]({path.relative_to(self.root).as_posix()}) Farewell — Added farewell()", self.board())
+
+    def test_an_item_written_before_decisions_had_their_section_still_finishes(self):
+        item_id = self.add("Older", "Written before")
+        self.run_cli("claim", item_id, input_text="Ari")
+        path = self.item_file(item_id)
+        path.write_text(path.read_text().replace("## Current notes\n", '## Current notes\nDecision on "Old?": Yes.\n'))
+        self.run_cli("validated", item_id, "--verdict", "pass", input_text="Checks passed")
+        self.run_cli("finish", item_id, input_text="Done")
+        self.assertNotIn("## Decisions", path.read_text())
+        self.assertIn("## Done", self.board().split(f"[{item_id}]")[0])
 
     def test_validated_refuses_uncommitted_non_board_work(self):
         item_id = self.add("Dirty validation", "Commit first")
