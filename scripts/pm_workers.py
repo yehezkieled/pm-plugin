@@ -268,8 +268,8 @@ MODE_CHOICES = (
     "`pm.py worker mode MODE`:\n"
     "- auto (recommended): a safety check approves routine edits and commands and blocks risky ones; "
     "falls back to acceptEdits where auto mode is unavailable\n"
-    "- acceptEdits: file edits are approved; every command outside the person's own allow rules waits for their yes "
-    "in the worker's session, the worker's `pm.py` and `git` calls included\n"
+    "- acceptEdits: file edits are approved, but the worker's own `pm.py` and `git` calls wait for the person's yes "
+    "in its session: about 5 permission prompts per item, which allow rules do not prevent\n"
     "- default: only what the person's allow rules already permit; every other edit or command waits for their yes\n"
     "- bypassPermissions: no checks at all\n"
     "A worker the Claude app starts takes the app's own permission setting instead.")
@@ -568,10 +568,15 @@ def validator_line(state: dict) -> str:
     """What the worker passes when it starts its validator, said from inside its session. A session the plugin
     started runs its subagents on the exact validator model already; the Agent tool itself takes only a family."""
     model = state["validator_model"]
-    if model == "inherit":
+    target = state["model"] if model == "inherit" else model
+    session = os.environ.get(SUBAGENT_MODEL)
+    if model == "inherit" and not session:
         how = "your own model: pass the Agent tool no model"
-    elif os.environ.get(SUBAGENT_MODEL) == model:
+    elif session == target:
         how = "this session runs its subagents on it: pass the Agent tool no model"
+    elif model == "inherit":
+        how = (f"your own model {target}, but this session runs its subagents on {session}: pass the Agent tool the "
+               f"model {model_family(target)}, the nearest it takes")
     else:
         how = f"this session is not set to it: pass the Agent tool the model {model_family(model)}, the nearest it takes"
     return f"Validator: model {model} ({how}), effort {state['validator_effort']}"
@@ -593,9 +598,10 @@ def new_state(item_id: str, person: str, chosen: dict, **fields) -> dict:
 def session_settings(root: Path, state: dict) -> Path:
     """The settings file a worker session is started with: which item it is, the exact model its subagents (its
     validator is the only one) run on, and that it stays in the copy it was started in."""
-    env = {"PM_WORKER": state["item"], "PM_COORDINATOR_ROOT": str(root)}
-    if state["validator_model"] != "inherit":
-        env[SUBAGENT_MODEL] = state["validator_model"]
+    # The validator agent names no model of its own, so this setting decides it: the person's exact choice, or for
+    # `inherit` the worker's own model, which also keeps a subagent model set elsewhere from taking over.
+    env = {"PM_WORKER": state["item"], "PM_COORDINATOR_ROOT": str(root),
+           SUBAGENT_MODEL: state["model"] if state["validator_model"] == "inherit" else state["validator_model"]}
     path = settings_path(root, state["item"])
     write_json(path, {"env": env, "worktree": {"bgIsolation": "none"}})
     return path
@@ -1005,8 +1011,35 @@ def hook_state(root: Path, payload: dict, bind_handover: bool = False) -> dict |
 BOARD_COMMAND = r"\b(claim|hold|resume|validated|finish|correct)\s+[\"']?{item}\b([^\n;&|]*)"
 
 
-def transcript_facts(path: str, item_id: str, since: float) -> str:
-    """What the worker's own session did this turn, read from its transcript rather than from its report."""
+def validator_models(path: str, since: float) -> list[str]:
+    """The model each pm:validator subagent started this turn ran on, as Claude Code recorded it on its replies in the
+    subagent's own transcript (`<session>/subagents/agent-*.jsonl`). The `.meta.json` beside it only identifies the
+    agent: its `pickedEffortModel` can name another model than the one that answered."""
+    models = []
+    folder = Path(path).with_suffix("") / "subagents" if path else None
+    metas = sorted(folder.glob("*.meta.json"), key=lambda found: found.stat().st_mtime) if folder and folder.is_dir() else []
+    for meta_path in metas:
+        meta = read_json(meta_path) or {}
+        log = meta_path.with_name(meta_path.name[:-len(".meta.json")] + ".jsonl")
+        if meta.get("agentType") != "pm:validator" or (log if log.exists() else meta_path).stat().st_mtime < since - 1:
+            continue
+        ran = ""
+        try:
+            for line in log.read_text(encoding="utf-8", errors="replace").splitlines() if log.exists() else []:
+                event = json.loads(line)
+                message = event.get("message") if event.get("type") == "assistant" else None
+                if isinstance(message, dict) and message.get("model"):
+                    ran = message["model"]
+                    break
+        except (OSError, ValueError, AttributeError):
+            pass
+        models.append(ran or "unknown")
+    return models
+
+
+def transcript_facts(path: str, item_id: str, since: float, chosen: str = "") -> str:
+    """What the worker's own session did this turn, read from its transcript rather than from its report. `chosen`
+    is the exact model its validator should run on; one that ran on another model is named, so a mismatch shows."""
     board_command = re.compile(BOARD_COMMAND.format(item=re.escape(item_id)))
     commands, validators = [], 0
     try:
@@ -1037,7 +1070,13 @@ def transcript_facts(path: str, item_id: str, since: float) -> str:
                 for name, rest in board_command.findall(str(data.get("command", ""))):
                     verdict = re.search(r"--verdict\s+(pass|findings)", rest)
                     commands.append(f"{name} --verdict {verdict.group(1)}" if verdict else name)
-    return f"Its board commands this turn: {', '.join(commands) or 'none'}; validator subagents started: {validators}."
+    text = f"Its board commands this turn: {', '.join(commands) or 'none'}; validator subagents started: {validators}"
+    ran = validator_models(path, since)
+    if ran:
+        text += f", ran on {', '.join(ran)}"
+        if chosen and any(model not in (chosen, "unknown") for model in ran):
+            text += f" (not the chosen validator model {chosen})"
+    return text + "."
 
 
 def cmd_hook(root: Path, event: str, payload: dict, plugin_root: Path, places_block) -> int:
@@ -1075,7 +1114,8 @@ def cmd_hook(root: Path, event: str, payload: dict, plugin_root: Path, places_bl
         # Not the end of its turn: a background task (its validator) wakes it again, or the places check sends it back.
         update_state(root, item_id, interim=text, seen_mode=mode, background=bool(payload.get("background_tasks")))
         return 0
-    facts = transcript_facts(str(payload.get("transcript_path") or ""), item_id, float(state.get("prompted_at") or 0))
+    chosen = state.get("model", "") if state.get("validator_model") == "inherit" else state.get("validator_model", "")
+    facts = transcript_facts(str(payload.get("transcript_path") or ""), item_id, float(state.get("prompted_at") or 0), chosen)
     state = update_state(root, item_id, state="reported", report=text, report_at=time.time(), facts=facts,
                          seen_mode=mode, needs="", interim="", background=False)
     append_log(root, item_id, {"event": "report", "report": text})
@@ -1290,7 +1330,11 @@ def doing(root: Path, state: dict, listed: list[dict] | None) -> str:
         return (f"waiting on {what}" + (f" for {state['needs']}" if state.get("needs") and "permission" in what else "")
                 + f", in its own session ({how_to_open(state)})")
     if turn_ended(state):
-        return "turn ended: " + short(state.get("report") or "no final report", 160)
+        ended = "turn ended: " + short(state.get("report") or "no final report", 160)
+        if branch_facts(root, state)[1]:  # Done on its branch, but nothing has tidied it yet
+            ended += (f"; it is Done on its branch: run `pm.py worker wait {state['item']}` to close its session and "
+                      "remove its copy")
+        return ended
     if kind == "stopped":
         return "stopped; `pm.py worker answer` continues it"
     if state["started_by"] == BACKGROUND and listed is not None and not running(entry):

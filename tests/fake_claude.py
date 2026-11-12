@@ -116,6 +116,28 @@ def wrote(spec, *tool_uses, sidechain=False):
                                                              for name, data in tool_uses]}}) + "\n")
 
 
+def subagent_model(spec, agent):
+    """The model Claude Code runs a plugin subagent on (code.claude.com/docs/en/sub-agents, "Choose a model"): the
+    agent's own `model:` (`inherit` is the session's model), else CLAUDE_CODE_SUBAGENT_MODEL, else the session's."""
+    session_model = value("--model", spec["argv"]) or "claude-default"
+    text = (Path(spec["plugin"]) / "agents" / f"{agent}.md").read_text(encoding="utf-8")
+    front = text.split("---", 2)[1] if text.startswith("---") else ""
+    declared = next((line.split(":", 1)[1].strip() for line in front.splitlines() if line.startswith("model:")), "")
+    if declared:
+        return session_model if declared == "inherit" else declared
+    return spec["env"].get("CLAUDE_CODE_SUBAGENT_MODEL") or session_model
+
+
+def ran_validator(spec):
+    """A pm:validator subagent's own transcript and meta file, where Claude Code records the model it ran on."""
+    folder = Path(spec["transcript"]).with_suffix("") / "subagents"
+    folder.mkdir(parents=True, exist_ok=True)
+    name, model = f"agent-{uuid.uuid4().hex[:16]}", subagent_model(spec, "validator")
+    (folder / f"{name}.meta.json").write_text(json.dumps({"agentType": "pm:validator", "pickedEffortModel": "not the model it ran on"}))
+    (folder / f"{name}.jsonl").write_text(json.dumps({"type": "assistant", "isSidechain": True,
+                                                      "message": {"model": model, "content": []}}) + "\n")
+
+
 def do_the_work(spec, item, prompt, litter):
     """What a worker does for its item, through the real board CLI in its own copy."""
     env = dict(os.environ, **spec["env"], CLAUDE_CODE_SESSION_ID=spec["sessionId"])
@@ -170,6 +192,7 @@ def run_session(spec):
         if item:  # what a worker's own session does: claim through a shell variable, then start its validator
             wrote(spec, ("Bash", {"command": f'printf Ari | "$PM" claim {item}'}), ("Agent", {"subagent_type": "pm:validator"}))
             wrote(spec, ("Bash", {"command": f"pm.py validated {item} --verdict pass"}), sidechain=True)
+            ran_validator(spec)
         time.sleep(float(os.environ.get("FAKE_CLAUDE_SLEEP", "0")))
         asks = os.environ.get("FAKE_CLAUDE_PERMISSION")
         if asks and turn == 1:
