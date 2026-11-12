@@ -1,132 +1,50 @@
 # pm: a small project board for Claude Code
 
-The plugin keeps a team's work as one Markdown file per item under `docs/pm/items/`; `/pm:status` renders the board from those files. It also structures the repository so an agent loads only what a task needs, following ICM (below). It uses Claude Code skills as the workflow, so the active Claude model can be Sonnet, Opus, or another supported model.
+The plugin keeps a team's work as one Markdown file per item under `docs/pm/items/`. Each item is done by its own full, interactive Claude Code worker session on your usual sign-in, and checked by a separate validator before Done. It also structures the repository so an agent loads only what a task needs, following ICM (below).
 
 ```text
 AGENTS.md             # The catalog: where things go, where to go, every-session rules (CLAUDE.md is @AGENTS.md)
 docs/pm/
-├── config.json       # Board marker, GitHub mirror setting, migration record
+├── config.json       # Board marker and the worker model defaults
 ├── items/            # One file per item: exact requester intent, what it touches, status, owner, current notes
 └── map/              # Optional System map from /pm:map: one card per part, what a change hits
 ```
 
-## Skills
-
-New here? The [step-by-step guide](docs/guide.html) walks one sample project through every command with real output. Open the file in a browser. The [setup and migration manual](docs/manual.md) covers installing, updating, and moving a project that already tracks work elsewhere onto the board.
-
-| Skill | Use | Main result |
-| --- | --- | --- |
-| `/pm:init` | Set up the board and the repository's structure: a small catalog `AGENTS.md` whose Where things go table fits the project's shape | Board, catalog, files in their places, walk test result |
-| `/pm:plan` | Record a request in the requester's exact words, with the cards or stages it touches | Queued item with a separate detail file |
-| `/pm:work` | Do any project work through an item: add it if missing, then hand it to its own worker session that claims, builds, commits, and gets it validated | Committed work, updated cards and item notes, a validation verdict, item Done |
-| `/pm:status` | See current work, owners, holds, what is ready, and sources to fix | Board and dependency-aware next items |
-| `/pm:map` | Understand the current codebase part by part | System map in `docs/pm/map/`: cards, change impact, generated index, committed |
-| `/pm:migrate` | Move an existing task system onto the board | Items with the original words kept, counts before and after, other knowledge routed |
-| `/pm:help` | See the short command guide | Skill and CLI reference |
-
-## One flow, structured with ICM
-
-You only run `/pm:*` commands; each applies ICM (Interpretable Context Methodology) at its moment. The repository is a library: small routing files are the catalog, the facts sit on shelves, and the agent walks only to the shelf its task needs.
-
-```text
-/pm:init ──> which shape? analysis · automation · skill · app · research (icm/shapes.md)
-   ├─> AGENTS.md catalog with a Where things go table; existing files moved into place after one yes
-   ├─> skill shape only: .claude/skills/<name>/ with numbered stages
-   └─> walk test (pm.py walk + a cold walk)
-/pm:map ───> docs/pm/map/: catalog, one card per part, effects index ──> pm.py index ──> walk test
-/pm:plan ──> item records the requester's words + the cards or stages it touches (--touches)
-/pm:work ──> adds the item if missing ──> one worker session per item (a separate Claude Code session; ready items at once, each in its own worktree)
-   worker ──> claims it ──> loads only what it touches ──> builds ──> Verify ──> commit
-            ──> pm:validator (a fresh subagent) passes it ──> finish   or   findings ──> fix, re-validate (2 rounds) ──> hold
-            └─> a question ──> the session you talk to asks you ──> your answer goes back into the same worker session
-               └─> every new file goes where the table says; the Stop hook catches one that does not (pm.py places)
-               └─> a correction is recorded (pm.py correct); the third of one kind says: fix the source
-```
-
-| Part | What it means here |
+| Skill | Use |
 | --- | --- |
-| Catalog | `AGENTS.md` stays under 60 lines and routes; `CLAUDE.md` is `@AGENTS.md`. |
-| Project shapes | One spine for every project (`docs/pm/items/`, `docs/`, `reports/`, `out/`, a clean root) plus the rows of its shape, stamped into `AGENTS.md` › Where things go by `/pm:init`. A project keeps the names it already uses. Only the skill shape gets ICM stages inside a skill folder, packageable as a Claude skill, with each run's files in `runs/<run>/`. |
-| Where things go | Before creating a file an agent finds its kind in the table. `pm.py places` lists new files outside the table's places, and the Stop hook asks the agent once to move them or add a row. |
-| Contracts | Every working folder's `CONTEXT.md` names its Inputs, Process, Outputs, Verify, and Human check. |
-| System map | `docs/pm/map/` holds object and process cards that cite `path:line`, say what a change hits and does not hit, and an index generated by `pm.py index`. It replaces the old `docs/pm/CODEBASE.md`. |
-| Walk test | `pm.py walk` checks the structure mechanically; the skills then walk it cold. It runs after `/pm:init`, `/pm:map`, and any restructure. |
-| Restructure gate | Inventory, `pm.py refs` (what points at a file, case-folded destination check), proposal, your yes, then `git mv` with a rename check. |
-| Fix the source | `pm.py correct` records corrections; at three of one kind on one source, the CLI and the board suggest a lasting change to that source. |
-
-The method is from Jake Van Clief and David McDermott, *Interpretable Context Methodology: Folder Structure as Agent Architecture* ([arXiv:2603.16021](https://arxiv.org/abs/2603.16021)). The guides and templates in [`icm/`](icm/README.md) are adapted from [icm-architect](https://github.com/RinDig/icm-architect) (MIT, © 2026 Jake Van Clief) and the [ICM repository](https://github.com/RinDig/Interpretable-Context-Methodology) (MIT); see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). The separate icm-architect skill is not needed.
-
-## Where knowledge goes
-
-Files go where `AGENTS.md` › Where things go says for their kind ([icm/shapes.md](icm/shapes.md)); findings for people are deliverables in `reports/`. Each fact goes in the most specific file that owns it, once, and knowledge useful to every contributor lives in the repo. The skills that write knowledge (`init`, `plan`, `work`, `map`) follow the one [placement guide](docs/placement.md), which `/pm:help` also prints: `AGENTS.md` as the catalog with only every-session rules, `README.md` for the product overview, the System map's cards for architecture and per-part gotchas, a folder's `CONTEXT.md` for its contract (never a glossary; vocabulary goes in the map's Names table), and `docs/pm/items/<id>.md` for one task. Decisions: an open question is a hold, the answer goes into the item's `## Decisions` in the decider's exact words (`pm.py resume ITEM_ID --answer`), decisions that shape future work go on the card or contract they govern (or `AGENTS.md` if every session needs them), and rationale for one change stays in the item and its PR. The placement guide also records which rule won where pm and ICM differed.
-
-## Migrating an existing system
-
-`/pm:init` looks for a system the project already uses and hands off to `/pm:migrate`; `/pm:migrate` can also be run directly. It recognises pm-plugin 0.x boards (`docs/pm/tickets/`) and Markdown checklists (`TODO.md` and similar), and builds a plan by hand for anything else (a tasks folder, Beads, GitHub Issues, a Linear export). The agent shows what it found, how each field maps, and the counts before and after; it writes items only after your yes, keeps each task's original words as the requester intent, routes roadmaps, epics, and decisions to the file [placement.md](docs/placement.md) names, and never deletes the old system without your confirmation. Steps, per-source mappings, and how to add a new source are in the [manual](docs/manual.md).
-
-## Coordinator and workers
-
-The session you talk to coordinates and never builds, and it is the only session you need to read. `/pm:work` files or picks the item, then gives it to a **worker session**: a full, interactive Claude Code session (the `pm:worker` agent, [agents/worker.md](agents/worker.md)) with its own context in its own copy of the project. It runs on the sign-in you already use; you can open it, watch it, and talk to it. Nothing in the plugin starts a print-mode or SDK run, and the coordinator never uses a subagent for ticket work.
-
-| Where you work | Who starts the worker | You open it with | Its copy and branch |
-| --- | --- | --- | --- |
-| Terminal | the plugin: `pm.py worker start` runs `claude --bg` | `claude attach <id>` | `.claude/worktrees/pm-<item>/`, branch `pm/<item>` |
-| Claude app | the coordinating session, with the app's own session-starting tool; `pm.py worker brief` prints the model and the one-line first message | the app's session list | made by the app; the worker records them |
-| Background sessions blocked | you: open a session in the folder the plugin names, and it gets its first message by itself | that window | `.claude/worktrees/pm-<item>/`, branch `pm/<item>` |
-
-The Claude app row follows what an app session reported about its own tools and has not been run on a real app session yet; the [manual](docs/manual.md) has the checklist.
+| `/pm:init` | Set up the board and a small `AGENTS.md` catalog whose Where things go table fits the project's shape |
+| `/pm:plan` | Record a request in the requester's exact words |
+| `/pm:work` | Do any project work: each item goes to its own worker session, which claims, builds, commits, and gets it validated |
+| `/pm:status` | See what is in flight, waiting, and ready |
+| `/pm:map` | Map the code as cards that say what a change hits |
+| `/pm:help` | The short command guide |
 
 ```text
 you ──▶ coordinating session ──▶ worker session (full session, own copy of the project)
-         ▲   files, relays, checks        join ─▶ claim ─▶ build ─▶ commit ─▶ validator subagent ─▶ finish
-         │                                                  │ question, or something its permission setting refused
-         └──────── report ◀─────────────────────────────────┘
-you answer ──▶ pm.py resume --answer (board) ──▶ pm.py worker answer ──▶ same session continues
-item Done on its branch ──▶ the worker's copy is removed (never with uncommitted work in it); the branch stays
+         ▲   files, relays, checks        claim ─▶ build ─▶ commit ─▶ validator subagent ─▶ finish
+         └──────── report, or a question for you ◀──┘
 ```
 
-The worker claims the item under your name, does the work inside the Where things go table, commits it, and has a separate `pm:validator` subagent ([agents/validator.md](agents/validator.md)) check it against your words, the cards it touches, the table, and the project's tests. The validator records its verdict with `pm.py validated ITEM_ID --verdict pass` or `--verdict findings`; the worker confirms the recorded result before finishing. `finish` requires a current recorded pass, so a changed commit must be validated again. This is a guardrail against forgetting validation, not protection against a worker deliberately faking a pass: the CLI cannot tell who called it, and the worker's session log shows each `pm:validator` launch. On findings the worker fixes them and asks a fresh validator again, at most two fix rounds; work that still fails, and any question only you can answer, parks the item in Waiting with the question, which the coordinator relays to you. Your answer is saved on the item (`pm.py resume --answer`) and sent into the same worker session (`pm.py worker answer`), which continues with its context intact. `pm.py worker list` shows what each worker is doing or waiting on.
-
-| Setting | Chosen by | Kept in |
-| --- | --- | --- |
-| Model and effort of worker sessions and of their validator subagents. Models are exact versions such as `claude-sonnet-5-5` (an alias like `sonnet` is refused); the validator's may be `inherit` | you, asked once by `/pm:init` (or by `/pm:work` when a project has none yet); a model or effort you name for one item wins for that worker | `docs/pm/config.json` (`pm.py defaults`) |
-| Permission setting for the worker sessions the plugin starts: `auto` (recommended; falls back to `acceptEdits` where auto mode is unavailable), `acceptEdits`, `default`, or `bypassPermissions`. A worker the Claude app starts uses the app's setting | you, asked once by `/pm:work` the first time it starts a worker in a copy of the project | this clone only, not committed (`pm.py worker mode`) |
-
-A worker that reaches a permission prompt waits for you: the coordinator says what it asks and how to open that session, and you answer there. What `auto` refuses comes back in the worker's report; if you allow it, the coordinator tells that worker so (`pm.py worker answer`). Under `acceptEdits` expect about 5 permission prompts per item, for the worker's own `pm.py` and `git` commands (allow rules do not cover them), which is why `auto` is recommended. The plugin never picks a model, an effort, or a permission setting for you.
-
-Ready items that do not depend on each other run in their own worker sessions at the same time; one that depends on another waits until that one is Done. A lone worker runs in your checkout, so it sees files you left there. Every item's branch starts from the branch the board lives on, never from another item's. The claim is still the guard: a second claim of an item already in flight fails even under the same name, unless a worker continues its own claim with `claim --resume`. Without a remote, the board lives in the main checkout and every worktree reads and writes it there, so parallel workers see each other's claims. Each worker's session, copy, branch, and last report are kept in the clone's Git directory (`.git/pm-workers/`), so a coordinating session that restarts or loses its context finds them again with `pm.py worker list`; the board stays the record of the work. When an item is Done on its branch, the worker's copy is removed and its background session closed; a copy with anything uncommitted is kept and named, and `pm.py worker answer` puts a removed copy back when that session is needed again. Worker sessions the plugin starts need the `claude` command (`PM_CLAUDE` when set, otherwise `claude` on `PATH` or the Claude Code running your session); nothing else is required.
-
-## Collaboration and item flow
-
-The item files are the only board state in git. The board is rendered on demand, showing In flight, Queued, Waiting, and the latest ten Done items; no generated file is committed. When a remote is configured, `/pm:plan` and the other board updates (`add`, `set`, `hold`, `resume`, and `claim`) commit the item file and push it to the default branch, so every clone sees the same items. A `/pm:work` worker claims an item before code changes, and the claim is published the same way before work starts; completion is committed on the work branch and becomes shared when its PR is merged. Items can depend on other items, and a decision hold moves an item to Waiting without releasing its claim; resuming returns a claimed item to its owner In flight. The [architecture guide](docs/architecture.md) documents the coordination and board lifecycle details.
-
-GitHub Issues sync is off by default. Enabling it with `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/pm.py" mirror github` authorizes publishing each item's requester intent and current notes to this repository's GitHub Issues audience when `.../pm.py sync` runs. The command prints this disclosure when enabled, and the setting is stored in `docs/pm/config.json`. New issue numbers are saved in the item files and published to the shared default branch like other board updates, so other clones update the same issues. The local Markdown files remain the source of truth.
-
-Hooks print the board at session start, with a note that any project work goes through `/pm:work` and its worker sessions, not edits in the session itself (a worker session gets a note naming its item instead), work to add through `/pm:plan`, and every new file where `AGENTS.md` › Where things go says (and a one-line pointer to `/pm:init` while `AGENTS.md` has no such table, or to `/pm:map` while an old `docs/pm/CODEBASE.md` has no System map yet). At stop, a new file outside the table's places sends the agent back once to move it or ask for a row; otherwise the hook reminds the agent when code changed without an item detail update. Nothing else blocks a session.
+**Everything else is in the [manual](docs/manual.md):** install and update, setup, project shapes, the System map, worker sessions and their settings, how the board is shared, hooks, how the plugin is built, and troubleshooting. Where each kind of knowledge goes is in [placement.md](docs/placement.md).
 
 ## Install
 
 ```bash
-claude plugin marketplace add /path/to/pm-plugin
+claude plugin marketplace add yehezkieled/pm-plugin     # or a local path
 claude plugin install pm@pm-plugin
 ```
 
-To update, run `claude plugin marketplace update pm-plugin` then `claude plugin update pm@pm-plugin`, and restart Claude Code. A project still on a pm 0.x board needs `/pm:init` once to migrate it. A project from pm 1.0 can run `/pm:init` again to make `AGENTS.md` a small catalog, and `/pm:map` to turn `docs/pm/CODEBASE.md` into a System map; both show their plan and wait for your yes.
+Then run `/pm:init` in a project. Needs Python 3 and Git.
 
-For local development:
+## Credit
+
+The structure follows Jake Van Clief and David McDermott, *Interpretable Context Methodology: Folder Structure as Agent Architecture* ([arXiv:2603.16021](https://arxiv.org/abs/2603.16021)). The guides and templates in [`icm/`](icm/README.md) are adapted from [icm-architect](https://github.com/RinDig/icm-architect) (MIT, © 2026 Jake Van Clief) and the [ICM repository](https://github.com/RinDig/Interpretable-Context-Methodology) (MIT); see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+
+## Develop
 
 ```bash
 claude --plugin-dir /path/to/pm-plugin
-```
-
-The helper CLI uses Python 3's standard library. Skills can still guide a manual edit if Python is unavailable, except atomic claiming and GitHub sync, which require the CLI.
-
-## Verify
-
-```bash
 python3 -m unittest discover -s tests -v
 ```
 
-To check that real models pick the right skill for a request, run the skill-routing evals described in [`evals/README.md`](evals/README.md).
-
-For a map of the plugin's own files and runtime flow, see [`docs/architecture.md`](docs/architecture.md). `/pm:map` creates a System map for the project where the plugin is installed.
+Skill-routing evals across models: [`evals/README.md`](evals/README.md).

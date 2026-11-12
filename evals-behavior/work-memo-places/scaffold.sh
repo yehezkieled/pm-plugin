@@ -71,7 +71,7 @@ cat > docs/notes.md <<'EOF_FIXTURE'
 - Manager wants a one-page memo per distributor, not the raw CSV.
 EOF_FIXTURE
 cat > docs/pm/config.json <<'EOF_FIXTURE'
-{"mirror": "off", "workers": {"model": "claude-sonnet-5-5", "effort": "medium"}, "validators": {"model": "claude-sonnet-5-5", "effort": "medium"}}
+{"workers": {"model": "claude-sonnet-5-5", "effort": "medium"}, "validators": {"model": "claude-sonnet-5-5", "effort": "medium"}}
 EOF_FIXTURE
 cat > data/README.md <<'EOF_FIXTURE'
 # Data

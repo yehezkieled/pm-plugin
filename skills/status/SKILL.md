@@ -11,4 +11,4 @@ If the board ends with "Fix the source" lines, the same correction keeps recurri
 
 ## Reply
 
-Talk in outcomes, not mechanics: plain words, no internal jargon (say "waiting on your decision", not "hold"). The reply must stand alone: lead with the result, then any decision needed. No progress narration. Mark unverified claims `[UNSURE]`. Show the board, then one recommendation for what to do next and why. If several items need the person, say which decision unblocks what.
+Plain words, no jargon ("waiting on your decision", not "hold"); result first, then any decision needed; mark unverified claims `[UNSURE]`. Show the board, then one recommendation for what to do next and why. If several items need the person, say which decision unblocks what.

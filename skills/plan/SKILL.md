@@ -18,4 +18,4 @@ Do not invent hierarchy, priority, due dates, effort, or a plan approval gate. I
 
 ## Reply
 
-Talk in outcomes, not mechanics: plain words, no internal jargon (say "waiting on your decision", not "hold"). The reply must stand alone: lead with the result, then any decision needed. No progress narration. Mark unverified claims `[UNSURE]`. Confirm what was captured (item ID, path, title) and, if something is blocked or parked, the one question you need answered. Ask only for real decisions.
+Plain words, no jargon ("waiting on your decision", not "hold"); result first, then any decision needed; mark unverified claims `[UNSURE]`. Confirm what was captured (item ID, path, title) and, if something is blocked or parked, the one question you need answered. Ask only for real decisions.

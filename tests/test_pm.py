@@ -430,7 +430,7 @@ class ProjectBoardTests(unittest.TestCase):
             root = Path(temp)
             subprocess.run(["git", "init", "-q"], cwd=root, check=True)
             (root / "docs/pm/items").mkdir(parents=True)
-            (root / "docs/pm/config.json").write_text('{"mirror": "off"}\n')
+            (root / "docs/pm/config.json").write_text('{}\n')
             detail = root / "docs/pm/items/shared-task-a1b2c3-shared-task.md"
             detail.write_text("item details\n")
             code = root / "app.py"
@@ -471,12 +471,18 @@ class ProjectBoardTests(unittest.TestCase):
                                capture_output=True, check=True).stdout
         self.assertNotIn("has no Where things go table", after)
 
-    def test_github_mirror_defaults_off(self):
-        self.assertIn("off", self.run_cli("mirror", "show").stdout)
-        self.run_cli("sync", ok=False)
-        enabled = self.run_cli("mirror", "github")
-        self.assertIn("publishes item requester intent and current notes", enabled.stdout)
-        self.assertIn("github", self.run_cli("mirror", "show").stdout)
+    def test_session_start_says_once_that_a_pm_0x_board_needs_the_previous_version(self):
+        env = dict(os.environ, CLAUDE_PROJECT_DIR=str(self.root))
+        start = lambda: subprocess.run(["bash", str(START_HOOK)], cwd=self.root, env=env, input="{}", text=True,
+                                       capture_output=True, check=True).stdout
+        self.assertNotIn("pm 0.x", start())
+        (self.root / "docs/pm/tickets").mkdir(parents=True)
+        (self.root / "docs/pm/tickets/T001-login.md").write_text("---\nstatus: todo\n---\nFix login\n")
+        lines = [line for line in start().splitlines() if "pm 0.x" in line]
+        self.assertEqual(lines, ["This project has a pm 0.x board in docs/pm/tickets, which this pm version does not "
+                                 "read. To move it onto the new board, install pm 1.5.1 and run /pm:migrate there."])
+        (self.root / "docs/pm/config.json").write_text('{"migrated_from": {"pm-0x": ["T001"]}}\n')
+        self.assertNotIn("pm 0.x", start(), "a board an earlier version migrated is not flagged again")
 
     def shared_clones(self, space):
         origin = space / "origin.git"
@@ -577,48 +583,6 @@ class ProjectBoardTests(unittest.TestCase):
             result = self.cli_in(clone_a, "add", input_text="From a branch\nPlanned during work")
             self.assertIn("branch pm/other shows it only after syncing with origin/main", result.stdout)
 
-    def test_sync_uses_the_shared_board_and_finish_still_merges(self):
-        with tempfile.TemporaryDirectory() as temp:
-            space = Path(temp)
-            item_id, (clone_a, clone_b) = self.shared_clones(space)
-            bin_dir = space / "bin"
-            bin_dir.mkdir()
-            log = space / "gh.log"
-            fake_gh = bin_dir / "gh"
-            fake_gh.write_text(f"""#!/usr/bin/env bash
-echo "$1 $2" >> {shlex.quote(str(log))}
-case "$2" in
-  create) echo https://github.com/o/r/issues/7 ;;
-  view) echo '{{"url": "https://github.com/o/r/issues/7", "state": "OPEN"}}' ;;
-esac
-""")
-            fake_gh.chmod(0o755)
-            env = {**os.environ, "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}"}
-            run = lambda cwd, *args: subprocess.run(["python3", str(CLI), *args], cwd=cwd, env=env,
-                                                    text=True, capture_output=True, input="")
-            self.assertEqual(run(clone_a, "mirror", "github").returncode, 0)
-            self.cli_in(clone_a, "claim", item_id, input_text="Ari")
-            subprocess.run(["git", "switch", "-qc", f"pm/{item_id}"], cwd=clone_a, check=True)
-            for _ in range(2):
-                synced = run(clone_a, "sync")
-                self.assertEqual(synced.returncode, 0, synced.stderr)
-            self.assertEqual(log.read_text().count("issue create"), 1)
-            self.assertEqual(subprocess.check_output(["git", "status", "--porcelain"], cwd=clone_a, text=True), "")
-            subprocess.run(["git", "pull", "-q", "--ff-only"], cwd=clone_b, check=True)
-            synced = run(clone_b, "sync")
-            self.assertEqual(synced.returncode, 0, synced.stderr)
-            self.assertEqual(log.read_text().count("issue create"), 1)
-
-            self.finish_item(item_id, "Done", cwd=clone_a)
-            subprocess.run(["git", "switch", "-q", "main"], cwd=clone_a, check=True)
-            subprocess.run(["git", "pull", "-q", "--ff-only"], cwd=clone_a, check=True)
-            merged = subprocess.run(["git", "merge", "--no-edit", f"pm/{item_id}"], cwd=clone_a,
-                                    text=True, capture_output=True)
-            self.assertEqual(merged.returncode, 0, merged.stdout + merged.stderr)
-            item_path = (clone_a / "docs/pm/items" / f"{item_id}.md").read_text()
-            self.assertIn('github_issue: "7"', item_path)
-            self.assertIn('status: "done"', item_path)
-
     def test_parallel_finishes_merge_without_board_conflicts(self):
         with tempfile.TemporaryDirectory() as temp:
             first, (clone_a, clone_b) = self.shared_clones(Path(temp))
@@ -684,14 +648,15 @@ class SkillDescriptionTests(unittest.TestCase):
         tools = {tool.strip() for tool in validator["tools"].split(",")}
         self.assertEqual(tools, {"Read", "Grep", "Glob", "Bash"}, "the validator must not edit files or start agents")
 
-    def test_guide_page_is_self_contained_and_covers_every_command(self):
-        guide = (Path(__file__).resolve().parents[1] / "docs" / "guide.html").read_text()
-        self.assertNotRegex(guide, r'(?:src|href)="https?://', "guide must not load external resources")
-        for command in ("init", "plan", "work", "status", "map", "migrate", "help"):
-            self.assertIn(f"/pm:{command}", guide)
-        for cli in ("add", "set", "hold", "resume", "claim", "validated", "finish", "mirror", "sync", "next", "board", "migrate scan", "migrate plan", "migrate apply"):
-            self.assertIn(f"pm.py {cli}", guide)
-
+    def test_manual_covers_every_command(self):
+        root = Path(__file__).resolve().parents[1]
+        manual = (root / "docs" / "manual.md").read_text()
+        for skill in sorted(path.name for path in (root / "skills").iterdir()):
+            self.assertIn(f"/pm:{skill}", manual)
+        commands = re.findall(r"^    (\w+) +\S", subprocess.check_output(["python3", str(CLI), "--help"], text=True), re.M)
+        self.assertGreater(len(commands), 10)
+        for command in commands:
+            self.assertTrue(f"pm.py {command}" in manual or f"`{command}`" in manual, f"the manual never names {command}")
 
 if __name__ == "__main__":
     unittest.main()

@@ -7,11 +7,9 @@ if ! command -v python3 >/dev/null 2>&1; then
   [ -f "$root/docs/pm/config.json" ] && echo "Project items are in docs/pm/items/; python3 is needed to render the board."
   exit 0
 fi
-# An old pm 0.x board is not read by this version; point at the migration until apply has recorded every ticket.
-pending=$(python3 -c 'import sys; from pathlib import Path; sys.path.insert(0, sys.argv[1]); import pm_migrate; print(len(pm_migrate.unmigrated_tickets(Path(sys.argv[2]))))' "$plugin/scripts" "$root" 2>/dev/null)
-if [ "${pending:-0}" -gt 0 ]; then
-  if [ -f "$root/docs/pm/config.json" ]; then command="/pm:migrate"; else command="/pm:init"; fi
-  echo "This project has a pm 0.x board in docs/pm/tickets with $pending ticket(s) this version does not read yet. Run $command to move them onto the new board; nothing is deleted without the owner's yes."
+# This version neither reads nor migrates a pm 0.x board; an earlier version's migration records itself in the config.
+if ls "$root"/docs/pm/tickets/T*.md >/dev/null 2>&1 && ! grep -qs '"migrated_from"' "$root/docs/pm/config.json"; then
+  echo "This project has a pm 0.x board in docs/pm/tickets, which this pm version does not read. To move it onto the new board, install pm 1.5.1 and run /pm:migrate there."
 fi
 if [ ! -f "$root/docs/pm/config.json" ]; then
   exit 0
