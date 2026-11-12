@@ -1007,8 +1007,9 @@ BOARD_COMMAND = r"\b(claim|hold|resume|validated|finish|correct)\s+[\"']?{item}\
 
 
 def validator_models(path: str, since: float) -> list[str]:
-    """The model each pm:validator subagent started this turn ran on, as Claude Code recorded it: its replies in the
-    subagent's own transcript (`<session>/subagents/agent-*.jsonl`), else the model its `.meta.json` names."""
+    """The model each pm:validator subagent started this turn ran on, as Claude Code recorded it on its replies in the
+    subagent's own transcript (`<session>/subagents/agent-*.jsonl`). The `.meta.json` beside it only identifies the
+    agent: its `pickedEffortModel` can name another model than the one that answered."""
     models = []
     folder = Path(path).with_suffix("") / "subagents" if path else None
     metas = sorted(folder.glob("*.meta.json"), key=lambda found: found.stat().st_mtime) if folder and folder.is_dir() else []
@@ -1027,7 +1028,7 @@ def validator_models(path: str, since: float) -> list[str]:
                     break
         except (OSError, ValueError, AttributeError):
             pass
-        models.append(ran or str(meta.get("pickedEffortModel") or "unknown"))
+        models.append(ran or "unknown")
     return models
 
 

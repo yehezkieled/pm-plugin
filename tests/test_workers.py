@@ -289,7 +289,8 @@ class WorkerSessionTests(unittest.TestCase):
         folder = transcript.with_suffix("") / "subagents"
         folder.mkdir(parents=True)
         transcript.write_text("")
-        (folder / "agent-1.meta.json").write_text(json.dumps({"agentType": "pm:validator", "pickedEffortModel": "claude-sonnet-5-5"}))
+        (folder / "agent-1.meta.json").write_text(json.dumps({"agentType": "pm:validator", "pickedEffortModel": "claude-haiku-5-5"}))
+        (folder / "agent-1.jsonl").write_text(json.dumps({"type": "assistant", "message": {"model": "claude-sonnet-5-5"}}) + "\n")
         (folder / "agent-2.meta.json").write_text(json.dumps({"agentType": "general-purpose"}))
         facts = pm_workers.transcript_facts(str(transcript), self.item, 0, "claude-haiku-5-5")
         self.assertIn("validator subagents started: 0, ran on claude-sonnet-5-5 (not the chosen validator model "

@@ -133,7 +133,7 @@ def ran_validator(spec):
     folder = Path(spec["transcript"]).with_suffix("") / "subagents"
     folder.mkdir(parents=True, exist_ok=True)
     name, model = f"agent-{uuid.uuid4().hex[:16]}", subagent_model(spec, "validator")
-    (folder / f"{name}.meta.json").write_text(json.dumps({"agentType": "pm:validator", "pickedEffortModel": model}))
+    (folder / f"{name}.meta.json").write_text(json.dumps({"agentType": "pm:validator", "pickedEffortModel": "not the model it ran on"}))
     (folder / f"{name}.jsonl").write_text(json.dumps({"type": "assistant", "isSidechain": True,
                                                       "message": {"model": model, "content": []}}) + "\n")
 
