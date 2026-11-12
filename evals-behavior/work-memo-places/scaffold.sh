@@ -22,19 +22,31 @@ This file routes; the facts live in the files it points at. Where each kind of k
 
 ## Where things go
 
-Before creating any file, find its kind here and put it in that place. No row fits: ask once, recommend a place, and add the row in the same change. Nothing else goes at the root.
+Before creating any file, find its kind here and put it in that place. No row fits: ask once, recommend a place, and add the row in the same change. Nothing else goes at the root. A place that exists is a link, to its folder's `README.md` when it has one; a place with no file yet stays a plain path until its first file lands. `out/` is never a link: it is gitignored.
 
 | Kind of thing | Place | Rule |
 | --- | --- | --- |
 | Tasks: what is being done and what is next | `docs/pm/items/` | `/pm:plan` adds them and `/pm:work` claims them; never made by hand |
-| How it works, decisions, gotchas | `docs/` | one file per topic; update it, don't duplicate it |
+| How it works, decisions, gotchas | [`docs/`](docs/) | one file per topic; update it, don't duplicate it |
 | Deliverables for people: memos, reports, findings | `reports/` | written by a person or an agent; `YYYY-MM-DD-<topic>.md`; cite the data and the command behind each number |
 | Generated outputs | `out/` | written only by code; never hand-edited; gitignored |
 | Project files at the root | `README.md`, `AGENTS.md`, `CLAUDE.md`, `.gitignore`, `requirements.txt` | nothing else at the root |
-| Raw data as received | `data/raw/<source>/` | never edited; keep the publisher's file name |
-| Where each dataset came from | `data/README.md` | one line per file: source, date received, what reads it |
-| Reusable code | `src/` | loaders, checks, transforms; run from the root |
-| Exploration | `notebooks/` | `YYYY-MM-DD-<question>.ipynb`; findings worth keeping go to `reports/` |
+| Raw data as received | [`data/raw/<source>/`](data/raw/) | never edited; keep the publisher's file name |
+| Where each dataset came from | [`data/README.md`](data/README.md) | one line per file: source, date received, what reads it |
+| Reusable code | [`src/`](src/) | loaders, checks, transforms; run from the root |
+| Exploration | [`notebooks/`](notebooks/) | `YYYY-MM-DD-<question>.ipynb`; findings worth keeping go to `reports/` |
+
+## When you finish a task
+
+Before you finish, update what this table names for your change, and keep every link working: the pm plugin's walk test (`pm.py walk`) fails on a broken or missing link.
+
+| If your change | Update |
+| --- | --- |
+| adds a folder or a new kind of file | a row above whose place links to the folder's new `README.md`; that `README.md` says what the folder holds, links each file it describes, and links back to [AGENTS.md](AGENTS.md) |
+| puts the first file in a place above that is still a plain path | that row: make the place a link |
+| changes what a folder holds or how it is used | that folder's `README.md` or `CONTEXT.md`, linked from its row |
+| changes how to install, run, or use the project | [README.md](README.md), and Every session below for build and test commands |
+| changes a part that has a card in the System map | that card, its date and commit, or `status: stale` |
 
 ## Route by task
 
@@ -76,10 +88,12 @@ EOF_FIXTURE
 cat > data/README.md <<'EOF_FIXTURE'
 # Data
 
+Each dataset, where it came from, and what reads it. Listed in [AGENTS.md](../AGENTS.md) › Where things go.
+
 | File | Source | Received | Read by |
 | --- | --- | --- | --- |
-| `raw/aer/aer_network_tariffs_2025-26.csv` | AER network tariff file, 2025-26 | 2025-10-01 | `src/recon.py` |
-| `raw/ausgrid/ausgrid_price_list_2025-26.csv` | Ausgrid published price list, 2025-26 | 2025-10-01 | `src/recon.py` |
+| [raw/aer/aer_network_tariffs_2025-26.csv](raw/aer/aer_network_tariffs_2025-26.csv) | AER network tariff file, 2025-26 | 2025-10-01 | `src/recon.py` |
+| [raw/ausgrid/ausgrid_price_list_2025-26.csv](raw/ausgrid/ausgrid_price_list_2025-26.csv) | Ausgrid published price list, 2025-26 | 2025-10-01 | `src/recon.py` |
 EOF_FIXTURE
 cat > data/raw/aer/aer_network_tariffs_2025-26.csv <<'EOF_FIXTURE'
 distributor,tariff_code,tariff_name,charge_type,period,rate,unit

@@ -73,6 +73,10 @@ Only the skill shape gets stage folders. Do not climb the ladder early: a thing 
 - **Name new dated files `YYYY-MM-DD-<topic>`**, lowercase with hyphens, dated the day the file is written (run `date +%F`), not a date from the data.
 - **The more specific row wins**: raw data goes to `data/raw/<source>/`, not `data/`.
 
+## Links keep the structure current
+
+The table is also the map's index of links, so the structure cannot go stale unseen. A place that holds a file is a link from its row, to the folder's `README.md` when it has one (`` [`data/`](data/README.md) ``), else to the folder (`` [`src/`](src/) ``); a place with no file yet stays a plain path until its first file lands, and `docs/pm/items/` and the gitignored `out/` always do. A folder's `README.md` ([template](templates/folder-README.md)) says what it holds, links each file it describes, and links back to `AGENTS.md` (`../AGENTS.md` from a top-level folder). A `CONTEXT.md` links up to the `AGENTS.md` or `SKILL.md` that routes to it, and a nested `AGENTS.md` to the one above it. `AGENTS.md` › When you finish a task says which of these files a change updates. `pm.py walk` fails on a broken link, a place that holds a file but is not linked, and a file that does not link back up.
+
 ## When nothing fits
 
-Ask the owner once where this kind of thing should live, recommend a place, then add the row to `AGENTS.md` in the same change. Never put a new kind of file at the root.
+Ask the owner once where this kind of thing should live, recommend a place, then add the row to `AGENTS.md` in the same change, linked to the new folder's `README.md`. Never put a new kind of file at the root.

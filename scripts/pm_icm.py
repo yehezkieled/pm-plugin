@@ -30,6 +30,9 @@ CITATION = re.compile(r"`((?:[^`\s:]+/)+[^`\s:]+|[^`\s:/]+\.[A-Za-z]\w*):(\d+)(?
 STAGE_DIR = re.compile(r"^\d{2}[_-]")
 SKILL_ROOTS = (".claude/skills", "skills")
 WHERE = "Where things go"
+FINISH = "When you finish a task"
+# Places the plugin itself fills (the board's items appear with the first /pm:plan), so their rows stay plain paths.
+UNLINKED_PLACES = {"docs/pm/items/"}
 # Files a tool expects at the repository root. Dotfiles and dot-folders (.gitignore, .github/) are allowed too.
 ROOT_FILES = {"AGENTS.md", "CLAUDE.md", "Makefile", "justfile", "Dockerfile", "pyproject.toml", "setup.py", "setup.cfg",
               "uv.lock", "poetry.lock", "Pipfile", "Pipfile.lock", "environment.yml", "package.json",
@@ -83,6 +86,12 @@ def git_status(root: Path) -> list[tuple[str, str]]:
 def where_things_go(root: Path) -> list[tuple[str, list[str]]] | None:
     """Rows of the `## Where things go` table in the root AGENTS.md as (kind, places); None without the table.
     A place is each backticked path in the Place column, cut at its first placeholder (`<`, `{`, `*`, `YYYY`)."""
+    rows = where_rows(root)
+    return None if rows is None else [(kind, places) for kind, places, _ in rows]
+
+
+def where_rows(root: Path) -> list[tuple[str, list[str], str]] | None:
+    """Like where_things_go, with each row's raw Place cell, so its links can be checked."""
     entry = root / "AGENTS.md"
     text = read(entry) if entry.is_file() else ""
     match = re.search(rf"^## {WHERE}[ \t]*\n(.*?)(?=^## |\Z)", text, re.S | re.M)
@@ -101,7 +110,7 @@ def where_things_go(root: Path) -> list[tuple[str, list[str]]] | None:
             token = token[2:] if token.startswith("./") else token
             if token and not token.startswith("/") and " " not in token:
                 places.append(token)
-        rows.append((cells[0], places))
+        rows.append((cells[0], places, cells[1]))
     return rows
 
 
@@ -305,8 +314,9 @@ def walk(root: Path, items: list[dict]) -> list[tuple[str, str]]:
     for folder in folders:
         check_entry_pair(root, folder, add)
 
+    routed = {path.relative_to(root.resolve()).as_posix() for path in table_files(root)}
     routing = [name for name in files if PurePosixPath(name).name in ("AGENTS.md", "CLAUDE.md", "CONTEXT.md")
-               or (name.startswith(MAP + "/") and name.endswith(".md") and "/_templates/" not in name)]
+               or (name.startswith(MAP + "/") and name.endswith(".md") and "/_templates/" not in name) or name in routed]
     broken = []
     for name in routing:
         path = root / name
@@ -337,6 +347,7 @@ def walk(root: Path, items: list[dict]) -> list[tuple[str, str]]:
 
     if entry and entry.name == "AGENTS.md":
         walk_places(root, files, add)
+    walk_links(root, files, add)
 
     workflows = workflow_skills(root, files)
     for skill in workflows:
@@ -396,6 +407,69 @@ def walk_places(root: Path, files: list[str], add) -> None:
                     "or add a row for a kind the table lacks.")
     else:
         add("ok", f"Every file is in a place AGENTS.md > {WHERE} names ({len(rows)} rows).")
+
+
+def table_files(root: Path) -> list[Path]:
+    """The Markdown files below the root that AGENTS.md > Where things go links to: the folders' context files."""
+    rows, top = where_rows(root) or [], root.resolve()
+    found = set()
+    for _, _, cell in rows:
+        for _, _, target in link_targets(root / "AGENTS.md", root, cell):
+            if target.suffix == ".md" and target.is_file() and target.parent != top and top in target.parents:
+                found.add(target)
+    return sorted(found)
+
+
+def links_up(path: Path, root: Path, own_folder: bool) -> bool:
+    """Whether a file links to a catalog (AGENTS.md, CLAUDE.md, or SKILL.md) in a folder above it, or in its own."""
+    folder = path.resolve().parent
+    for _, _, target in link_targets(path, root, read(path)):
+        if target.name in ("AGENTS.md", "CLAUDE.md", "SKILL.md") and target.is_file() and target != path.resolve():
+            if target.parent in folder.parents or (own_folder and target.parent == folder):
+                return True
+    return False
+
+
+def ignored(root: Path, path: str) -> bool:
+    return subprocess.run(["git", "-C", str(root), "check-ignore", "-q", path], capture_output=True).returncode == 0
+
+
+def walk_links(root: Path, files: list[str], add) -> None:
+    """Missing links, so the structure cannot go stale unseen: the catalog links every place that exists,
+    and every file it routes to links back up to it."""
+    rows = where_rows(root)
+    unlinked = []
+    for kind, places, cell in rows or []:
+        targets = [target for _, _, target in link_targets(root / "AGENTS.md", root, cell)]
+        for place in places:
+            path = (root / place).resolve()
+            holds = any(name == place.rstrip("/") or name.startswith(place.rstrip("/") + "/") for name in files)
+            if "/" not in place or place in UNLINKED_PLACES or not holds or ignored(root, place):
+                continue
+            if not any(target == path or path in target.parents for target in targets):
+                unlinked.append(f"{place} ({kind})")
+    if unlinked:
+        add("FAIL", f"Places in AGENTS.md > {WHERE} that exist but their row does not link: " + "; ".join(unlinked[:12])
+                    + ". Write each place as a link, such as [`reports/`](reports/), or to the folder's README.md when it has one.")
+    orphans = []
+    for path in table_files(root):
+        if path.name != "SKILL.md" and not links_up(path, root, own_folder=False):
+            orphans.append(path.relative_to(root.resolve()).as_posix())
+    for name in files:
+        base = PurePosixPath(name).name
+        if "/" not in name or "/_templates/" in name or base not in ("AGENTS.md", "CONTEXT.md"):
+            continue
+        if not links_up(root / name, root, own_folder=base == "CONTEXT.md"):
+            orphans.append(name)
+    if orphans:
+        add("FAIL", "Files that do not link back to the catalog above them: " + ", ".join(sorted(set(orphans))[:12])
+                    + ". Add a link up: a folder's README.md or a nested AGENTS.md to the root AGENTS.md, "
+                    "a CONTEXT.md to the AGENTS.md or SKILL.md that routes to it.")
+    if rows is not None and FINISH.casefold() not in headings(read(root / "AGENTS.md")):
+        add("WARN", f"AGENTS.md has no `## {FINISH}` table, so finished work leaves the files that describe it stale. "
+                    "/pm:init adds it (icm/templates/root-AGENTS.md).")
+    elif rows is not None and not unlinked and not orphans:
+        add("ok", f"AGENTS.md links every place that exists, each file it routes to links back, and `## {FINISH}` says what to update.")
 
 
 def workflow_skills(root: Path, files: list[str]) -> list[str]:

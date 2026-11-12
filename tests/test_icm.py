@@ -15,7 +15,8 @@ TEMPLATES = ROOT / "icm" / "templates"
 MAP = "docs/pm/map"
 FILL = {"cluster": "core", "card": "link", "Name": "Link", "path": "src/app.py", "line": "1", "path to the owning file": "src/app.py",
         "process-name": "shorten", "NN": "01", "stage-name": "research", "name": "research", "run": "demo",
-        "rules-file": "rules", "guide": "guide", "skill-name": "brief", "previous stage folder": "00_input"}
+        "rules-file": "rules", "guide": "guide", "skill-name": "brief", "previous stage folder": "00_input",
+        "the file or folder that answers it": "README.md", "folder": "data", "file": "prices.csv"}
 
 CARD = """---
 type: object
@@ -76,13 +77,19 @@ Checks published network tariffs against our billing tables. Shape: analysis.
 | Raw data as received | `data/raw/<source>/` | never edited |
 | Where each dataset came from | `data/README.md` | one line per file |
 | Exploration | `notebooks/YYYY-MM-DD-<question>.ipynb` | |
-| Code | `scripts/` | the project's own name, kept |
+| Code | [`scripts/`](scripts/) | the project's own name, kept |
 
 ## Route by task
 
 | If you are | Go to |
 | --- | --- |
 | doing any project work | `/pm:work` |
+
+## When you finish a task
+
+| If your change | Update |
+| --- | --- |
+| adds a folder or a new kind of file | a row above whose place links to the folder's new `README.md` |
 """
 
 
@@ -449,10 +456,12 @@ class IcmTests(unittest.TestCase):
         self.write("AGENTS.md", "# Tariffs\n\n## Route by task\n")
         self.write("CLAUDE.md", "@AGENTS.md\n")
         self.assertIn("WARN  AGENTS.md has no `## Where things go` table", self.walk())
+        self.write("scripts/check.py", "print('ok')\n")
         self.write("AGENTS.md", TABLE)
         out = self.walk()
         self.assertIn("1 file is outside the places in AGENTS.md > Where things go: src/app.py", out)
-        self.write("AGENTS.md", TABLE.replace("| Code | `scripts/` |", "| Code | `src/` |"))
+        (self.root / "scripts/check.py").unlink()
+        self.write("AGENTS.md", TABLE.replace("| Code | [`scripts/`](scripts/) |", "| Code | [`src/`](src/) |"))
         self.assertIn("ok    Every file is in a place AGENTS.md > Where things go names (8 rows).", self.walk())
         self.write("AGENTS.md", TABLE.replace("`reports/`", "reports"))
         self.assertIn("Rows in Where things go without a backticked place: Deliverables for people.", self.walk())
@@ -474,6 +483,78 @@ class IcmTests(unittest.TestCase):
         self.write("REPORT.md", "memo\n")
         self.write("AGENTS.md", "# Tariffs\n")
         self.assertNotIn("decision", self.stop())  # no table: nothing to hold new files to
+
+    # ---- links keep the structure from going stale
+
+    def linked_project(self):
+        """An analysis set up from the templates: the catalog links each place, the data folder's README links back."""
+        table = (TEMPLATES / "root-AGENTS.md").read_text().replace(
+            "| {kind, from icm/shapes.md: the spine rows, then the shape's rows} | [`{path}`]({path}) | {rule} |",
+            "| Deliverables for people | `reports/` | dated |\n| Generated outputs | `out/` | gitignored |\n"
+            "| Raw data and where it came from | [`data/`](data/README.md) | listed in data/README.md |\n"
+            "| Reusable code | [`src/`](src/) | |")
+        self.write("AGENTS.md", fill(table))
+        self.write("CLAUDE.md", "@AGENTS.md\n")
+        self.write("data/README.md", fill((TEMPLATES / "folder-README.md").read_text()))
+        self.write("data/prices.csv", "x\n")
+        self.write(".gitignore", "out/\n")
+        self.write("out/summary.csv", "x\n")
+
+    def test_templates_link_every_file_they_create_to_its_catalog(self):
+        self.linked_project()
+        self.write("AGENTS.md", (self.root / "AGENTS.md").read_text()
+                   + "| understanding the code | [docs/pm/map/AGENTS.md](docs/pm/map/AGENTS.md) |\n")
+        for rel, name in (("AGENTS.md", "map-AGENTS.md"), ("CONTEXT.md", "map-CONTEXT.md"),
+                          ("effects/CONTEXT.md", "effects-CONTEXT.md"), ("objects/core/link.md", "object.md"),
+                          ("processes/link.md", "process.md")):
+            self.write(f"{MAP}/{rel}", fill((TEMPLATES / name).read_text()))
+        self.write(f"{MAP}/CLAUDE.md", "@AGENTS.md\n")
+        for name in ("object.md", "process.md"):
+            self.write(f"{MAP}/_templates/{name}", (TEMPLATES / name).read_text())
+        self.cli("index")
+        skill = ".claude/skills/brief"
+        self.write(f"{skill}/SKILL.md", fill((TEMPLATES / "workflow-SKILL.md").read_text()))
+        self.write(f"{skill}/_shared/rules.md", "# Rules\n")
+        for stage in ("01_research", "02_research"):
+            self.write(f"{skill}/stages/{stage}/CONTEXT.md", fill((TEMPLATES / "stage-CONTEXT.md").read_text()))
+            self.write(f"{skill}/stages/{stage}/references/guide.md", "# Guide\n")
+        out = self.walk()
+        self.assertIn("Every link in the 12 routing files and cards resolves.", out)
+        self.assertIn("ok    AGENTS.md links every place that exists, each file it routes to links back", out)
+        self.assertIn("ok    Workflow .claude/skills/brief/ has 2 numbered stages", out)
+
+    def test_walk_fails_on_a_broken_link_in_a_folder_readme(self):
+        self.linked_project()
+        (self.root / "data/prices.csv").rename(self.root / "data/tariffs.csv")
+        out = self.walk(ok=False)
+        self.assertIn("Links that do not resolve", out)
+        self.assertIn("data/README.md:7 -> prices.csv", out)
+
+    def test_walk_fails_on_a_missing_link(self):
+        self.linked_project()
+        agents = (self.root / "AGENTS.md").read_text()
+        self.write("reports/2026-11-13-prices.md", "# Prices\n")  # the first file lands: reports/ must become a link
+        self.assertIn("exist but their row does not link: reports/ (Deliverables for people)", self.walk(ok=False))
+        self.write("AGENTS.md", agents.replace("`reports/`", "[`reports/`](reports/)"))
+        self.cli("add", input_text="Check the prices\n")  # the board's own items folder and gitignored out/ stay plain paths
+        self.assertIn("Walk test: passed", self.walk())
+        readme = (self.root / "data/README.md").read_text()
+        self.write("data/README.md", readme.replace("[AGENTS.md](../AGENTS.md)", "AGENTS.md"))
+        self.assertIn("do not link back to the catalog above them: data/README.md", self.walk(ok=False))
+        self.write("data/README.md", readme)
+        self.write("stages/01_draft/CONTEXT.md", "# 01\n\n[prices](../../data/prices.csv)\n\n## Inputs\n## Process\n## Outputs\n## Verify\n## Human check\n")
+        self.assertIn("do not link back to the catalog above them: stages/01_draft/CONTEXT.md", self.walk(ok=False))
+        (self.root / "stages/01_draft/CONTEXT.md").unlink()
+        self.write("AGENTS.md", agents.replace("[`reports/`](reports/)", "`reports/`").split("## When you finish a task")[0]
+                   + "## Every session\n")
+        (self.root / "reports/2026-11-13-prices.md").unlink()
+        self.assertIn("WARN  AGENTS.md has no `## When you finish a task` table", self.walk())
+        env = dict(os.environ, CLAUDE_PROJECT_DIR=str(self.root))
+        start = subprocess.run(["bash", str(START_HOOK)], cwd=self.root, env=env, input="{}", text=True, capture_output=True, check=True).stdout
+        self.assertIn("has no When you finish a task table", start)
+        self.write("AGENTS.md", agents)
+        start = subprocess.run(["bash", str(START_HOOK)], cwd=self.root, env=env, input="{}", text=True, capture_output=True, check=True).stdout
+        self.assertNotIn("When you finish a task", start)
 
     # ---- session start points an old architecture file at the System map
 

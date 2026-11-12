@@ -1,6 +1,6 @@
 # Change impact: what to open before a change
 
-A catalog, not an explanation: each row names the cards to read before changing that thing. When a row and a card disagree, fix the card.
+A catalog, not an explanation: each row names the cards to read before changing that thing. When a row and a card disagree, fix the card. Part of the System map: [AGENTS.md](../AGENTS.md).
 
 | If you are changing | Open these cards |
 | --- | --- |

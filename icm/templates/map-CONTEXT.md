@@ -5,7 +5,7 @@ One job: keep a walkable edit map of this repository, so an agent loads one card
 ## Inputs
 
 - Working (this run): the request or item that asked for the map, and the source files it names.
-- Reference (every run): `_templates/object.md` and `_templates/process.md`; their frontmatter is the schema.
+- Reference (every run): [_templates/object.md](_templates/object.md) and [_templates/process.md](_templates/process.md); their frontmatter is the schema.
 - Reference (every run): [AGENTS.md](AGENTS.md) for the names and clusters already chosen.
 
 Do not load: the whole `objects/` folder; open the cards the change is about.
