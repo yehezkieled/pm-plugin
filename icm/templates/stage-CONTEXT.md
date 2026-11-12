@@ -1,6 +1,6 @@
 # {NN}_{stage-name}: {the job in five words}
 
-One job: {the single thing this stage does}.
+One job: {the single thing this stage does}. A stage of [the workflow](../../SKILL.md), which routes to it.
 
 ## Inputs
 

@@ -13,7 +13,7 @@ Think of the repository as a library. The routing files are the catalog: small, 
 5. **Factory apart from product.** Reference material that stays the same across runs lives apart from what each run produces.
 6. **Every output is an edit surface.** Outputs are plain files a person can open and fix before the next step reads them.
 7. **Load only what the step needs**: its contract, its references, its inputs. About 2,000 to 8,000 tokens a step.
-8. **Plain text, one home per fact.** Markdown with frontmatter; a link beats a copy.
+8. **Plain text, one home per fact.** Markdown with frontmatter; a link beats a copy. Every routing file links to what it routes to and back up to what routes to it, so a stale path shows as a broken link.
 9. **The filesystem is the state.** Status is what exists. Generated indexes are rebuilt by script (`pm.py index`, `pm.py board`), never edited by hand.
 10. **Instantiate by copying** a template, not a blank page ([templates/](templates/)).
 
@@ -36,7 +36,7 @@ Use it whenever existing files would move: files outside the places in `## Where
 
 Run it after `/pm:init` and after `/pm:map`, and after any restructure.
 
-1. **Mechanical**: `pm.py walk`. It checks the entry file's size and the `CLAUDE.md` pointer, that every link in routing files and cards resolves, that each working folder's `CONTEXT.md` has its five sections, the map's catalog, cards, citations, change-impact index, and generated index, a workflow skill's packaging, every item's `touches`, and the token budget. Fix every FAIL; read every WARN.
+1. **Mechanical**: `pm.py walk`. It checks the entry file's size and the `CLAUDE.md` pointer, that every link in routing files, cards, and the folder `README.md` files the table links resolves, that every place holding a file is linked from its row and every routed file links back up (a missing link fails like a broken one), that `## When you finish a task` exists, that each working folder's `CONTEXT.md` has its five sections, the map's catalog, cards, citations, change-impact index, and generated index, a workflow skill's packaging, every item's `touches`, and the token budget. Fix every FAIL; read every WARN.
 2. **Cold**: answer these from the files alone, as an agent with no memory, opening only what each answer needs:
    - From `AGENTS.md` plus at most two more reads: where am I, and where do I go for the most common task here?
    - Pick one contract or card. Does it name exact input paths, the job, the output, what to verify, and the human check (a card: what it is, why, and what a change hits)?

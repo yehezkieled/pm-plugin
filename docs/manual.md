@@ -29,7 +29,7 @@ Open Claude Code in the repository and run `/pm:init`. It:
 1. Looks at the repository and runs the walk test (`pm.py walk`, read-only) to see where the structure stands.
 2. Creates `docs/pm/config.json` with `pm.py init` (board writes publish through the shared board flow when a remote is configured).
 3. Tells you the project's shape (2.1) in one line, and asks only when two shapes fit equally.
-4. Gives the repository its structure: a small catalog `AGENTS.md` with a `## Where things go` table for that shape, and a one-line `CLAUDE.md` containing `@AGENTS.md` when absent; for the skill shape, the skill folder with its stages. Files outside the table's places are moved into them after one yes, with `out/` gitignored (a generated output already in Git leaves Git as it moves there) and, for an analysis, a `data/README.md`. An existing file is never replaced or moved without your yes (2.4).
+4. Gives the repository its structure: a small catalog `AGENTS.md` with a `## Where things go` table for that shape and a `## When you finish a task` table (2.1), and a one-line `CLAUDE.md` containing `@AGENTS.md` when absent; for the skill shape, the skill folder with its stages. Files outside the table's places are moved into them after one yes, with `out/` gitignored (a generated output already in Git leaves Git as it moves there) and, for an analysis, a `data/README.md`. An existing file is never replaced or moved without your yes (2.4).
 5. Runs the walk test again and fixes the structure until it passes.
 6. Shows the board and the three commands to use next: `/pm:plan` to add work, `/pm:work` to build an item, `/pm:status` to see the board.
 
@@ -53,6 +53,17 @@ Every project gets one spine, plus the rows of its shape, picked by the repeatin
 A project can be two shapes; it takes both sets of rows. A folder the project already uses keeps its name and goes in the table, and a file keeps its name when it moves. When nothing fits, the agent asks you once, recommends a place, and adds the row. Every shape gets the same board, Verify step, and fix-the-source rule (2.5); only the skill shape gets stage folders.
 
 The table is checked, not just read. `pm.py places` lists new files outside its places, and the Stop hook asks the agent once, before it ends its turn, to move each one or ask you for a new row. `pm.py walk` warns about tracked files outside the places too.
+
+Links keep the structure from going stale. Every Markdown file the plugin creates links what it routes to, and back up to what routes to it:
+
+| File | Links to | Links back up to |
+| --- | --- | --- |
+| `AGENTS.md` › Where things go | each place that holds a file (its `README.md` when it has one); a place with no file yet, `docs/pm/items/`, and the gitignored `out/` stay plain paths | |
+| a folder's `README.md` ([template](../icm/templates/folder-README.md)) | each file it describes | `AGENTS.md` |
+| a stage's `CONTEXT.md` | its inputs and references | its `SKILL.md` |
+| the map's `AGENTS.md`, `CONTEXT.md`, `effects/CONTEXT.md`, cards | the cards and the index | the map's `AGENTS.md`, which links the root one |
+
+`AGENTS.md` › When you finish a task says which file a change updates: a new folder, its row and a new linked `README.md`; the first file in a place, make it a link; a folder's contents, its `README.md`; how to run the project, `README.md`; a part with a card, the card. Workers follow it before validation; the validator checks it and runs `pm.py walk`, which fails on a broken or missing link. `/pm:init` on a project set up earlier adds the missing links and the table without rewriting what is there.
 
 ### 2.2 The System map (optional)
 
@@ -95,7 +106,7 @@ A project set up before pm 1.2 has no `## Where things go` table; it sees a one-
 
 | Practice | When | How |
 | --- | --- | --- |
-| Walk test | After `/pm:init`, `/pm:map`, and any restructure; when `/pm:work` touched a catalog, contract, map, or workflow | `pm.py walk` checks the entry file's size, links, contracts, cards, the index, workflow packaging, and the size of one walk; then the agent answers the cold-walk questions in [`icm/method.md`](../icm/method.md) from the files alone |
+| Walk test | After `/pm:init`, `/pm:map`, and any restructure; by every `/pm:work` worker and validator | `pm.py walk` checks the entry file's size, links (broken or missing), contracts, cards, the index, workflow packaging, and the size of one walk; then the agent answers the cold-walk questions in [`icm/method.md`](../icm/method.md) from the files alone |
 | Places | Every time the agent stops; at `/pm:init` | `pm.py places` lists new files outside `AGENTS.md` › Where things go, and the Stop hook asks the agent once to move them or add a row; `pm.py walk` warns about any file outside the places |
 | Validate before Done | After the worker commits and a fresh `pm:validator` checks it | The validator records its own verdict with `pm.py validated ITEM_ID --verdict pass` or `--verdict findings` and its summary on stdin; it refuses uncommitted non-board work. `finish` requires a current pass and refuses if work changed since that pass. This guards against forgetting validation; the CLI cannot identify its caller, so the worker's session log shows each `pm:validator` launch |
 | Commit before Done | When a `/pm:work` worker finishes an item | The worker commits the work on the item's branch; `pm.py finish` refuses while any file outside the board is uncommitted and lists them, so Done always means committed and validated |
@@ -218,7 +229,7 @@ Before `add`, a new `claim`, or `worker start` saves or starts anything in a che
 
 ### Structure checks
 
-`places` reads the `## Where things go` table of the root `AGENTS.md`: each backticked path in its Place column, cut at its first placeholder (`<`, `{`, `*`, `YYYY`), is a place; `docs/pm/`, root dotfiles and dot-folders, and the files a tool expects at the root (`LICENSE`, dependency and lock files) always pass. It lists files Git reports as untracked, added, or renamed outside every place; the Stop hook runs it with `--paths`. `walk` reads only what Git tracks or would track. It fails on a missing or oversized entry file, two hand-maintained entry files in one folder, broken links, a numbered stage or map contract without its five sections, an oversized `CONTEXT.md`, a workflow skill that would not package, map cards with bad frontmatter or unverified evidence, a map of two or more cards without its change-impact index, unfilled template lines, citations past the end of a file, a stale `_index.md`, a `touches` path that no longer exists on an item not done, and one walk over about 8,000 tokens; softer findings are warnings. `index` renders `_index.md` from card frontmatter. `refs` lists what points at a file before a move and refuses a destination already taken when names are compared case-folded. `correct` counts corrections by kind and source across items; a `fixed` entry resets that count.
+`places` reads the `## Where things go` table of the root `AGENTS.md`: each backticked path in its Place column, cut at its first placeholder (`<`, `{`, `*`, `YYYY`), is a place; `docs/pm/`, root dotfiles and dot-folders, and the files a tool expects at the root (`LICENSE`, dependency and lock files) always pass. It lists files Git reports as untracked, added, or renamed outside every place; the Stop hook runs it with `--paths`. `walk` reads only what Git tracks or would track. It fails on a missing or oversized entry file, two hand-maintained entry files in one folder, broken links, a place in `## Where things go` that holds a file but is not linked from its row, a folder `README.md` the table links or a nested `AGENTS.md` or `CONTEXT.md` that does not link back up to its catalog, a numbered stage or map contract without its five sections, an oversized `CONTEXT.md`, a workflow skill that would not package, map cards with bad frontmatter or unverified evidence, a map of two or more cards without its change-impact index, unfilled template lines, citations past the end of a file, a stale `_index.md`, a `touches` path that no longer exists on an item not done, and one walk over about 8,000 tokens; softer findings are warnings. `index` renders `_index.md` from card frontmatter. `refs` lists what points at a file before a move and refuses a destination already taken when names are compared case-folded. `correct` counts corrections by kind and source across items; a `fixed` entry resets that count.
 
 The CLI uses OS file locking (`fcntl`, or `msvcrt` on Windows) and only Python's standard library. To check a change to the plugin: `python3 -m unittest discover -s tests -v`; for skill routing on real models, [`evals/README.md`](../evals/README.md).
 

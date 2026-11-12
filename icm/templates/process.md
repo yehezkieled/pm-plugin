@@ -36,5 +36,6 @@ produces: []
 
 ## See
 
+- Map: [AGENTS.md](../AGENTS.md)
 - Objects: {links to object cards}
 - Source: `{path}`

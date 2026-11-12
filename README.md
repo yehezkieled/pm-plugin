@@ -3,7 +3,7 @@
 The plugin keeps a team's work as one Markdown file per item under `docs/pm/items/`. Each item is done by its own full, interactive Claude Code worker session on your usual sign-in, and checked by a separate validator before Done. It also structures the repository so an agent loads only what a task needs, following ICM (below).
 
 ```text
-AGENTS.md             # The catalog: where things go, where to go, every-session rules (CLAUDE.md is @AGENTS.md)
+AGENTS.md             # The catalog: where things go (each place a link), what to update when a task finishes, every-session rules (CLAUDE.md is @AGENTS.md)
 docs/pm/
 ├── config.json       # Board marker and the worker model defaults
 ├── items/            # One file per item: exact requester intent, what it touches, status, owner, current notes
@@ -12,7 +12,7 @@ docs/pm/
 
 | Skill | Use |
 | --- | --- |
-| `/pm:init` | Set up the board and a small `AGENTS.md` catalog whose Where things go table fits the project's shape |
+| `/pm:init` | Set up the board and a small `AGENTS.md` catalog whose Where things go table fits the project's shape and links every folder, so the structure stays current |
 | `/pm:plan` | Record a request in the requester's exact words |
 | `/pm:work` | Do any project work: each item goes to its own worker session, which claims, builds, commits, and gets it validated |
 | `/pm:status` | See what is in flight, waiting, and ready |

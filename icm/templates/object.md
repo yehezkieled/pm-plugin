@@ -42,4 +42,5 @@ Citations: `{path}:{line}`
 
 ## See
 
+- Map: [AGENTS.md](../../AGENTS.md)
 - Source: `{path}`

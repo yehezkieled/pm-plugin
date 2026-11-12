@@ -14,7 +14,9 @@ Files that are not knowledge (code, data, notebooks, outputs, deliverables) go w
 | How a working folder's job is done: inputs, process, outputs, verify, human check | That folder's `CONTEXT.md`. A `CONTEXT.md` is always a folder's contract or router, never a glossary or overview. |
 | A workflow being built (the skill shape) | Its skill folder, `.claude/skills/<name>/`: `SKILL.md` routes, `stages/NN_<step>/CONTEXT.md` are the contracts, `_shared/` and `references/` the stable material. Each run's files go in `runs/<run>/`, outside the skill. |
 | One task: the requester's exact words, the cards or stages it touches, progress, decisions, corrections | `docs/pm/items/<id>.md`: intent under `## Requester intent`, the owner's answers under `## Decisions`, `touches` and `corrections` in its frontmatter, the rest under `## Current notes`. |
-| Where a dataset or source came from, when it arrived, what reads it | `data/README.md` (or `sources/README.md`), one line each |
+| Where a dataset or source came from, when it arrived, what reads it | `data/README.md` (or `sources/README.md`), one linked line each |
+| What a folder holds, and its files | That folder's `README.md`, linked from its row in `AGENTS.md` › Where things go and linking back to it |
+| Which files to update when a task finishes | `AGENTS.md` › When you finish a task |
 | Generated lists: the board, the map's card index | Rebuilt by `pm.py board` and `pm.py index`; never edited by hand. |
 
 ## Recording decisions
