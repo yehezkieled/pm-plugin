@@ -535,7 +535,9 @@ def cmd_finish(root: Path, args) -> None:
                              "belong to it), then run finish again; the board says Done only for committed work.")
         validation_line = verdict.group(0)
         completion = note.strip() or "Work complete."
-        item.update(status="done", owner="", notes=f"{completion}\n{validation_line}",
+        legacy = "" if item.get("decisions") else "".join(
+            f"\n\n{found}" for found in re.findall(r'^Decision on ".*?(?=\n\n|\nValidation: |\Z)', item.get("notes", ""), re.M | re.S))
+        item.update(status="done", owner="", notes=f"{completion}{legacy}\n{validation_line}",
                     done_at=datetime.now(timezone.utc).isoformat(timespec="microseconds"))
         save_item(item)
         path = item["path"].relative_to(root).as_posix()

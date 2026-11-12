@@ -307,6 +307,8 @@ class ProjectBoardTests(unittest.TestCase):
         self.run_cli("validated", item_id, "--verdict", "pass", input_text="Checks passed")
         self.run_cli("finish", item_id, input_text="Done")
         self.assertNotIn("## Decisions", path.read_text())
+        self.assertRegex(path.read_text().split("## Current notes\n", 1)[1],
+                         r'^Done\n\nDecision on "Old\?": Yes\.\nValidation: pass at [0-9a-f]{40}: Checks passed\n$')
         self.assertIn("## Done", self.board().split(f"[{item_id}]")[0])
 
     def test_validated_refuses_uncommitted_non_board_work(self):
