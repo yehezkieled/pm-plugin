@@ -1,6 +1,6 @@
 {
   "name": "pm",
-  "version": "1.7.0",
+  "version": "1.7.1",
   "description": "A lightweight, shared project board for Claude Code with claims, dependencies, and decision holds, whose items are each done by their own full, interactive Claude Code worker session and checked by a separate validator before Done, structuring the repo for agents with ICM: a small linked catalog that says where every kind of file goes for the project's shape and what to update when a task finishes, a card-based System map, and workflows packaged as skills.",
   "author": {
     "name": "hezki"
