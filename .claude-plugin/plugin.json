@@ -1,7 +1,7 @@
 {
   "name": "pm",
-  "version": "1.7.1",
-  "description": "A lightweight, shared project board for Claude Code with claims, dependencies, and decision holds, whose items are each done by their own full, interactive Claude Code worker session and checked by a separate validator before Done, structuring the repo for agents with ICM: a small linked catalog that says where every kind of file goes for the project's shape and what to update when a task finishes, a card-based System map, and workflows packaged as skills.",
+  "version": "1.8.0",
+  "description": "A lightweight, shared project board for Claude Code with claims, dependencies, and decision holds, whose items are each done by their own full, interactive Claude Code worker session that reports back to the session that started it and is checked by a separate validator before Done (optional per project), structuring the repo for agents with ICM: a small linked catalog that says where every kind of file goes for the project's shape and what to update when a task finishes, a card-based System map, and workflows packaged as skills.",
   "author": {
     "name": "hezki"
   },

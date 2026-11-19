@@ -18,11 +18,17 @@ record and then listens on the item's mailbox. `pm.py worker answer` continues t
 session is woken with the message as its next prompt (`claude --resume <session> --bg`, also after its process
 stopped or its copy was removed); a session that is mid-turn, or one the person opened, takes it from the mailbox.
 
+A worker comes back to the session that started it by itself, on all three paths. The same hooks run in that
+coordinating session: when its turn ends they watch the workers it started, and when one has news (its turn ended,
+it waits on the person, or its session failed) they wake the session with the report, so the person never has to
+ask for it. A command that is already waiting for a worker (`worker start`, `answer`, `wait`) prints the report
+itself, and the watcher leaves it to that command.
+
 Each worker's record (session, copy, branch, settings, last report) lives in the clone's Git common directory
 (`pm-workers/`), next to the board lock, so every worktree and a restarted coordinating session find it; the board
 items stay the durable record of the work itself. The permission setting for worker sessions is chosen once per
-clone by the person and kept there too; the default model and effort for workers are the project's, in
-`docs/pm/config.json`, and their validators use the same unless the person set them apart there.
+clone by the person and kept there too; the default model and effort for workers and for their validators are the
+project's, in `docs/pm/config.json`, with whether a validator is used at all.
 """
 from __future__ import annotations
 
@@ -33,6 +39,7 @@ import shlex
 import shutil
 import subprocess
 import sys
+import threading
 import time
 import uuid
 from contextlib import contextmanager
@@ -57,6 +64,10 @@ EFFORTS = ("low", "medium", "high", "xhigh", "max")
 # person's choices are recorded as exact versions and only the family is derived from them.
 MODEL_FAMILIES = ("fable", "opus", "sonnet", "haiku")
 MODEL_ALIASES = MODEL_FAMILIES + ("best", "default", "opusplan")
+# The setup question offers the same exact versions and efforts, with the same default, for workers and validators.
+MODEL_OPTIONS = ("claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5", "claude-fable-5-2")
+DEFAULT_MODEL, DEFAULT_EFFORT = "claude-sonnet-5-5", "medium"
+NOT_VALIDATED = "Validation: not run: the validator is off for this project."  # what finish records in a Done item
 # Tools that schedule a later turn of the same session. A worker's turn ends with its report, so it never gets them.
 SCHEDULING_TOOLS = ("ScheduleWakeup", "CronCreate")
 # An update replaces the `claude` executable in place, so it can be missing for a few seconds.
@@ -69,10 +80,15 @@ SESSIONS_EVERY_SECONDS = 5  # how often it asks `claude agents` what the session
 SESSION_WAIT_SECONDS = 20  # how long a new background session may take to appear in that list
 GONE_GRACE_SECONDS = 15  # a session that is not running and has not reported for this long has ended without one
 SILENT_GRACE_SECONDS = 45  # a session idle this long with no report recorded: its turn ended unrecorded
-LISTEN_FRESH_SECONDS = 10  # a mailbox listener that touched its marker this recently is listening
+LISTEN_FRESH_SECONDS = 10  # a mailbox listener, or a waiting command, that touched its marker this recently is alive
 DELIVER_WAIT_SECONDS = 30  # how long a listening session may take to pick a message up
 LISTEN_SECONDS = 86000  # a listener gives up just before its hook's 24 hour limit
+STALE_MARKER_SECONDS = 3600  # a marker in watch/ untouched this long is left over from a session or command that is gone
+UNREPORTED_GRACE_SECONDS = 60  # a worker with no hooks ends its turn about this long after parking or finishing its item
 MAIL_HEADER = "pm mailbox: the coordinating session's next message for board item {item} (not an error: act on it, then report again):"
+REPORT_BACK = ("pm report-back: news from the worker sessions this session started (not an error). Act on it now, as "
+               "/pm:work steps 6 to 8 say: check each report against the board and its branch, then tell the person the "
+               "result or ask them the worker's question. They have not asked for it and should not have to.")
 
 
 def now() -> str:
@@ -164,6 +180,27 @@ def listening_path(root: Path, item_id: str) -> Path:
     return mail_dir(root) / f"{item_id}.listening"
 
 
+def watch_dir(root: Path) -> Path:
+    path = state_dir(root) / "watch"
+    path.mkdir(exist_ok=True)
+    return path
+
+
+def waiting_path(root: Path, item_id: str) -> Path:
+    """Kept fresh while a command waits for this worker's turn and will print its report."""
+    return watch_dir(root) / f"{item_id}.waiting"
+
+
+def watching_path(root: Path, coordinator: str) -> Path:
+    """Kept fresh by the watcher of a session that started workers; it names the watcher started last."""
+    return watch_dir(root) / f"{re.sub(r'[^A-Za-z0-9_-]', '_', coordinator)}.watching"
+
+
+def hooks_path(root: Path, session: str) -> Path:
+    """Left by the plugin's start hook in a session that may be about to join as a worker: its hooks do run."""
+    return watch_dir(root) / f"{re.sub(r'[^A-Za-z0-9_-]', '_', session)}.hooks"
+
+
 def write_json(path: Path, data: dict) -> None:
     temp = path.with_name(f"{path.name}.{os.getpid()}.tmp")
     temp.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
@@ -244,7 +281,7 @@ def append_log(root: Path, item_id: str, event: dict) -> None:
 
 def forget(root: Path, item_id: str) -> None:
     for file in (state_path(root, item_id), log_path(root, item_id), settings_path(root, item_id),
-                 mail_path(root, item_id), listening_path(root, item_id)):
+                 mail_path(root, item_id), listening_path(root, item_id), waiting_path(root, item_id)):
         try:
             file.unlink()
         except OSError:
@@ -329,8 +366,14 @@ def recorded_defaults(config: dict) -> dict:
     return {role: dict(config.get(role) or {}) for role in ("workers", "validators")}
 
 
+def validator_on(config: dict) -> bool:
+    """A validator checks each worker's work before Done unless the owner turned it off at setup."""
+    return recorded_defaults(config)["validators"].get("use") != "off"
+
+
 def missing_defaults(config: dict) -> list[str]:
-    """Only the worker's model and effort must be recorded; the validator follows the worker unless set apart."""
+    """What a worker cannot start without: its model and effort. The validator is on, with the worker's model and
+    effort, until the owner chooses otherwise."""
     found = recorded_defaults(config)
     return [f"workers {key}" for key in ("model", "effort") if not found["workers"].get(key)]
 
@@ -338,9 +381,38 @@ def missing_defaults(config: dict) -> list[str]:
 def defaults_text(config: dict) -> str:
     found = recorded_defaults(config)
     worker, validator = found["workers"], found["validators"]
+    if not validator_on(config):
+        checked = "off (a worker finishes its item without a separate check, and the Done item records that none was run)"
+    else:
+        checked = (("on" if validator.get("use") else "on (not asked yet)") + ", model "
+                   + (validator.get("model") or "inherit (the worker's)") + ", effort " + (validator.get("effort") or "the worker's"))
     return (f"Worker sessions: model {worker.get('model') or 'not set'}, effort {worker.get('effort') or 'not set'}.\n"
-            "Validator subagents: model " + (validator.get("model") or "inherit (the worker's)")
-            + ", effort " + (validator.get("effort") or "the worker's") + ".")
+            f"Validator: {checked}.")
+
+
+def setup_questions(config: dict, everything: bool) -> list[str]:
+    """The questions about worker sessions and their validator that are not answered yet, in the one wording every
+    skill asks them in: the same options and the same default for the worker and for the validator. With
+    `everything` (setup) each unanswered one is listed; without it, only when a worker could not start."""
+    found = recorded_defaults(config)
+    if not everything and not missing_defaults(config):
+        return []
+    models = ", ".join(model + (" (default)" if model == DEFAULT_MODEL else "") for model in MODEL_OPTIONS)
+    efforts = ", ".join(effort + (" (default)" if effort == DEFAULT_EFFORT else "") for effort in EFFORTS)
+    asked = []
+    for role, name, only in (("workers", "Worker sessions", ""), ("validators", "Validator", " (only if one is used)")):
+        if role == "validators":
+            if not found[role].get("use"):
+                asked.append("Validator, use one: yes (default) or no. It is a separate check of each worker's work before "
+                             "the item is marked Done; with no, a worker finishes without it and the Done item records "
+                             "that no validation was run.")
+            elif not validator_on(config):
+                continue
+        if not found[role].get("model"):
+            asked.append(f"{name}, model{only}: {models}, or another exact version.")
+        if not found[role].get("effort"):
+            asked.append(f"{name}, effort{only}: {efforts}.")
+    return asked
 
 
 def choices(config: dict, args) -> dict:
@@ -354,6 +426,7 @@ def choices(config: dict, args) -> dict:
                          "--worker-effort E`; do not pick them yourself. A model or effort the person names for this "
                          "item goes on this start instead.")
     # The validator runs on the worker's model and effort unless the person set it apart, for the project or this item.
+    chosen["validator"] = "on" if validator_on(config) else "off"
     chosen["validator_model"] = args.validator_model or found["validators"].get("model") or "inherit"
     chosen["validator_effort"] = args.validator_effort or found["validators"].get("effort") or chosen["effort"]
     for role, key, flag, given in (("worker", "model", "--worker-model", args.model),
@@ -363,6 +436,13 @@ def choices(config: dict, args) -> dict:
         except ValueError as exc:
             raise ValueError(str(exc) + ("" if given else f" Then record it with `pm.py defaults {flag} MODEL`."))
     return chosen
+
+
+def validator_words(state: dict) -> str:
+    """A worker's validator in a few words, for the lines that say how it was started."""
+    if state.get("validator") == "off":
+        return "no validator: off for this project"
+    return f"validator {state['validator_model']}, {state['validator_effort']}"
 
 
 # --- the claude command ---------------------------------------------------------------------------------------
@@ -557,8 +637,9 @@ def pm_command(plugin_root: Path) -> str:
 def kick_line(state: dict, plugin_root: Path) -> str:
     """A worker's whole first message: one line, enough for any session to find its ticket. It says what the
     person asked for, so the session's permission setting sees their request and not only a command to run."""
+    checked = "" if state.get("validator") == "off" else "have it validated, "
     return (f"pm worker session for board item {state['item']}, which the person asked to have done (claim it, build it, "
-            f"have it validated, then finish it or park it with a question): run `{pm_command(plugin_root)} worker join "
+            f"{checked}then finish it or park it with a question): run `{pm_command(plugin_root)} worker join "
             f"{state['item']}` first. It records this session as the item's worker and prints your ticket.")
 
 
@@ -568,6 +649,9 @@ SUBAGENT_MODEL = "CLAUDE_CODE_SUBAGENT_MODEL"  # the session setting that runs i
 def validator_line(state: dict) -> str:
     """What the worker passes when it starts its validator, said from inside its session. A session the plugin
     started runs its subagents on the exact validator model already; the Agent tool itself takes only a family."""
+    if state.get("validator") == "off":
+        return ("Validator: none. The owner turned the validator off for this project: skip step 7's validator, and in "
+                "step 8 finish once your own checks pass; the CLI records in the item that no validation was run")
     model = state["validator_model"]
     target = state["model"] if model == "inherit" else model
     session = os.environ.get(SUBAGENT_MODEL)
@@ -593,7 +677,8 @@ def new_state(item_id: str, person: str, chosen: dict, **fields) -> dict:
     return {"item": item_id, "started_by": BACKGROUND, "session": "", "job": "", "checkout": "", "own_worktree": False,
             "made_copy": False, "branch": "", "person": person, "permission_mode": "", "created": now(), "turns": 0,
             "state": "starting", "prompted_at": 0, "report": "", "report_at": 0, "facts": "", "needs": "",
-            "seen_mode": "", "pending_mail": False, "claim_resume": False, "note": "", **chosen, **fields}
+            "seen_mode": "", "pending_mail": False, "claim_resume": False, "note": "", "coordinator": this_session(),
+            "told": "", "hooked": False, "board_event": "", "board_event_at": 0, "question": "", **chosen, **fields}
 
 
 def session_settings(root: Path, state: dict) -> Path:
@@ -694,7 +779,8 @@ def handover_text(root: Path, state: dict, plugin_root: Path, why: str) -> str:
              f"  Claude app: a new session in the folder {path}, model {state['model']}",
              "The session gets its first message by itself when it opens. If it sits idle, they paste this one line into it:",
              f"  {kick_line(state, plugin_root)}",
-             f"Then run `pm.py worker wait {item}` in the background: it returns when that session's turn ends."]
+             f"Its report comes back to you by itself when its turn ends. `pm.py worker wait {item}` in the background "
+             "waits for it too."]
     return "\n".join(lines)
 
 
@@ -755,12 +841,13 @@ def cmd_start(root: Path, args, plugin_root: Path, config: dict, person: str, no
     save_state(root, state)
     why = ""
     if not args.handover:
-        started, why = dispatch(root, state, kick_line(state, plugin_root), plugin_root)
-        if started:
-            print(f"Started worker session {state['session'] or state['job']} for {args.id} in {checkout}: a background "
-                  f"session, `claude attach {state['job']}` opens it (model {state['model']}, effort {state['effort']}; "
-                  f"validator {state['validator_model']}, {state['validator_effort']}).", flush=True)
-            return 0 if args.no_wait else finish_turn(root, args.id)
+        with waiting(root, args.id):
+            started, why = dispatch(root, state, kick_line(state, plugin_root), plugin_root)
+            if started:
+                print(f"Started worker session {state['session'] or state['job']} for {args.id} in {checkout}: a "
+                      f"background session, `claude attach {state['job']}` opens it (model {state['model']}, effort "
+                      f"{state['effort']}; {validator_words(state)}).", flush=True)
+                return 0 if args.no_wait else finish_turn(root, args.id)
     if here:  # a session the person opens gets the item's own worktree: one opened in their checkout could be any
         checkout = ensure_worktree(root, args.id, base)
         state.update(checkout=str(checkout), own_worktree=True, made_copy=True)
@@ -787,7 +874,8 @@ def cmd_brief(root: Path, args, plugin_root: Path, config: dict, person: str, no
         "- its own copy of the project (a worktree), if the tool makes one; the worker records the copy and branch it got",
         "- first message: this one line, unchanged",
         kick_line(state, plugin_root),
-        f"When you are told its turn ended, run `pm.py worker wait {args.id}`. Later messages for it go through "
+        f"Then run `pm.py worker wait {args.id}` in the background: it returns with the worker's report when its turn "
+        f"ends, and the report comes back to you by itself even without it. Later messages for it go through "
         f"`pm.py worker answer {args.id}`, which prints what to send it as a follow-up."]))
     return 0
 
@@ -814,6 +902,9 @@ def cmd_join(root: Path, args, plugin_root: Path) -> int:
         state["branch"] = current if made_for_it else f"{WORK_BRANCH}{args.id}"
         if session:
             state["session"] = session
+            if hooks_path(root, session).exists():  # its start hook ran before this: its Stop hook will bring its report
+                state["hooked"] = True
+                hooks_path(root, session).unlink()
         if state.get("state") in ("starting", "awaiting-session"):
             state.update(state="working", prompted_at=time.time(), turns=max(state.get("turns", 0), 1))
         save_state(root, state)
@@ -843,12 +934,17 @@ def cmd_join(root: Path, args, plugin_root: Path) -> int:
 
 # --- the mailbox -----------------------------------------------------------------------------------------------
 
-def listener_fresh(root: Path, item_id: str) -> bool:
-    """True while a listener of the item's mailbox touched its marker a moment ago."""
+def fresh(marker: Path) -> bool:
+    """True while whatever keeps this marker touched it a moment ago, so it is still running."""
     try:
-        return time.time() - listening_path(root, item_id).stat().st_mtime < LISTEN_FRESH_SECONDS
+        return time.time() - marker.stat().st_mtime < LISTEN_FRESH_SECONDS
     except OSError:
         return False
+
+
+def listener_fresh(root: Path, item_id: str) -> bool:
+    """True while a listener of the item's mailbox touched its marker a moment ago."""
+    return fresh(listening_path(root, item_id))
 
 
 def listening(root: Path, state: dict, listed: list[dict] | None) -> bool:
@@ -937,6 +1033,7 @@ def cmd_answer(root: Path, args, plugin_root: Path, message: str) -> int:
     if restored:
         print(restored, flush=True)
     text = message_text(args.id, message)
+    coordinate(root, args.id)
     if state["started_by"] == APP:
         update_state(root, args.id, state="working", prompted_at=time.time(), turns=state.get("turns", 0) + 1)
         append_log(root, args.id, {"event": "follow-up", "message": text})
@@ -945,11 +1042,18 @@ def cmd_answer(root: Path, args, plugin_root: Path, message: str) -> int:
             + (f", copy {state['checkout']}" if state.get("checkout") else "") + "). Send it this as a follow-up message with "
             "your tool that messages a session you started, unchanged:",
             "----- message -----", text, "----- end of message -----",
-            f"When you are told its turn ended, run `pm.py worker wait {args.id}`."]))
+            f"Its report comes back to you by itself when its turn ends. `pm.py worker wait {args.id}` in the background "
+            "waits for it too."]))
         return 0
     if state.get("state") == "awaiting-session":
         raise ValueError(f"{args.id}'s worker session has not been opened yet. The person opens one in {state['checkout']}; "
                          f"`pm.py worker wait {args.id}` returns when its turn ends.")
+    with waiting(root, args.id):
+        return deliver(root, args, plugin_root, state, text)
+
+
+def deliver(root: Path, args, plugin_root: Path, state: dict, text: str) -> int:
+    """Get a message into a worker session the plugin can reach, then wait for the turn it starts."""
     listed = sessions_listed(root)
     entry = session_entry(listed, state)
     working = state.get("state") in ("starting", "working") and running(entry)
@@ -1081,7 +1185,8 @@ def transcript_facts(path: str, item_id: str, since: float, chosen: str = "") ->
 
 
 def cmd_hook(root: Path, event: str, payload: dict, plugin_root: Path, places_block) -> int:
-    """Called by the plugin's hooks in every session; does nothing unless the session is a worker's."""
+    """Called by the plugin's hooks in every session. In a worker's it hands over the ticket, saves the report, and
+    listens for the next message; in a session that started workers it waits for their news; else it does nothing."""
     if event == "whoami":
         state = hook_state(root, payload, bind_handover=False)
         if not state:
@@ -1093,8 +1198,16 @@ def cmd_hook(root: Path, event: str, payload: dict, plugin_root: Path, places_bl
         return 0
     state = hook_state(root, payload, bind_handover=event == "session-start")
     if not state:
+        if event in ("session-start", "stop") and not os.environ.get("PM_WORKER"):
+            session = str(payload.get("session_id") or os.environ.get("CLAUDE_CODE_SESSION_ID") or "")
+            if event == "session-start" and session and any(
+                    found["started_by"] == APP and not found.get("session") for found in all_states(root)):
+                hooks_path(root, session).touch()  # it may be the app's worker, about to join
+            return watch(root, session, os.environ.get("CLAUDE_PID", ""))
         return 0
     item_id, mode = state["item"], str(payload.get("permission_mode") or state.get("seen_mode") or "")
+    if not state.get("hooked"):
+        state = update_state(root, item_id, hooked=True) or state
     if event == "session-start":
         if state["started_by"] != HANDOVER or state.get("state") != "awaiting-session":
             return 0
@@ -1120,7 +1233,7 @@ def cmd_hook(root: Path, event: str, payload: dict, plugin_root: Path, places_bl
     state = update_state(root, item_id, state="reported", report=text, report_at=time.time(), facts=facts,
                          seen_mode=mode, needs="", interim="", background=False)
     append_log(root, item_id, {"event": "report", "report": text})
-    if not state or state["started_by"] == APP:  # the app tells the coordinating session itself and carries its follow-ups
+    if not state or state["started_by"] == APP:  # the app carries its follow-ups, so it has no mailbox to listen on
         return 0
     return listen(root, item_id)
 
@@ -1132,41 +1245,76 @@ def turn_ended(state: dict) -> bool:
             and float(state.get("report_at") or 0) >= float(state.get("prompted_at") or 0))
 
 
+def board_event(root: Path, item_id: str, kind: str, question: str = "") -> None:
+    """Called by `pm.py hold` and `pm.py finish`: note on the item's worker record that its item was parked with a
+    question or finished. It is what the turn's end looks like from outside a session whose hooks do not run."""
+    try:
+        if (git_common_dir(root) / "pm-workers" / "sessions" / f"{item_id}.json").exists():  # looked up without creating it
+            update_state(root, item_id, board_event=kind, board_event_at=time.time(), question=question.strip())
+    except (ValueError, OSError):  # not a Git repository: no worker sessions either
+        pass
+
+
+def unreported(state: dict) -> bool:
+    """True when the worker parked or finished its item this turn in a session where none of the plugin's hooks has
+    ever run (a Claude app that does not run them): no Stop hook will save its report, so the board command is the
+    only sign that its turn is over. A session the plugin started always runs them."""
+    at = float(state.get("board_event_at") or 0)
+    return bool(at and state["started_by"] != BACKGROUND and not state.get("hooked")
+                and at >= float(state.get("prompted_at") or 0) and time.time() - at >= UNREPORTED_GRACE_SECONDS)
+
+
+class Sightings:
+    """What the session list has shown of one worker over time. A session must be gone, or idle with no report,
+    for a while before its turn is judged over, so each look adds to the ones before it."""
+
+    def __init__(self) -> None:
+        self.gone_since = self.idle_since = None
+        self.seen_running = False
+
+    def outcome(self, state: dict, listed: list[dict] | None) -> str:
+        """needs-you, ended, or silent; "" while the turn is under way as far as the list shows."""
+        entry = session_entry(listed, state)
+        if waiting_on_person(entry):
+            return "needs-you"
+        self.seen_running = self.seen_running or running(entry)
+        # Only a background session, or one seen running, is known to be gone when it is not listed: a session the
+        # person opened in the Claude app may never be on the command line's list.
+        if listed is not None and not running(entry) and (state["started_by"] == BACKGROUND or self.seen_running):
+            self.gone_since = self.gone_since or time.time()
+            if time.time() - self.gone_since >= GONE_GRACE_SECONDS:
+                return "ended"
+        else:
+            self.gone_since = None
+        if running(entry) and entry.get("status") == "idle" and not state.get("pending_mail") \
+                and not state.get("background"):
+            self.idle_since = self.idle_since or time.time()
+            if time.time() - self.idle_since >= SILENT_GRACE_SECONDS:
+                return "silent"
+        else:
+            self.idle_since = None
+        return ""
+
+
 def wait_for(root: Path, item_id: str) -> str:
     """Wait until the worker's turn has ended, or it needs the person, or its session is gone. Returns which:
-    reported, needs-you, ended, silent, stopped, app, or removed."""
-    asked, gone_since, idle_since, seen_running = 0.0, None, None, False
+    reported, unreported, needs-you, ended, silent, stopped, or removed."""
+    asked, seen = 0.0, Sightings()
     while True:
         state = load_state(root, item_id)
         if state is None:
             return "removed"
-        if state["started_by"] == APP:
-            return "reported" if turn_ended(state) else "app"
         if turn_ended(state):
             return "reported"
         if state.get("state") in ("stopped", "finished"):
             return "stopped"
+        if unreported(state):
+            return "unreported"
         if state.get("state") != "awaiting-session" and time.time() - asked >= SESSIONS_EVERY_SECONDS:
             listed, asked = sessions_listed(root), time.time()
-            entry = session_entry(listed, state)
-            if waiting_on_person(entry):
-                return "needs-you"
-            seen_running = seen_running or running(entry)
-            # Only a background session, or one this command saw running, is known to be gone when it is not listed:
-            # a session the person opened in the Claude app may never be on the command line's list.
-            if listed is not None and not running(entry) and (state["started_by"] == BACKGROUND or seen_running):
-                gone_since = gone_since or time.time()
-                if time.time() - gone_since >= GONE_GRACE_SECONDS:
-                    return "ended"
-            else:
-                gone_since = None
-            if running(entry) and entry.get("status") == "idle" and not state.get("pending_mail") \
-                    and not state.get("background"):
-                idle_since = idle_since or time.time()
-                if time.time() - idle_since >= SILENT_GRACE_SECONDS:
-                    return "silent"
-            else:
-                idle_since = None
+            outcome = seen.outcome(state, listed)
+            if outcome:
+                return outcome
         time.sleep(POLL_SECONDS)
 
 
@@ -1179,9 +1327,11 @@ def branch_facts(root: Path, state: dict) -> tuple[str, bool]:
         return f"No branch {branch} with the item on it.", False
     status = re.search(r'^status: "([^"]*)"', shown.stdout, re.M)
     validation = re.search(r"^Validation: (pass|findings) at ([0-9a-f]{7})[0-9a-f]*", shown.stdout, re.M)
-    done = bool(status and status.group(1) == "done" and validation and validation.group(1) == "pass")
-    return (f"On branch {branch}: status {status.group(1) if status else 'unknown'}; "
-            + (f"validation {validation.group(1)} at {validation.group(2)}." if validation else "no validation recorded.")), done
+    skipped = NOT_VALIDATED in shown.stdout.splitlines()  # finish writes it only when the owner turned the validator off
+    done = bool(status and status.group(1) == "done" and (skipped or validation and validation.group(1) == "pass"))
+    checked = (f"validation {validation.group(1)} at {validation.group(2)}." if validation else
+               "no validation was run (the validator is off for this project)." if skipped else "no validation recorded.")
+    return f"On branch {branch}: status {status.group(1) if status else 'unknown'}; {checked}", done
 
 
 def how_to_open(state: dict) -> str:
@@ -1229,9 +1379,12 @@ def report(root: Path, item_id: str, outcome: str) -> tuple[str, bool]:
                  f"asks; once they have answered, run `pm.py worker wait {item_id}` again."]
     elif outcome == "awaiting":
         lines = [f"Worker session for {item_id} has not been opened yet: {where}."]
-    elif outcome == "app":
-        lines = [f"Worker session for {item_id} runs in the Claude app, which tells you when its turn ends and carries its "
-                 f"report: {where}. No report of its latest turn is recorded here."]
+    elif outcome == "unreported":
+        did = "finished its item" if state.get("board_event") == "finish" else "parked its item with a question for the owner"
+        lines = [f"Worker session for {item_id} {did}, but no report of its turn was recorded here (the plugin's hooks "
+                 f"did not run in that session): {where}; {how_to_open(state)}. Its own last message is in that session."]
+        if state.get("board_event") == "hold" and state.get("question"):
+            text = state["question"]
     elif outcome in ("ended", "silent", "stopped"):
         why = {"ended": "is no longer running and left no final report",
                "silent": "is idle, but no report of its turn was recorded (the plugin's Stop hook did not run in it)",
@@ -1248,7 +1401,8 @@ def report(root: Path, item_id: str, outcome: str) -> tuple[str, bool]:
         lines.append(state["facts"])
     lines.append(facts)
     if text:
-        lines += ["Report:" if outcome == "reported" else "Its last message:", text]
+        heading = {"reported": "Report:", "unreported": "Question for the owner, as the board has it:"}.get(outcome, "Its last message:")
+        lines += [heading, text]
     return "\n".join(lines), done
 
 
@@ -1276,16 +1430,25 @@ def tidy(root: Path, item_id: str) -> str:
             f"`pm.py worker remove {item_id}` removes it.")
 
 
+def brought(root: Path, item_id: str, outcome: str) -> tuple[list[str], bool]:
+    """A worker's news as the coordinating session reads it, and whether the item is Done on its branch; a Done
+    item's session is closed and its copy removed on the way."""
+    text, done = report(root, item_id, outcome)
+    return [text] + ([tidy(root, item_id)] if done and outcome != "needs-you" else []), done
+
+
 def finish_turn(root: Path, item_id: str) -> int:
     """Wait for the worker's turn, print its report, and tidy up when the item is Done."""
     outcome = wait_for(root, item_id)
-    if outcome == "removed":
+    state = load_state(root, item_id)
+    if outcome == "removed" or state is None:
         print(f"{item_id}'s worker session record was removed while waiting.")
         return 1
-    text, done = report(root, item_id, outcome)
-    print(text, flush=True)
-    if done and outcome != "needs-you":
-        print(tidy(root, item_id), flush=True)
+    if this_session() and outcome != "stopped":  # the coordinating session reads it here: its watcher has no news left
+        update_state(root, item_id, told=news_key(state, outcome))
+    parts, done = brought(root, item_id, outcome)
+    for part in parts:
+        print(part, flush=True)
     return 1 if outcome in ("ended", "silent") and not done else 0
 
 
@@ -1293,11 +1456,156 @@ def cmd_wait(root: Path, args) -> int:
     state = load_state(root, args.id)
     if not state:
         raise ValueError(f"{args.id} has no worker session.")
+    coordinate(root, args.id)
     if state.get("state") == "finished":
         text, _ = report(root, args.id, "reported")
         print(text)
         return 0
-    return finish_turn(root, args.id)
+    with waiting(root, args.id):
+        return finish_turn(root, args.id)
+
+
+# --- a worker's news comes back to the session that started it ---------------------------------------------------
+
+def this_session() -> dict:
+    """The Claude Code session this command runs in, when it is not a worker's: the one that coordinates the
+    workers it starts, so the one their news goes back to. Empty outside a session (a plain terminal).
+
+    Its process is kept beside its ID because /clear gives the same window a new ID while its workers go on."""
+    if os.environ.get("PM_WORKER"):
+        return {}
+    session, pid = os.environ.get("CLAUDE_CODE_SESSION_ID", ""), os.environ.get("CLAUDE_PID", "")
+    return {"session": session, "pid": pid} if session or pid else {}
+
+
+def coordinate(root: Path, item_id: str) -> None:
+    """The session running this command coordinates the worker from now on: a session restarted after its
+    workers began takes them over by waiting for one or answering it."""
+    me = this_session()
+    if me:
+        update_state(root, item_id, coordinator=me)
+
+
+def coordinates(state: dict, session: str, pid: str) -> bool:
+    owner = state.get("coordinator") or {}
+    return bool((session and owner.get("session") == session) or (pid and owner.get("pid") == pid))
+
+
+@contextmanager
+def waiting(root: Path, item_id: str):
+    """Open while a command starts, wakes, or waits for a worker and will print its report itself: the watcher
+    leaves the item to it, and takes over when the command is cut off before the report."""
+    marker, over = waiting_path(root, item_id), threading.Event()
+
+    def beat() -> None:
+        while not over.wait(POLL_SECONDS):
+            try:
+                marker.touch()
+            except OSError:
+                pass
+
+    marker.touch()
+    thread = threading.Thread(target=beat, daemon=True)
+    thread.start()
+    try:
+        yield
+    finally:
+        over.set()
+        thread.join()
+        try:
+            marker.unlink()
+        except OSError:
+            pass
+
+
+def news_key(state: dict, outcome: str) -> str:
+    """What names one piece of a worker's news, so the coordinating session is told it once."""
+    if outcome == "reported":
+        return f"reported:{state.get('report_at')}"
+    if outcome == "needs-you":
+        return f"needs-you:{state.get('turns')}:{state.get('needs')}"
+    if outcome == "unreported":
+        return f"unreported:{state.get('board_event_at')}"
+    return f"{outcome}:{state.get('prompted_at')}"
+
+
+def untold(root: Path, item_id: str, key: str) -> bool:
+    """Mark this news as told, unless it already was or a command is now waiting to print it."""
+    with locked(root):
+        state = load_state(root, item_id)
+        if not state or state.get("told") == key or fresh(waiting_path(root, item_id)):
+            return False
+        state["told"] = key
+        save_state(root, state)
+        return True
+
+
+def watch(root: Path, session: str, pid: str) -> int:
+    """Run by the hooks of a session that started workers, at its start and at the end of each of its turns: wait
+    until one of them has news the session has not been told (its turn ended, it waits on the person, or its session
+    failed). Printing the news to stderr and exiting 2 makes Claude Code wake the session with it, so the person
+    never has to ask what a worker said. Only the watcher started last keeps watching."""
+    mine = [state for state in all_states(root) if coordinates(state, session, pid)]
+    if not mine:
+        return 0
+    me = {"session": session, "pid": pid}
+    for state in mine:  # after /clear the same window has a new session ID, and its workers follow it
+        if state.get("coordinator") != me:
+            update_state(root, state["item"], coordinator=me)
+    for left in watch_dir(root).iterdir():  # markers of sessions and commands that are gone
+        try:
+            if time.time() - left.stat().st_mtime > STALE_MARKER_SECONDS:
+                left.unlink()
+        except OSError:
+            pass
+    token, marker = uuid.uuid4().hex, watching_path(root, pid or session)
+    marker.write_text(token, encoding="utf-8")
+    asked, listed, seen = 0.0, None, {}
+    deadline = time.time() + LISTEN_SECONDS
+    while time.time() < deadline:
+        try:
+            latest = marker.read_text(encoding="utf-8") == token
+        except OSError:
+            latest = False
+        if not latest:  # a later turn of this session watches now
+            return 0
+        mine = [state for state in all_states(root)
+                if coordinates(state, session, pid) and state.get("state") != "finished"]
+        if not mine:
+            break
+        # A worker a command is waiting for is that command's to report; one that is stopped or not opened has no news.
+        watched = [state for state in mine if state.get("state") not in ("stopped", "awaiting-session")
+                   and not fresh(waiting_path(root, state["item"]))]
+        look = time.time() - asked >= SESSIONS_EVERY_SECONDS and any(not turn_ended(state) for state in watched)
+        if look:
+            listed, asked = sessions_listed(root), time.time()
+        news = []
+        for state in watched:
+            item_id = state["item"]
+            outcome = "reported" if turn_ended(state) else "unreported" if unreported(state) else ""
+            if not outcome and look:
+                outcome = seen.setdefault(item_id, Sightings()).outcome(state, listed)
+                if not outcome and listed is not None and str(state.get("told") or "").startswith("needs-you:"):
+                    update_state(root, item_id, told="")  # the person answered it: its next prompt is news again
+            if outcome and untold(root, item_id, news_key(state, outcome)):
+                news.append((item_id, outcome))
+        if news:
+            lines = [REPORT_BACK]
+            for item_id, outcome in news:
+                lines += ["", f"--- {item_id} ---", *brought(root, item_id, outcome)[0]]
+                append_log(root, item_id, {"event": "report-back", "outcome": outcome, "to": session})
+            sys.stderr.write("\n".join(lines) + "\n")
+            return 2
+        try:
+            os.utime(marker)
+        except OSError:
+            pass
+        time.sleep(POLL_SECONDS)
+    try:
+        marker.unlink()
+    except OSError:
+        pass
+    return 0
 
 
 def cmd_stop(root: Path, args) -> int:
@@ -1330,8 +1638,10 @@ def doing(root: Path, state: dict, listed: list[dict] | None) -> str:
         what = waiting_on_person(entry)
         return (f"waiting on {what}" + (f" for {state['needs']}" if state.get("needs") and "permission" in what else "")
                 + f", in its own session ({how_to_open(state)})")
-    if turn_ended(state):
-        ended = "turn ended: " + short(state.get("report") or "no final report", 160)
+    if turn_ended(state) or unreported(state):
+        ended = ("turn ended: " + short(state.get("report") or "no final report", 160) if turn_ended(state) else
+                 ("finished its item" if state.get("board_event") == "finish" else "parked its item with a question")
+                 + "; no report of its turn is recorded")
         if branch_facts(root, state)[1]:  # Done on its branch, but nothing has tidied it yet
             ended += (f"; it is Done on its branch: run `pm.py worker wait {state['item']}` to close its session and "
                       "remove its copy")
