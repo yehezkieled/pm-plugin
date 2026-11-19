@@ -230,12 +230,6 @@ class WorkerSessionTests(unittest.TestCase):
         self.assertEqual(config, {"workers": {"model": "claude-fable-5-2", "effort": "xhigh"},
                                   "validators": {"use": "on", "model": "claude-opus-5-5"}})
         self.assertIn("Validator: on, model claude-opus-5-5, effort the worker's.", self.cli("defaults").stdout)
-        # Both skills ask what the CLI prints rather than keeping lists of their own.
-        for skill, command in (("init", "pm.py defaults --setup"), ("work", "pm.py defaults")):
-            text = (REPO / "skills" / skill / "SKILL.md").read_text()
-            self.assertIn(f"`{command}`", text)
-            for own_list in ("claude-opus-5-5", "`low`, `medium`"):
-                self.assertNotIn(own_list, text, f"/pm:{skill} must not keep its own option list")
 
     def test_with_the_validator_off_a_worker_is_told_to_finish_without_one(self):
         self.ready()

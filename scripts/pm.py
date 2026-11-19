@@ -523,9 +523,7 @@ def cmd_finish(root: Path, args) -> None:
         verdict = re.search(r"^Validation: (pass|findings) at ([0-9a-f]{40}|[0-9a-f]{64}): .+$", item.get("notes", ""), re.M)
         stale = bool(verdict) and git(root, "diff", "--quiet", verdict.group(2), "HEAD", "--", ".", ":(exclude)docs/pm",
                                       check=False).returncode != 0
-        # The owner's setup choice: with the validator off nothing has to pass, and the Done item says none was run.
-        unchecked = not pm_workers.validator_on(read_config(board_checkout(root))) and (
-            not verdict or verdict.group(1) != "pass" or stale)
+        unchecked = not verdict and not pm_workers.validator_on(read_config(board_checkout(root)))
         if not unchecked:
             if not verdict:
                 raise ValueError(f"{item['id']} has no recorded validation. Run the pm:validator agent, then record its verdict with `pm.py validated {item['id']} --verdict pass|findings`.")

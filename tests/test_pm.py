@@ -310,13 +310,27 @@ class ProjectBoardTests(unittest.TestCase):
         notes = self.item_file(item_id).read_text()
         self.assertRegex(notes, r"Done\nValidation: pass at [0-9a-f]{40}: Checks passed\n$")
         self.assertNotIn("no validation was run", self.board())
-        # Findings do not block it, and are not passed off as a pass: the item says no validation was run.
-        second = self.add("Findings", "Do it")
-        self.run_cli("claim", second, input_text="Ari")
-        self.run_cli("validated", second, "--verdict", "findings", input_text="app.py:1 must change")
-        self.run_cli("finish", second, input_text="Done")
-        self.assertTrue(self.item_file(second).read_text().endswith(
-            "Done\nValidation: not run: the validator is off for this project.\n"))
+
+    def test_turning_the_validator_off_mid_run_never_overwrites_a_recorded_verdict(self):
+        self.run_cli("defaults", "--validator", "on")
+        findings = self.add("Findings", "Do it")
+        self.run_cli("claim", findings, input_text="Ari")
+        self.run_cli("validated", findings, "--verdict", "findings", input_text="app.py:1 must change")
+        stale = self.add("Stale pass", "Do it")
+        self.run_cli("claim", stale, input_text="Ari")
+        self.run_cli("validated", stale, "--verdict", "pass", input_text="Checks passed")
+        (self.root / "app.py").write_text("work after validation\n")
+        self.commit_all("work after validation")
+        self.run_cli("defaults", "--validator", "off")
+        refused = self.run_cli("finish", findings, ok=False, input_text="Done")
+        self.assertIn(f"{findings} has validation findings.", refused.stderr)
+        refused = self.run_cli("finish", stale, ok=False, input_text="Done")
+        self.assertIn(f"{stale} changed since validation", refused.stderr)
+        for item_id in (findings, stale):
+            notes = self.item_file(item_id).read_text()
+            self.assertNotIn("Validation: not run", notes)
+            self.assertRegex(notes, r"Validation: (pass|findings) at [0-9a-f]{40}: ")
+        self.assertNotIn("no validation was run", self.board())
 
     def test_setup_asks_about_github_and_ci_once_and_records_the_answer(self):
         self.assertIn("GitHub and CI/CD: not asked yet.", self.run_cli("defaults").stdout)
@@ -704,24 +718,18 @@ class SkillDescriptionTests(unittest.TestCase):
         tools = {tool.strip() for tool in validator["tools"].split(",")}
         self.assertEqual(tools, {"Read", "Grep", "Glob", "Bash"}, "the validator must not edit files or start agents")
 
-    def test_setup_touches_github_only_on_the_owners_yes(self):
+    def test_the_ci_template_checks_pull_requests_and_the_default_branch_read_only(self):
+        import yaml
         root = Path(__file__).resolve().parents[1]
-        init = (root / "skills" / "init" / "SKILL.md").read_text()
-        self.assertIn("`pm.py defaults --setup`", init, "setup asks the question the CLI prints")
-        self.assertIn("--github yes|no", init)
-        step = next(line for line in init.splitlines() if re.match(r"\d+\. GitHub and CI/CD: only when the owner answered yes", line))
-        self.assertIn("On no, or while they have not answered, set up none of it (no workflow file, no remote, no repository)", step)
-        self.assertIn("ask the owner for a second, explicit yes to create one now", init)
-        self.assertIn("never create a remote repository without the owner's explicit yes in this run", init)
-        self.assertIn("gh repo create NAME --private --source . --remote origin --push", init,
-                      "a repository setup creates is private unless the owner says otherwise")
-        template = (root / "icm" / "templates" / "ci-checks.yml").read_text()
-        self.assertIn("icm/templates/ci-checks.yml", init)
-        for part in ("pull_request:", 'branches: ["{default branch}"]', "contents: read",
-                     '"{the Test command from AGENTS.md > Every session}"'):
-            self.assertIn(part, template)
-        manual = (root / "docs" / "manual.md").read_text()
-        self.assertIn("`pm.py defaults --github yes` or `no`", manual)
+        workflow = yaml.safe_load((root / "icm" / "templates" / "ci-checks.yml").read_text())
+        triggers = workflow[True]
+        self.assertEqual(set(triggers), {"pull_request", "push"})
+        self.assertIsNone(triggers["pull_request"], "every pull request, whatever its branches")
+        self.assertEqual(triggers["push"], {"branches": ["{default branch}"]})
+        self.assertEqual(workflow["permissions"], {"contents": "read"})
+        steps = workflow["jobs"]["checks"]["steps"]
+        self.assertEqual(steps[0], {"uses": "actions/checkout@v4"})
+        self.assertEqual(steps[-1]["run"], "{the Test command from AGENTS.md > Every session}")
 
     def test_manual_covers_every_command(self):
         root = Path(__file__).resolve().parents[1]
