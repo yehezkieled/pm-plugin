@@ -1,0 +1,18 @@
+# The project's checks, run on every pull request and on every push to the default branch.
+# /pm:init copies this to .github/workflows/checks.yml when the owner said yes to GitHub and CI/CD, fills each
+# {placeholder} from the project, and removes these three lines.
+name: checks
+on:
+  pull_request:
+  push:
+    branches: ["{default branch}"]
+permissions:
+  contents: read
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # {Only the setup the check command needs, such as actions/setup-python or actions/setup-node and the dependency install; delete this line when it needs none.}
+      - name: Run the checks
+        run: "{the Test command from AGENTS.md > Every session}"

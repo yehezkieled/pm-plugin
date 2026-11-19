@@ -20,4 +20,5 @@ jobs:
         run: |
           git config --global user.name ci
           git config --global user.email ci@example.invalid
+      - run: python3 -m pip install pyyaml
       - run: python3 -m unittest discover -s tests -v

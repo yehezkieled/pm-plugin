@@ -16,6 +16,8 @@ Pick by the project's repeating unit of work. A project can be two shapes, such 
 
 Files a tool expects at the root (the dependency and lock files, `LICENSE`, dotfiles and dot-folders such as `.github/`) always pass the check.
 
+When the owner said yes to GitHub and CI/CD at setup, the table also gets the row `CI checks` | `.github/workflows/` | `runs the Test command on every pull request`, filled from [templates/ci-checks.yml](templates/ci-checks.yml); the automation shape's Schedule and CI row already covers it.
+
 ## Shape rows
 
 **analysis**: data analysis, reconciliation, exploration (unit: a question answered from data)

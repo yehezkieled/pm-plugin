@@ -14,7 +14,8 @@ FAKE_CLAUDE_SLEEP: seconds a turn takes.
 FAKE_CLAUDE_MODE: the permission mode a session reports instead of the one it was given.
 FAKE_CLAUDE_BG_FAIL: `--bg` fails with this message, as where background sessions are blocked.
 FAKE_CLAUDE_WORK: "finish" makes the first turn do the item's work: join, claim, branch, commit, validated, finish.
-    "litter" does the same and leaves an uncommitted file behind.
+    "litter" does the same and leaves an uncommitted file behind. "finish-unvalidated" skips `validated`, as a worker
+    does when the project's setup has the validator off.
 FAKE_CLAUDE_PERMISSION: the first turn asks the person to allow this (e.g. "Bash npm test") and waits until the
     file approve-<session id> appears in FAKE_CLAUDE_HOME.
 FAKE_CLAUDE_BACKGROUND: seconds a background task (its validator) keeps the first turn open after an early message.
@@ -138,7 +139,7 @@ def ran_validator(spec):
                                                       "message": {"model": model, "content": []}}) + "\n")
 
 
-def do_the_work(spec, item, prompt, litter):
+def do_the_work(spec, item, prompt, litter, validate=True):
     """What a worker does for its item, through the real board CLI in its own copy."""
     env = dict(os.environ, **spec["env"], CLAUDE_CODE_SESSION_ID=spec["sessionId"])
     cwd = spec["cwd"]
@@ -158,7 +159,8 @@ def do_the_work(spec, item, prompt, litter):
     (Path(cwd) / f"{item}.txt").write_text("the work\n")
     subprocess.run(["git", "-C", cwd, "add", f"{item}.txt"], check=True)
     subprocess.run(["git", "-C", cwd, "commit", "-qm", f"{item}: the work"], check=True)
-    pm("validated", item, "--verdict", "pass", text="Checked.")
+    if validate:
+        pm("validated", item, "--verdict", "pass", text="Checked.")
     pm("finish", item, text="Done.")
     if litter:
         (Path(cwd) / "scratch.txt").write_text("not committed\n")
@@ -207,7 +209,7 @@ def run_session(spec):
             save(spec)
         work = os.environ.get("FAKE_CLAUDE_WORK")
         if work and turn == 1 and item:
-            do_the_work(spec, item, prompt, litter=work == "litter")
+            do_the_work(spec, item, prompt, litter=work == "litter", validate=work != "finish-unvalidated")
         background = float(os.environ.get("FAKE_CLAUDE_BACKGROUND", "0"))
         if background and turn == 1:  # the turn ends early while a background task still runs, then the session goes on
             hook(spec, "stop", {"hook_event_name": "Stop", "stop_hook_active": False,

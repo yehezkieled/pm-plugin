@@ -48,7 +48,7 @@ class WorkerSessionTests(unittest.TestCase):
                         CLAUDE_CODE_SESSION_ID="coordinator-session")
         for key in ("FAKE_CLAUDE_MODE", "FAKE_CLAUDE_SLEEP", "FAKE_CLAUDE_BG_FAIL", "FAKE_CLAUDE_BACKGROUND", "FAKE_CLAUDE_WORK",
                     "FAKE_CLAUDE_PERMISSION", "PM_WORKER", "PM_WORKER_EXTRA_ARGS", "CLAUDE_CODE_EXECPATH", "CLAUDE_PROJECT_DIR",
-                    "CLAUDE_PLUGIN_ROOT"):
+                    "CLAUDE_PLUGIN_ROOT", "CLAUDE_PID"):
             self.env.pop(key, None)
         for command in (["git", "init", "-q"], ["git", "config", "user.name", "Test"],
                         ["git", "config", "user.email", "test@example.com"]):
@@ -159,6 +159,15 @@ class WorkerSessionTests(unittest.TestCase):
         return subprocess.run(["bash", str(script), event], cwd=cwd, input=json.dumps(payload), text=True, capture_output=True,
                               env=dict(self.env, CLAUDE_PROJECT_DIR=str(cwd), CLAUDE_PLUGIN_ROOT=str(REPO), **env), timeout=60)
 
+    def coordinator_hook(self, event="stop", session="coordinator-session", env=None, **constants):
+        """The plugin's hook in the session that started the workers, as Claude Code runs it there in the background
+        when that session's turn ends: (its exit code, what it woke the session with). It returns when a worker has
+        news, when LISTEN_SECONDS is over, or at once when the session has no worker to watch."""
+        payload = json.dumps({"session_id": session, "cwd": str(self.root), "hook_event_name": event})
+        code, out, err = self.cli_here("worker", "hook", event, input_text=payload, env=env, **constants)
+        self.assertEqual(out, "")
+        return code, err
+
     def join(self, item, cwd, session, **settings_env):
         """What the worker's first step prints in its session (which has its settings file's environment): its ticket."""
         return self.cli("worker", "join", item, cwd=cwd, env=dict(self.env, CLAUDE_CODE_SESSION_ID=session, **settings_env)).stdout
@@ -176,14 +185,15 @@ class WorkerSessionTests(unittest.TestCase):
         self.assertIn("Ask the person once", refused.stderr)
         self.assertIn("do not pick them yourself", refused.stderr)
         shown = self.cli("defaults").stdout
-        self.assertIn("Not recorded yet: workers model, workers effort.", shown, "the validator's are never asked")
+        self.assertIn("Not recorded yet: workers model, workers effort.", shown)
         self.cli("defaults", "--worker-model", "claude-opus-5-5", "--worker-effort", "high")
         config = json.loads((self.root / "docs/pm/config.json").read_text())
         self.assertEqual(config["workers"], {"model": "claude-opus-5-5", "effort": "high"})
         self.assertNotIn("validators", config)
         shown = self.cli("defaults").stdout
-        self.assertIn("Validator subagents: model inherit (the worker's), effort the worker's.", shown)
+        self.assertIn("Validator: on (not asked yet), model inherit (the worker's), effort the worker's.", shown)
         self.assertNotIn("Not recorded yet", shown)
+        self.assertNotIn("Ask the person", shown, "work asks nothing more once a worker can start")
         log = subprocess.check_output(["git", "log", "--format=%s", "-1"], cwd=self.root, text=True)
         self.assertIn("pm: Recorded defaults.", log)
         refused = self.cli("worker", "start", self.item, input_text="Ari", ok=False)
@@ -194,6 +204,61 @@ class WorkerSessionTests(unittest.TestCase):
         self.assertIn("permission setting: acceptEdits", self.cli("worker", "mode").stdout)
         self.assertFalse((self.root / "docs/pm/config.json").read_text().count("acceptEdits"),
                          "the permission setting is the person's, kept in this clone, not committed")
+
+    def test_setup_asks_the_worker_and_the_validator_the_same_question(self):
+        asked = self.cli("defaults", "--setup").stdout
+        questions = [line.split(". ", 1)[1] for line in asked.splitlines() if line[:1].isdigit()]
+        models = ("claude-opus-5-5, claude-sonnet-5-5 (default), claude-haiku-5-5, claude-fable-5-2, or another exact version.")
+        efforts = "low, medium (default), high, xhigh, max."
+        self.assertEqual(questions[0], f"Worker sessions, model: {models}")
+        self.assertEqual(questions[1], f"Worker sessions, effort: {efforts}")
+        self.assertTrue(questions[2].startswith("Validator, use one: yes (default) or no."))
+        self.assertEqual(questions[3], f"Validator, model (only if one is used): {models}")
+        self.assertEqual(questions[4], f"Validator, effort (only if one is used): {efforts}")
+        self.assertIn("Ask the person each of these as written, in this order, and record only what they answer", asked)
+        self.assertIn("--worker-model M --worker-effort E --validator on|off --validator-model M --validator-effort E", asked)
+        # /pm:work asks the same questions, in the same words, while a worker cannot start.
+        for_work = [line for line in self.cli("defaults").stdout.splitlines() if line[:1].isdigit()]
+        self.assertEqual([line.split(". ", 1)[1] for line in for_work], questions[:5])
+        # Each answer closes its own question; nothing is recorded that the person did not answer.
+        self.cli("defaults", "--worker-model", "claude-fable-5-2", "--worker-effort", "xhigh", "--validator", "on",
+                 "--validator-model", "claude-opus-5-5")
+        left = [line.split(". ", 1)[1] for line in self.cli("defaults", "--setup").stdout.splitlines() if line[:1].isdigit()]
+        self.assertEqual(left[0], f"Validator, effort (only if one is used): {efforts}")
+        self.assertEqual(len(left), 2, "and the GitHub question, which only setup asks")
+        config = json.loads((self.root / "docs/pm/config.json").read_text())
+        self.assertEqual(config, {"workers": {"model": "claude-fable-5-2", "effort": "xhigh"},
+                                  "validators": {"use": "on", "model": "claude-opus-5-5"}})
+        self.assertIn("Validator: on, model claude-opus-5-5, effort the worker's.", self.cli("defaults").stdout)
+
+    def test_with_the_validator_off_a_worker_is_told_to_finish_without_one(self):
+        self.ready()
+        off = self.cli("defaults", "--validator", "off").stdout
+        self.assertIn("Validator: off (a worker finishes its item without a separate check, and the Done item records that "
+                      "none was run).", off)
+        left = self.cli("defaults", "--setup").stdout
+        self.assertNotIn("Validator,", left, "its model and effort are not asked while it is off")
+        started = self.cli("worker", "start", self.item, input_text="Ari", env=dict(self.env, FAKE_CLAUDE_WORK="finish-unvalidated"))
+        self.assertIn("effort medium; no validator: off for this project)", started.stdout)
+        call = self.calls_made()[0]
+        self.assertNotIn("have it validated", call["argv"][1])
+        self.assertIn("(claim it, build it, then finish it or park it with a question)", call["argv"][1])
+        self.assertEqual(self.settings(call)["env"]["CLAUDE_CODE_SUBAGENT_MODEL"], "claude-haiku-5-5")
+        self.assertIn(f"On branch pm/{self.item}: status done; no validation was run (the validator is off for this project).",
+                      started.stdout)
+        self.assertIn(f"{self.item} is Done on pm/{self.item}, so its copy", started.stdout, "Done without a pass is Done")
+        notes = self.git("show", f"pm/{self.item}:docs/pm/items/{self.item}.md")
+        self.assertTrue(notes.endswith("Done.\nValidation: not run: the validator is off for this project."), notes)
+        second = self.add("Count lines", "Add a line count")
+        self.cli("worker", "start", second, "--no-wait", input_text="Ari")
+        ticket = self.join(second, self.worktree(second), self.state(second)["session"])
+        self.assertIn("Validator: none. The owner turned the validator off for this project: skip step 7's validator", ticket)
+        # Back on, a worker is told to validate again.
+        self.cli("defaults", "--validator", "on")
+        third = self.add("Count pages", "Add a page count")
+        self.cli("worker", "start", third, "--no-wait", input_text="Ari")
+        self.assertIn("have it validated, then finish it", self.calls_made()[2]["argv"][1])
+        self.assertIn("Validator: model claude-haiku-5-5", self.join(third, self.worktree(third), self.state(third)["session"]))
 
     def test_the_validator_runs_on_the_workers_model_and_effort_unless_set_apart(self):
         self.cli("defaults", "--worker-model", "claude-haiku-5-5", "--worker-effort", "medium")
@@ -481,7 +546,8 @@ class WorkerSessionTests(unittest.TestCase):
         self.assertIn(f"terminal, in the folder {worktree}: claude --name 'pm worker {self.item}' --agent pm:worker", started.stdout)
         self.assertIn("--model claude-sonnet-5-5 --effort medium", started.stdout)
         self.assertIn(f"Claude app: a new session in the folder {worktree}, model claude-sonnet-5-5", started.stdout)
-        self.assertIn(f"Then run `pm.py worker wait {self.item}` in the background", started.stdout)
+        self.assertIn(f"Its report comes back to you by itself when its turn ends. `pm.py worker wait {self.item}` in the "
+                      "background waits for it too.", started.stdout)
         state = self.state(self.item)
         self.assertEqual((state["started_by"], state["state"], state["session"]), ("handover", "awaiting-session", ""))
         self.assertTrue(state["own_worktree"], "a session the person opens gets the item's own copy, never their checkout")
@@ -565,6 +631,9 @@ class WorkerSessionTests(unittest.TestCase):
         self.assertIn("- first message: this one line, unchanged\n"
                       f"pm worker session for board item {self.item}, which the person asked to have done", brief)
         self.assertIn(f"worker join {self.item}` first", brief)
+        self.assertIn(f"Then run `pm.py worker wait {self.item}` in the background: it returns with the worker's report when "
+                      "its turn ends, and the report comes back to you by itself even without it.", brief)
+        self.assertNotIn("When you are told", brief, "the app is not relied on to say that a turn ended")
         self.assertEqual(self.calls_made(None), [], "the plugin starts nothing here: the app's tool does")
         self.assertIn("a session the Claude app started (not opened yet), turn 0; waiting for the app to start it",
                       self.cli("worker", "list").stdout)
@@ -574,6 +643,8 @@ class WorkerSessionTests(unittest.TestCase):
         copy = self.root / ".claude" / "worktrees" / "tidy-otter"
         self.git("worktree", "add", "-q", "-b", "claude/tidy-otter", str(copy))
         app_session = dict(self.env, CLAUDE_CODE_SESSION_ID="app-session-1")
+        started = self.hook(copy, "session-start", {"session_id": "app-session-1", "cwd": str(copy)})  # the plugin's hooks run in it
+        self.assertEqual((started.returncode, started.stdout, started.stderr), (0, "", ""))
         joined = self.cli("worker", "join", self.item, cwd=copy, env=app_session).stdout
         for line in (f"Joined: this session is the worker for {self.item}, not the coordinating session",
                      f"Instructions: {REPO.as_posix()}/agents/worker.md", "Claim: new claim",
@@ -587,6 +658,8 @@ class WorkerSessionTests(unittest.TestCase):
         state = self.state(self.item)
         self.assertEqual((state["session"], state["branch"], state["started_by"], state["made_copy"]),
                          ("app-session-1", "claude/tidy-otter", "app", False))
+        self.assertTrue(state["hooked"], "its start hook ran, so its Stop hook is what will bring its report")
+        self.assertEqual(list((self.root / ".git/pm-workers/watch").glob("*.hooks")), [])
         self.assertTrue(Path(state["checkout"]).samefile(copy))
         self.assertEqual(self.cli("places", "--paths").stdout, "", "a copy the app made is not a stray file")
         other = self.root / ".claude" / "worktrees" / "other"
@@ -597,12 +670,18 @@ class WorkerSessionTests(unittest.TestCase):
         answered = self.cli("worker", "answer", self.item, input_text="The owner answered: yes.").stdout
         self.assertIn("Send it this as a follow-up message with your tool that messages a session you started", answered)
         self.assertIn(f"Message from the coordinating session for board item {self.item}:\nThe owner answered: yes.", answered)
+        self.assertIn("Its report comes back to you by itself when its turn ends.", answered)
         # The worker finishes on the app's branch; its Stop hook saves the report and holds no mailbox.
         self.do_the_item(self.item, cwd=copy, sync=home)
+        code, early = self.coordinator_hook(UNREPORTED_GRACE_SECONDS=0, LISTEN_SECONDS=2)
+        self.assertEqual((code, early), (0, ""), "finishing the item is not the end of the turn where hooks run")
         stopped = self.hook(copy, "stop", {"session_id": "app-session-1", "cwd": str(copy), "permission_mode": "auto",
                                            "last_assistant_message": "Result: done", "background_tasks": []})
         self.assertEqual((stopped.returncode, stopped.stderr), (0, ""))
-        waited = self.cli("worker", "wait", self.item).stdout
+        # Nobody asked for it: the coordinating session's own hook wakes it with the report.
+        code, waited = self.coordinator_hook()
+        self.assertEqual(code, 2)
+        self.assertTrue(waited.startswith("pm report-back: news from the worker sessions this session started"), waited)
         self.assertIn("a session the Claude app started", waited)
         self.assertIn("permission setting auto", waited)
         self.assertIn("On branch claude/tidy-otter: status done; validation pass", waited)
@@ -612,20 +691,27 @@ class WorkerSessionTests(unittest.TestCase):
         self.assertFalse(copy.exists())
         self.assertTrue(self.git("rev-parse", "--verify", "claude/tidy-otter"), "the branch and its commits are kept")
         self.assertEqual(self.calls_made(SESSION_STARTS + ("stop", "rm", "open")), [])
+        self.assertIn("Report:\nResult: done", self.cli("worker", "wait", self.item).stdout, "and it can be read again")
 
-    def test_an_app_worker_whose_hooks_did_not_run_is_still_tidied_from_its_branch(self):
+    def test_an_app_worker_whose_hooks_did_not_run_still_comes_back_and_is_tidied_from_its_branch(self):
         self.ready()
         self.cli("worker", "brief", self.item, input_text="Ari")
-        waited = self.cli("worker", "wait", self.item).stdout  # returns at once: the app says when a turn ends
-        self.assertIn("runs in the Claude app, which tells you when its turn ends and carries its report", waited)
-        self.assertIn(f"No branch pm/{self.item} with the item on it.", waited)
         copy = self.root / ".claude" / "worktrees" / "quiet-heron"
         self.git("worktree", "add", "-q", "-b", "claude/quiet-heron", str(copy))
         self.cli("worker", "join", self.item, cwd=copy, env=dict(self.env, CLAUDE_CODE_SESSION_ID="app-session-1"))
         self.do_the_item(self.item, cwd=copy, sync=self.git("branch", "--show-current"))
         (copy / "scratch.txt").write_text("not committed\n")
-        waited = self.cli("worker", "wait", self.item).stdout
-        self.assertIn("No report of its latest turn is recorded here.", waited)
+        # No hook ever ran in the app's session, so no report is recorded: its own `finish` is the sign the turn is over.
+        state = self.state(self.item)
+        self.assertEqual((state["board_event"], state["hooked"]), ("finish", False))
+        code, woke = self.coordinator_hook(LISTEN_SECONDS=2)
+        self.assertEqual((code, woke), (0, ""), "a report that is only late still has time to arrive")
+        self.assertIn("working", self.cli("worker", "list").stdout)
+        code, waited, err = self.cli_here("worker", "wait", self.item, UNREPORTED_GRACE_SECONDS=0)
+        self.assertEqual(code, 0, err)
+        self.assertIn(f"Worker session for {self.item} finished its item, but no report of its turn was recorded here (the "
+                      "plugin's hooks did not run in that session)", waited)
+        self.assertIn("it is in the Claude app's session list", waited)
         self.assertIn(f"but its copy {copy} was kept: 1 file in it not committed (scratch.txt)", waited)
         self.assertTrue(copy.exists())
         (copy / "scratch.txt").unlink()
@@ -906,7 +992,168 @@ class WorkerSessionTests(unittest.TestCase):
         self.assertEqual(self.sessions(), [])
         self.assertIn("No worker sessions.", self.cli("worker", "list").stdout)
 
-    # ---- the plugin's hooks act only in a worker's session
+    # ---- a worker's news comes back to the session that started it, without anyone asking for it
+
+    def test_a_finished_item_wakes_the_session_that_started_its_worker_with_the_report(self):
+        self.ready()
+        started = self.cli("worker", "start", self.item, "--no-wait", input_text="Ari", env=dict(self.env, FAKE_CLAUDE_WORK="finish"))
+        self.assertNotIn("Report:", started.stdout)
+        self.assertEqual(self.state(self.item)["coordinator"], {"session": "coordinator-session", "pid": ""})
+        code, woke = self.coordinator_hook()  # the turn of the coordinating session ends; nothing is typed after it
+        self.assertEqual(code, 2, "exit 2 from an asyncRewake hook is what wakes the session")
+        self.assertTrue(woke.startswith("pm report-back: news from the worker sessions this session started (not an error). "
+                                        "Act on it now, as /pm:work steps 6 to 8 say"), woke)
+        self.assertIn(f"\n--- {self.item} ---\nWorker session for {self.item} ended its turn", woke)
+        self.assertIn(f"On branch pm/{self.item}: status done; validation pass at ", woke)
+        self.assertIn("Report:\nResult: done", woke)
+        self.assertIn(f"{self.item} is Done on pm/{self.item}, so its copy {self.worktree(self.item)} was removed", woke)
+        self.assertFalse(self.worktree(self.item).exists())
+        self.assertEqual([entry for entry in self.sessions() if entry.get("pid")], [], "its session was closed")
+        code, woke = self.coordinator_hook()
+        self.assertEqual((code, woke), (0, ""), "told once; with no worker left to watch, the next hook ends at once")
+
+    def test_a_report_comes_back_once_and_only_to_the_session_that_started_the_worker(self):
+        self.ready()
+        self.cli("worker", "start", self.item, "--no-wait", input_text="Ari")
+        before = None
+        for event in ("session-start", "stop"):  # another session in the same project learns nothing and changes nothing
+            before = before or self.state(self.item)["coordinator"]
+            code, woke = self.coordinator_hook(event, session="someone-else")
+            self.assertEqual((code, woke), (0, ""))
+        self.assertEqual(self.state(self.item)["coordinator"], before)
+        code, woke = self.coordinator_hook("session-start")  # a session that is resumed gets it at its start too
+        self.assertEqual(code, 2)
+        self.assertIn("Report:\nResult: done", woke)
+        code, woke = self.coordinator_hook(LISTEN_SECONDS=2)
+        self.assertEqual((code, woke), (0, ""), "the same report is not brought twice")
+        # Its next turn is news again.
+        self.cli("worker", "answer", self.item, "--no-wait", input_text="One more thing.")
+        code, woke = self.coordinator_hook()
+        self.assertEqual(code, 2)
+        self.assertIn("Report:\nResult: done\nSeen: Message from the coordinating session", woke)
+
+    def test_a_command_that_waits_for_the_worker_reports_it_and_the_hook_stays_quiet(self):
+        self.ready()
+        waiting = subprocess.Popen([sys.executable, str(CLI), "worker", "start", self.item], cwd=self.root, text=True,
+                                   stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                   env=dict(self.env, FAKE_CLAUDE_SLEEP="3"))
+        waiting.stdin.write("Ari")
+        waiting.stdin.close()
+        code, woke = self.coordinator_hook(LISTEN_SECONDS=12)  # the coordinating session's turn ended while it waits
+        self.assertEqual((code, woke), (0, ""), "the background command brings this report")
+        self.assertEqual(waiting.wait(timeout=30), 0)
+        self.assertIn("Report:\nResult: done", waiting.stdout.read())
+        waiting.stdout.close(), waiting.stderr.close()
+
+    def test_the_hook_takes_over_when_the_waiting_command_is_cut_off(self):
+        self.ready()
+        waiting = subprocess.Popen([sys.executable, str(CLI), "worker", "start", self.item], cwd=self.root, text=True,
+                                   stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                   env=dict(self.env, FAKE_CLAUDE_SLEEP="3"))
+        waiting.stdin.write("Ari")
+        waiting.stdin.close()
+        deadline = time.time() + 30
+        while time.time() < deadline and not (self.sessions() and self.state(self.item).get("job")):
+            time.sleep(0.2)
+        waiting.kill()  # the command that would have printed the report is gone
+        waiting.wait()
+        code, woke = self.coordinator_hook(LISTEN_FRESH_SECONDS=1)
+        self.assertEqual(code, 2)
+        self.assertIn("Report:\nResult: done", woke)
+
+    def test_a_worker_waiting_on_the_person_or_gone_comes_back_too(self):
+        self.ready("acceptEdits")
+        self.cli("worker", "start", self.item, "--no-wait", input_text="Ari", env=dict(self.env, FAKE_CLAUDE_PERMISSION="Bash npm test"))
+        code, woke = self.coordinator_hook(SESSIONS_EVERY_SECONDS=1)
+        self.assertEqual(code, 2)
+        self.assertIn(f"Worker session for {self.item} is waiting on permission prompt for Bash npm test", woke)
+        self.assertIn("Only the person can answer it, in that session", woke)
+        code, woke = self.coordinator_hook(SESSIONS_EVERY_SECONDS=1, LISTEN_SECONDS=3)
+        self.assertEqual((code, woke), (0, ""), "the same prompt is not news twice")
+        (self.home / f"approve-{self.state(self.item)['session']}").touch()  # the person allows it in the worker's session
+        code, woke = self.coordinator_hook(SESSIONS_EVERY_SECONDS=1)
+        self.assertEqual(code, 2)
+        self.assertIn("Report:\nResult: done", woke)
+        second = self.add("Count lines", "Add a line count")
+        self.cli("worker", "start", second, "--no-wait", input_text="Ari", env=dict(self.env, FAKE_CLAUDE_SLEEP="30"))
+        subprocess.run([self.env["PM_CLAUDE"], "stop", self.state(second)["job"]], env=self.env, capture_output=True, check=True)
+        code, woke = self.coordinator_hook(GONE_GRACE_SECONDS=1, SESSIONS_EVERY_SECONDS=1)
+        self.assertEqual(code, 2)
+        self.assertIn(f"--- {second} ---\nWorker session for {second} is no longer running and left no final report", woke)
+        self.assertNotIn(f"--- {self.item} ---", woke)
+
+    def test_a_question_from_a_worker_whose_hooks_do_not_run_comes_back_from_its_own_hold(self):
+        self.ready()
+        self.cli("worker", "brief", self.item, input_text="Ari")
+        copy = self.root / ".claude" / "worktrees" / "calm-wren"
+        self.git("worktree", "add", "-q", "-b", "claude/calm-wren", str(copy))
+        self.cli("worker", "join", self.item, cwd=copy, env=dict(self.env, CLAUDE_CODE_SESSION_ID="app-session-1"))
+        self.cli("claim", self.item, input_text="Ari", cwd=copy)
+        self.cli("hold", self.item, input_text="Which CSV holds the word list?", cwd=copy)
+        code, woke = self.coordinator_hook(UNREPORTED_GRACE_SECONDS=0)
+        self.assertEqual(code, 2)
+        self.assertIn(f"Worker session for {self.item} parked its item with a question for the owner, but no report of its "
+                      "turn was recorded here (the plugin's hooks did not run in that session)", woke)
+        self.assertIn("Question for the owner, as the board has it:\nWhich CSV holds the word list?", woke)
+        self.assertIn("parked its item with a question; no report of its turn is recorded",
+                      self.cli_here("worker", "list", UNREPORTED_GRACE_SECONDS=0)[1])
+        code, woke = self.coordinator_hook(UNREPORTED_GRACE_SECONDS=0, LISTEN_SECONDS=2)
+        self.assertEqual((code, woke), (0, ""))
+
+    def test_a_session_the_person_opened_reports_back_the_same_way(self):
+        self.ready()
+        self.cli("worker", "start", self.item, "--handover", input_text="Ari")
+        code, woke = self.coordinator_hook(LISTEN_SECONDS=2)
+        self.assertEqual((code, woke), (0, ""), "nothing to bring until the person has opened it")
+        self.open_session(self.worktree(self.item))
+        code, woke = self.coordinator_hook()
+        self.assertEqual(code, 2)
+        self.assertIn(f"Worker session for {self.item} ended its turn", woke)
+        self.assertIn("a session the person opened", woke)
+
+    def test_a_restarted_or_cleared_session_keeps_getting_its_workers_news(self):
+        self.ready()
+        first = dict(self.env, CLAUDE_PID="4242")
+        self.cli("worker", "start", self.item, "--no-wait", input_text="Ari", env=first)
+        self.assertEqual(self.state(self.item)["coordinator"], {"session": "coordinator-session", "pid": "4242"})
+        # /clear gives the same window, still the same process, a new session ID: its workers follow it.
+        code, woke = self.coordinator_hook(session="after-clear", env=first)
+        self.assertEqual(code, 2)
+        self.assertIn("Report:\nResult: done", woke)
+        self.assertEqual(self.state(self.item)["coordinator"], {"session": "after-clear", "pid": "4242"})
+        # A new session that lost the old one's context takes a worker over by waiting for it or answering it.
+        restarted = dict(self.env, CLAUDE_CODE_SESSION_ID="restarted", CLAUDE_PID="5151")
+        self.assertIn("Report:\nResult: done", self.cli("worker", "wait", self.item, env=restarted).stdout)
+        self.assertEqual(self.state(self.item)["coordinator"], {"session": "restarted", "pid": "5151"})
+        self.cli("worker", "answer", self.item, "--no-wait", input_text="Carry on.", env=restarted)
+        code, woke = self.coordinator_hook(session="after-clear", env=first)
+        self.assertEqual((code, woke), (0, ""), "the session that gave it up hears no more of it")
+        code, woke = self.coordinator_hook(session="restarted", env=restarted)
+        self.assertEqual(code, 2)
+        self.assertIn("Seen: Message from the coordinating session", woke)
+
+    def test_only_the_hook_of_the_sessions_latest_turn_keeps_watching(self):
+        self.ready()
+        self.cli("worker", "start", self.item, "--no-wait", input_text="Ari", env=dict(self.env, FAKE_CLAUDE_SLEEP="30"))
+        payload = json.dumps({"session_id": "coordinator-session", "cwd": str(self.root)})
+        earlier = subprocess.Popen(["bash", str(WORKER_HOOK), "stop"], cwd=self.root, text=True, stdin=subprocess.PIPE,
+                                   stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
+                                   env=dict(self.env, CLAUDE_PROJECT_DIR=str(self.root), CLAUDE_PLUGIN_ROOT=str(REPO)))
+        self.addCleanup(earlier.stderr.close)
+        self.addCleanup(earlier.kill)
+        earlier.stdin.write(payload)
+        earlier.stdin.close()
+        marker = self.root / ".git/pm-workers/watch/coordinator-session.watching"
+        deadline = time.time() + 30
+        while time.time() < deadline and not marker.exists():
+            time.sleep(0.1)
+        self.assertIsNone(earlier.poll(), "it watches for as long as the worker is under way")
+        code, woke = self.coordinator_hook(LISTEN_SECONDS=3)  # the session's next turn ends: its hook watches from now on
+        self.assertEqual((code, woke), (0, ""))
+        self.assertEqual(earlier.wait(timeout=10), 0, "the earlier one stepped aside without waking the session")
+        self.assertEqual(earlier.stderr.read(), "")
+
+    # ---- the plugin's hooks act only in a worker's session and in the one that started it
 
     def test_a_worker_sessions_start_hook_does_not_tell_it_to_stay_hands_off(self):
         out = self.hook(self.root, "", {}, script=START_HOOK, PM_WORKER=self.item).stdout.strip().splitlines()[-1]
@@ -921,13 +1168,14 @@ class WorkerSessionTests(unittest.TestCase):
         self.ready()
         self.cli("worker", "start", self.item, input_text="Ari")
         before = self.state(self.item)
-        for event in ("session-start", "stop", "permission"):  # the coordinating session, next to a worker's record
+        for event in ("session-start", "stop", "permission"):  # a session that started none of them, next to a record
             quiet = self.hook(self.root, event, {"session_id": "the-coordinator", "cwd": str(self.root),
                                                  "last_assistant_message": "Nothing to do with the worker.", "tool_name": "Bash"})
             self.assertEqual((quiet.returncode, quiet.stdout, quiet.stderr), (0, "", ""))
         self.assertEqual(self.state(self.item), before)
         note = self.hook(self.root, "", {"session_id": "the-coordinator"}, script=START_HOOK).stdout
         self.assertIn("Do not edit project files in this session yourself", note)
+        self.assertIn('comes back to this session by itself, as a note that begins "pm report-back:"', note)
 
 if __name__ == "__main__":
     unittest.main()

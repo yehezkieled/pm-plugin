@@ -1,3 +1,4 @@
+import importlib.util
 import subprocess
 import tempfile
 import unittest
@@ -280,6 +281,76 @@ class ProjectBoardTests(unittest.TestCase):
         notes = self.item_file(item_id).read_text()
         self.assertIn("Implemented and checked\nValidation: pass at ", notes)
         self.assertIn(": Checks passed after fix", notes)
+
+    def test_with_the_validator_off_finish_needs_no_verdict_and_the_item_records_that_none_was_run(self):
+        item_id = self.add("Unchecked", "Do it")
+        self.run_cli("claim", item_id, input_text="Ari")
+        self.assertIn("no recorded validation", self.run_cli("finish", item_id, ok=False, input_text="Done").stderr,
+                      "a project that was never asked still requires the pass")
+        self.run_cli("defaults", "--validator", "on")
+        self.assertIn("no recorded validation", self.run_cli("finish", item_id, ok=False, input_text="Done").stderr)
+        self.run_cli("defaults", "--validator", "off")
+        (self.root / "app.py").write_text("work\n")
+        refused = self.run_cli("finish", item_id, ok=False, input_text="Done")
+        self.assertIn("1 file uncommitted (app.py)", refused.stderr, "the other refusals stay")
+        self.commit_all("work")
+        done = self.run_cli("finish", item_id, input_text="Added it.")
+        self.assertIn("No validation was run (the validator is off for this project); the item records that.", done.stdout)
+        notes = self.item_file(item_id).read_text().split("## Current notes\n", 1)[1]
+        self.assertEqual(notes, "Added it.\nValidation: not run: the validator is off for this project.\n")
+        done_rows = self.board().split("## Done")[1]
+        line = next(line for line in done_rows.splitlines() if f"[{item_id}]" in line)
+        self.assertTrue(line.endswith("Unchecked — Added it.; no validation was run"), line)
+
+    def test_with_the_validator_off_a_pass_that_was_recorded_is_still_kept(self):
+        self.run_cli("defaults", "--validator", "off")
+        item_id = self.add("Checked anyway", "Do it")
+        self.run_cli("claim", item_id, input_text="Ari")
+        self.run_cli("validated", item_id, "--verdict", "pass", input_text="Checks passed")
+        self.run_cli("finish", item_id, input_text="Done")
+        notes = self.item_file(item_id).read_text()
+        self.assertRegex(notes, r"Done\nValidation: pass at [0-9a-f]{40}: Checks passed\n$")
+        self.assertNotIn("no validation was run", self.board())
+
+    def test_turning_the_validator_off_mid_run_never_overwrites_a_recorded_verdict(self):
+        self.run_cli("defaults", "--validator", "on")
+        findings = self.add("Findings", "Do it")
+        self.run_cli("claim", findings, input_text="Ari")
+        self.run_cli("validated", findings, "--verdict", "findings", input_text="app.py:1 must change")
+        stale = self.add("Stale pass", "Do it")
+        self.run_cli("claim", stale, input_text="Ari")
+        self.run_cli("validated", stale, "--verdict", "pass", input_text="Checks passed")
+        (self.root / "app.py").write_text("work after validation\n")
+        self.commit_all("work after validation")
+        self.run_cli("defaults", "--validator", "off")
+        refused = self.run_cli("finish", findings, ok=False, input_text="Done")
+        self.assertIn(f"{findings} has validation findings.", refused.stderr)
+        refused = self.run_cli("finish", stale, ok=False, input_text="Done")
+        self.assertIn(f"{stale} changed since validation", refused.stderr)
+        for item_id in (findings, stale):
+            notes = self.item_file(item_id).read_text()
+            self.assertNotIn("Validation: not run", notes)
+            self.assertRegex(notes, r"Validation: (pass|findings) at [0-9a-f]{40}: ")
+        self.assertNotIn("no validation was run", self.board())
+
+    def test_setup_asks_about_github_and_ci_once_and_records_the_answer(self):
+        self.assertIn("GitHub and CI/CD: not asked yet.", self.run_cli("defaults").stdout)
+        asked = self.run_cli("defaults", "--setup").stdout
+        question = next(line for line in asked.splitlines() if "GitHub and CI/CD: set them up" in line)
+        self.assertRegex(question, r"^\d\. GitHub and CI/CD: set them up for this project, yes or no \(no default\)\?")
+        self.assertIn("it offers to create a GitHub repository, which it does only on a separate, explicit yes", question)
+        self.assertIn("--github yes|no", asked)
+        self.assertNotIn("GitHub and CI/CD: set them up", self.run_cli("defaults").stdout, "only setup asks it")
+        for answer in ("no", "yes"):
+            recorded = self.run_cli("defaults", "--github", answer).stdout
+            self.assertIn(f"GitHub and CI/CD: {answer}.", recorded)
+            self.assertEqual(json.loads((self.root / "docs/pm/config.json").read_text()), {"github": answer})
+            self.assertNotIn("GitHub and CI/CD: set them up", self.run_cli("defaults", "--setup").stdout,
+                             "an answered question is not asked again")
+        self.assertIn("invalid choice", self.run_cli("defaults", "--github", "maybe", ok=False).stderr)
+        self.assertFalse((self.root / ".github").exists(), "recording the answer sets nothing up")
+        remotes = subprocess.run(["git", "remote"], cwd=self.root, text=True, capture_output=True).stdout
+        self.assertEqual(remotes, "", "and never touches a remote")
 
     def test_finish_keeps_the_owners_decisions_word_for_word_in_the_done_item(self):
         item_id = self.add("Farewell", "Add a farewell")
@@ -647,6 +718,20 @@ class SkillDescriptionTests(unittest.TestCase):
         validator = self.frontmatter(self.AGENTS / "validator.md")
         tools = {tool.strip() for tool in validator["tools"].split(",")}
         self.assertEqual(tools, {"Read", "Grep", "Glob", "Bash"}, "the validator must not edit files or start agents")
+
+    @unittest.skipUnless(importlib.util.find_spec("yaml"), "needs PyYAML to parse the CI template")
+    def test_the_ci_template_checks_pull_requests_and_the_default_branch_read_only(self):
+        import yaml
+        root = Path(__file__).resolve().parents[1]
+        workflow = yaml.safe_load((root / "icm" / "templates" / "ci-checks.yml").read_text())
+        triggers = workflow[True]
+        self.assertEqual(set(triggers), {"pull_request", "push"})
+        self.assertIsNone(triggers["pull_request"], "every pull request, whatever its branches")
+        self.assertEqual(triggers["push"], {"branches": ["{default branch}"]})
+        self.assertEqual(workflow["permissions"], {"contents": "read"})
+        steps = workflow["jobs"]["checks"]["steps"]
+        self.assertEqual(steps[0], {"uses": "actions/checkout@v4"})
+        self.assertEqual(steps[-1]["run"], "{the Test command from AGENTS.md > Every session}")
 
     def test_manual_covers_every_command(self):
         root = Path(__file__).resolve().parents[1]

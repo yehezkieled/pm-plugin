@@ -138,9 +138,13 @@ def render_board(root: Path, items: list[dict]) -> str:
             continue
         for item in selected:
             notes = []
-            current_note = " ".join((item.get("notes") or item.get("decisions") or item.get("intent", "")).split())
+            shown = item.get("notes") or item.get("decisions") or item.get("intent", "")
+            unchecked = status == "done" and pm_workers.NOT_VALIDATED in shown.splitlines()
+            current_note = " ".join(shown.replace(pm_workers.NOT_VALIDATED, "").split() if unchecked else shown.split())
             if current_note:
                 notes.append(current_note if len(current_note) <= 120 else current_note[:119] + "…")
+            if unchecked:  # said in full on every such row, where a long note would cut it off
+                notes.append("no validation was run")
             if item.get("owner"):
                 notes.append(f"claimed by {item['owner']}")
             waiting = [dep for dep in item.get("depends_on", []) if dep in by_id and by_id[dep].get("status") != "done"]
@@ -517,20 +521,23 @@ def cmd_finish(root: Path, args) -> None:
         if item.get("status") != "in-flight":
             raise ValueError(f"{item['id']} is not in flight.")
         verdict = re.search(r"^Validation: (pass|findings) at ([0-9a-f]{40}|[0-9a-f]{64}): .+$", item.get("notes", ""), re.M)
-        if not verdict:
-            raise ValueError(f"{item['id']} has no recorded validation. Run the pm:validator agent, then record its verdict with `pm.py validated {item['id']} --verdict pass|findings`.")
-        if verdict.group(1) != "pass":
-            raise ValueError(f"{item['id']} has validation findings. Fix them, commit, and validate again, or after 2 fix rounds hold it with `pm.py hold {item['id']}`.")
-        stale = git(root, "diff", "--quiet", verdict.group(2), "HEAD", "--", ".", ":(exclude)docs/pm", check=False)
-        if stale.returncode:
-            raise ValueError(f"{item['id']} changed since validation at {verdict.group(2)[:7]}; validate again.")
+        stale = bool(verdict) and git(root, "diff", "--quiet", verdict.group(2), "HEAD", "--", ".", ":(exclude)docs/pm",
+                                      check=False).returncode != 0
+        unchecked = not verdict and not pm_workers.validator_on(read_config(board_checkout(root)))
+        if not unchecked:
+            if not verdict:
+                raise ValueError(f"{item['id']} has no recorded validation. Run the pm:validator agent, then record its verdict with `pm.py validated {item['id']} --verdict pass|findings`.")
+            if verdict.group(1) != "pass":
+                raise ValueError(f"{item['id']} has validation findings. Fix them, commit, and validate again, or after 2 fix rounds hold it with `pm.py hold {item['id']}`.")
+            if stale:
+                raise ValueError(f"{item['id']} changed since validation at {verdict.group(2)[:7]}; validate again.")
         dirty = uncommitted_work(root, item["path"])
         if dirty:
             shown = ", ".join(dirty[:10]) + (f", and {len(dirty) - 10} more" if len(dirty) > 10 else "")
             raise ValueError(f"{item['id']} is not finished: {len(dirty)} file{'s' if len(dirty) != 1 else ''} "
                              f"uncommitted ({shown}). Commit the work on this branch first (or remove what does not "
                              "belong to it), then run finish again; the board says Done only for committed work.")
-        validation_line = verdict.group(0)
+        validation_line = pm_workers.NOT_VALIDATED if unchecked else verdict.group(0)
         completion = note.strip() or "Work complete."
         legacy = "" if item.get("decisions") else "".join(
             f"\n\n{found}" for found in re.findall(r'^Decision on ".*?(?=\n\n|\nValidation: |\Z)', item.get("notes", ""), re.M | re.S))
@@ -543,7 +550,9 @@ def cmd_finish(root: Path, args) -> None:
             git(root, "add", "--", path)
             git(root, "commit", "--only", "-m", f"pm: finish {item['id']}", "--", path)
     suffix = " and committed locally" if is_git_repo else ""
-    print(f"Finished {item['id']}{suffix}.")
+    pm_workers.board_event(root, item["id"], "finish")
+    print(f"Finished {item['id']}{suffix}."
+          + (" No validation was run (the validator is off for this project); the item records that." if unchecked else ""))
 
 
 def cmd_hold(root: Path, args) -> None:
@@ -560,6 +569,7 @@ def cmd_hold(root: Path, args) -> None:
         return [item["path"]], f"Parked {item['id']}: {reason}"
     with write_lock(root):
         print(publish(root, change))
+    pm_workers.board_event(root, args.id, "hold", reason)
 
 
 def cmd_resume(root: Path, args) -> None:
@@ -708,20 +718,41 @@ def read_config(root: Path) -> dict:
     return json.loads(config_path(root).read_text(encoding="utf-8")) if config_path(root).exists() else {}
 
 
+GITHUB_QUESTION = ("GitHub and CI/CD: set them up for this project, yes or no (no default)? With yes, setup adds a workflow "
+                   "that runs the project's checks on every pull request, and when the project has no remote it offers to "
+                   "create a GitHub repository, which it does only on a separate, explicit yes. With no, setup adds none "
+                   "of it.")
+
+
+def setup_text(config: dict) -> str:
+    """The owner's setup choices as recorded: worker sessions, their validator, and GitHub with CI/CD."""
+    return pm_workers.defaults_text(config) + f"\nGitHub and CI/CD: {config.get('github') or 'not asked yet'}."
+
+
 def cmd_defaults(root: Path, args) -> None:
     changes = {("workers", "model"): args.worker_model, ("workers", "effort"): args.worker_effort,
+               ("validators", "use"): args.validator,
                ("validators", "model"): args.validator_model, ("validators", "effort"): args.validator_effort}
     changes = {key: value for key, value in changes.items() if value}
     for (role, key), value in changes.items():
         if key == "model":
             pm_workers.check_model(role[:-1], value)
-    if not changes:
+    if not changes and not args.github:
         require_board(root)
         config = read_config(root)
-        print(pm_workers.defaults_text(config))
+        print(setup_text(config))
         missing = pm_workers.missing_defaults(config)
         if missing:
             print("Not recorded yet: " + ", ".join(missing) + ". Ask the person; do not pick them.")
+        questions = pm_workers.setup_questions(config, args.setup)
+        if args.setup and not config.get("github"):
+            questions.append(GITHUB_QUESTION)
+        if questions:
+            print("Ask the person each of these as written, in this order, and record only what they answer "
+                  "(a default is used only when they say so):")
+            print("\n".join(f"{number}. {question}" for number, question in enumerate(questions, 1)))
+            print("Record the answers with `pm.py defaults` and the flags for them: --worker-model M --worker-effort E "
+                  "--validator on|off --validator-model M --validator-effort E" + (" --github yes|no" if args.setup else "") + ".")
         return
 
     def change(board: Path):
@@ -729,8 +760,10 @@ def cmd_defaults(root: Path, args) -> None:
         config = read_config(board)
         for (role, key), value in changes.items():
             config.setdefault(role, {})[key] = value
+        if args.github:
+            config["github"] = args.github
         config_path(board).write_text(json.dumps(config) + "\n", encoding="utf-8")
-        return [config_path(board)], "Recorded defaults.\n" + pm_workers.defaults_text(config)
+        return [config_path(board)], "Recorded defaults.\n" + setup_text(config)
     with write_lock(root):
         print(publish(root, change))
 
@@ -739,7 +772,8 @@ PLUGIN_ROOT = Path(__file__).resolve().parent.parent
 
 
 def worker_hook(root: Path, event: str) -> int:
-    """The plugin's hooks inside a session: they act only when the session is a worker's, and never fail it."""
+    """The plugin's hooks inside a session: they act only in a worker's session and in one that started workers,
+    and never fail it."""
     try:
         payload = json.loads(sys.stdin.read() or "{}")
     except json.JSONDecodeError:
@@ -835,12 +869,17 @@ def parser() -> argparse.ArgumentParser:
     places.add_argument("--paths", action="store_true", help="print only the paths, one per line, and always exit 0")
     refs = sub.add_parser("refs", help="before moving files: what points at each path, and whether its destination is free (read-only)")
     refs.add_argument("paths", nargs="+", metavar="OLD[=NEW]")
-    defaults = sub.add_parser("defaults", help="show or record the model and effort worker sessions use; their validators use the same unless set here")
+    defaults = sub.add_parser("defaults", help="show or record the owner's setup choices: the model and effort of worker "
+                              "sessions and of their validator, whether a validator is used, and GitHub with CI/CD")
+    defaults.add_argument("--setup", action="store_true", help="also list every setup question not answered yet")
     defaults.add_argument("--worker-model", help="exact model version for worker sessions, such as claude-sonnet-5-5")
     defaults.add_argument("--worker-effort", choices=pm_workers.EFFORTS)
+    defaults.add_argument("--validator", choices=("on", "off"),
+                          help="off: workers finish without a validator, and each Done item records that none was run")
     defaults.add_argument("--validator-model",
-                          help="exact model version for the validator subagent; inherit (the default) uses the worker's")
+                          help="exact model version for the validator subagent; unset or inherit uses the worker's")
     defaults.add_argument("--validator-effort", choices=pm_workers.EFFORTS)
+    defaults.add_argument("--github", choices=("yes", "no"), help="the owner's answer to setting up GitHub and CI/CD")
     worker = sub.add_parser("worker", help="run board items in their own full Claude Code worker sessions")
     wactions = worker.add_subparsers(dest="action", required=True)
     start = wactions.add_parser("start", help="start a background worker session for an item and wait for its turn to "
@@ -858,7 +897,8 @@ def parser() -> argparse.ArgumentParser:
     start.add_argument("--here", action="store_true", help="run in this checkout instead of the item's own worktree")
     start.add_argument("--handover", action="store_true",
                        help="do not start a session: the person opens one in the item's worktree and it gets the ticket")
-    start.add_argument("--no-wait", action="store_true", help="return once started; `worker wait` reads the report")
+    start.add_argument("--no-wait", action="store_true",
+                       help="return once started; the report comes back to the session by itself, or with `worker wait`")
     wactions.add_parser("join", help="a worker's first step: record this session, its copy, and its branch as the "
                         "item's worker, and print its ticket").add_argument("id")
     answer = wactions.add_parser("answer", help="send an item's worker session a message, keeping its context; "

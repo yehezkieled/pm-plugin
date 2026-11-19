@@ -1,20 +1,20 @@
 # pm: a small project board for Claude Code
 
-The plugin keeps a team's work as one Markdown file per item under `docs/pm/items/`. Each item is done by its own full, interactive Claude Code worker session on your usual sign-in, and checked by a separate validator before Done. It also structures the repository so an agent loads only what a task needs, following ICM (below).
+The plugin keeps a team's work as one Markdown file per item under `docs/pm/items/`. Each item is done by its own full, interactive Claude Code worker session on your usual sign-in, checked by a separate validator before Done (unless you turn that off at setup), and its report or question comes back to the session you talk to by itself. It also structures the repository so an agent loads only what a task needs, following ICM (below).
 
 ```text
 AGENTS.md             # The catalog: where things go (each place a link), what to update when a task finishes, every-session rules (CLAUDE.md is @AGENTS.md)
 docs/pm/
-├── config.json       # Board marker and the worker model defaults
+├── config.json       # Board marker and the setup choices: worker and validator model and effort, validator on or off, GitHub and CI/CD
 ├── items/            # One file per item: exact requester intent, what it touches, status, owner, current notes
 └── map/              # Optional System map from /pm:map: one card per part, what a change hits
 ```
 
 | Skill | Use |
 | --- | --- |
-| `/pm:init` | Set up the board and a small `AGENTS.md` catalog whose Where things go table fits the project's shape and links every folder, so the structure stays current |
+| `/pm:init` | Set up the board and a small `AGENTS.md` catalog whose Where things go table fits the project's shape and links every folder, so the structure stays current; asks the worker and validator settings and whether you want GitHub and CI/CD |
 | `/pm:plan` | Record a request in the requester's exact words |
-| `/pm:work` | Do any project work: each item goes to its own worker session, which claims, builds, commits, and gets it validated |
+| `/pm:work` | Do any project work: each item goes to its own worker session, which claims, builds, commits, and gets it validated; its report or question comes back by itself |
 | `/pm:status` | See what is in flight, waiting, and ready |
 | `/pm:map` | Map the code as cards that say what a change hits |
 | `/pm:help` | The short command guide |
