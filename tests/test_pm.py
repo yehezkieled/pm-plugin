@@ -1,3 +1,4 @@
+import importlib.util
 import subprocess
 import tempfile
 import unittest
@@ -718,6 +719,7 @@ class SkillDescriptionTests(unittest.TestCase):
         tools = {tool.strip() for tool in validator["tools"].split(",")}
         self.assertEqual(tools, {"Read", "Grep", "Glob", "Bash"}, "the validator must not edit files or start agents")
 
+    @unittest.skipUnless(importlib.util.find_spec("yaml"), "needs PyYAML to parse the CI template")
     def test_the_ci_template_checks_pull_requests_and_the_default_branch_read_only(self):
         import yaml
         root = Path(__file__).resolve().parents[1]
